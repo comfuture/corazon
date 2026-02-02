@@ -81,9 +81,14 @@ export const useCodexChat = () => {
             if (partItem.type !== 'reasoning') {
               continue
             }
-            const metadata = partItem.providerMetadata as { reasoningId?: string } | undefined
-            const reasoningId = metadata?.reasoningId
-            if (!reasoningId) {
+            const metadata = partItem.providerMetadata as { reasoningId?: unknown } | undefined
+            const rawReasoningId = metadata?.reasoningId
+            const reasoningId = typeof rawReasoningId === 'string'
+              ? rawReasoningId
+              : rawReasoningId && typeof rawReasoningId === 'object' && 'value' in rawReasoningId
+                ? (rawReasoningId as { value?: unknown }).value
+                : null
+            if (typeof reasoningId !== 'string') {
               continue
             }
             const durationMs = durations[reasoningId]

@@ -29,9 +29,12 @@ importers:
       better-sqlite3:
         specifier: ^12.6.2
         version: 12.6.2
+      katex:
+        specifier: ^0.16.28
+        version: 0.16.28
       markstream-vue:
         specifier: 0.0.7-beta.3
-        version: 0.0.7-beta.3(vue@3.5.27(typescript@5.9.3))
+        version: 0.0.7-beta.3(katex@0.16.28)(vue@3.5.27(typescript@5.9.3))
       nuxt:
         specifier: ^4.3.0
         version: 4.3.0(@parcel/watcher@2.5.6)(@types/node@25.2.0)(@vue/compiler-sfc@3.5.27)(better-sqlite3@12.6.2)(cac@6.7.14)(db0@0.3.4(better-sqlite3@12.6.2))(eslint@9.39.2(jiti@2.6.1))(ioredis@5.9.2)(lightningcss@1.31.1)(magicast@0.5.1)(optionator@0.9.4)(rollup@4.57.0)(terser@5.46.0)(typescript@5.9.3)(vite@7.3.1(@types/node@25.2.0)(jiti@2.6.1)(lightningcss@1.31.1)(terser@5.46.0)(yaml@2.8.2))(vue-tsc@3.2.4(typescript@5.9.3))(yaml@2.8.2)
@@ -2640,6 +2643,10 @@ packages:
   commander@2.20.3:
     resolution: {integrity: sha512-GpVkmM8vF2vQUkj2LvZmD35JxeJOLCwJ9cUkugyk2nuhbv3+mJvpLYYt+0+USMxE+oj+ey/lJEnhZw75x/OMcQ==}
 
+  commander@8.3.0:
+    resolution: {integrity: sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww==}
+    engines: {node: '>= 12'}
+
   comment-parser@1.4.5:
     resolution: {integrity: sha512-aRDkn3uyIlCFfk5NUA+VdwMmMsh8JGhc4hapfV4yxymHGQ3BVskMQfoXGpCo5IoBuQ9tS5iiVKhCpTcB4pW4qw==}
     engines: {node: '>= 12.0.0'}
@@ -3588,6 +3595,10 @@ packages:
   json5@2.2.3:
     resolution: {integrity: sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg==}
     engines: {node: '>=6'}
+    hasBin: true
+
+  katex@0.16.28:
+    resolution: {integrity: sha512-YHzO7721WbmAL6Ov1uzN/l5mY5WWWhJBSW+jq4tkfZfsxmo1hu6frS0EOswvjBUnWE6NtjEs48SFn5CQESRLZg==}
     hasBin: true
 
   keyv@4.5.4:
@@ -8154,6 +8165,8 @@ snapshots:
 
   commander@2.20.3: {}
 
+  commander@8.3.0: {}
+
   comment-parser@1.4.5: {}
 
   commondir@1.0.1: {}
@@ -9155,6 +9168,10 @@ snapshots:
 
   json5@2.2.3: {}
 
+  katex@0.16.28:
+    dependencies:
+      commander: 8.3.0
+
   keyv@4.5.4:
     dependencies:
       json-buffer: 3.0.1
@@ -9405,11 +9422,13 @@ snapshots:
 
   marked@15.0.12: {}
 
-  markstream-vue@0.0.7-beta.3(vue@3.5.27(typescript@5.9.3)):
+  markstream-vue@0.0.7-beta.3(katex@0.16.28)(vue@3.5.27(typescript@5.9.3)):
     dependencies:
       '@floating-ui/dom': 1.7.4
       stream-markdown-parser: 0.0.59-beta.6
       vue: 3.5.27(typescript@5.9.3)
+    optionalDependencies:
+      katex: 0.16.28
 
   mdn-data@2.0.28: {}
 

@@ -1,5 +1,5 @@
 import type { Input, ThreadEvent, ThreadItem, Usage } from '@openai/codex-sdk'
-import type { UIMessage, UIMessageStreamWriter } from 'ai'
+import type { ReasoningUIPart, TextUIPart, UIMessage, UIMessageStreamWriter } from 'ai'
 import {
   CODEX_EVENT_PART,
   CODEX_ITEM_PART,
@@ -11,6 +11,7 @@ import {
 type CodexWriter = UIMessageStreamWriter<CodexUIMessage>
 
 type TextKind = 'text' | 'reasoning'
+type ProviderMetadata = TextUIPart['providerMetadata'] | ReasoningUIPart['providerMetadata']
 
 type TextState = {
   buffer: Map<string, string>
@@ -98,7 +99,7 @@ const pushTextDelta = (
   itemId: string,
   nextText: string,
   done: boolean,
-  providerMetadata?: Record<string, unknown>
+  providerMetadata?: ProviderMetadata
 ) => {
   const startType = kind === 'text' ? 'text-start' : 'reasoning-start'
   const deltaType = kind === 'text' ? 'text-delta' : 'reasoning-delta'
@@ -238,7 +239,7 @@ export const createThreadEventHandler = (
           item.id,
           item.text ?? '',
           done,
-          { reasoningId: item.id }
+          { reasoningId: { value: item.id } }
         )
         return
       }
