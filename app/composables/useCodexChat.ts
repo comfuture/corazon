@@ -219,11 +219,9 @@ export const useCodexChat = () => {
       : undefined
     const resolvedMessageId = options?.messageId
       ?? (options?.reusePendingMessageId ? pendingMessageId.value ?? undefined : undefined)
-      ?? (shouldClearInput ? chatInstance.generateId() : undefined)
     let caughtError: unknown
     if (shouldClearInput && message.length > 0) {
       pendingInput.value = message
-      pendingMessageId.value = resolvedMessageId ?? pendingMessageId.value
       input.value = ''
     }
     try {
@@ -243,6 +241,12 @@ export const useCodexChat = () => {
     }
 
     const trustError = isTrustErrorMessage(chatInstance.error?.message ?? '') && !skipGitRepoCheck.value
+    if (trustError && !pendingMessageId.value) {
+      const lastMessage = chatInstance.lastMessage
+      if (lastMessage?.role === 'user') {
+        pendingMessageId.value = lastMessage.id
+      }
+    }
     if (usedResume && !trustError) {
       resumeThread.value = false
     }
