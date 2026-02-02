@@ -2,6 +2,8 @@
 
 Corazon (Corazón) means “heart” in Spanish. This project is a web-first Codex workspace that aims to feel like a calm, persistent place to think, iterate, and ship — not just a chat box.
 
+![Corazon screenshot](docs/screenshot-chat.png)
+
 ## What this does
 
 - Web UI for running Codex with streaming chat.
