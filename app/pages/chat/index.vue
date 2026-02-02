@@ -38,11 +38,12 @@ const route = useRoute()
 
 clearForNewThread()
 
-const onSubmit = async (event?: Event) => {
-  if (!shouldSubmit(event)) {
+const onSubmit = async (event?: Event, overrideText?: string) => {
+  if (event && !shouldSubmit(event)) {
     return
   }
-  if (!input.value.trim() && attachments.value.length === 0) {
+  const messageText = (overrideText ?? input.value).trim()
+  if (!messageText && attachments.value.length === 0) {
     return
   }
   if (isUploading.value) {
@@ -51,7 +52,15 @@ const onSubmit = async (event?: Event) => {
 
   try {
     const { fileParts, uploadId } = await uploadAttachments(threadId.value)
-    await sendMessage({ fileParts, attachmentUploadId: uploadId })
+    if (overrideText !== undefined) {
+      await sendMessage({
+        fileParts,
+        attachmentUploadId: uploadId,
+        text: messageText.length ? messageText : undefined
+      })
+    } else {
+      await sendMessage({ fileParts, attachmentUploadId: uploadId })
+    }
     clearAttachments()
   } catch (error) {
     console.error(error)
@@ -63,14 +72,12 @@ const onReload = () => {
 }
 
 const trustErrorMessage = computed(() => chat.value?.error?.message ?? '')
-const showTrustAlert = computed(() => {
+const isTrustError = computed(() => {
   const message = trustErrorMessage.value
-  if (skipGitRepoCheck.value) {
-    return false
-  }
   return message.includes('Not inside a trusted directory')
     || message.includes('skip-git-repo-check')
 })
+const showTrustAlert = computed(() => isTrustError.value && !skipGitRepoCheck.value)
 const trustConfigSnippet = computed(() => {
   const target = workdirRoot.value
   if (!target) {
@@ -79,6 +86,24 @@ const trustConfigSnippet = computed(() => {
   return `[projects."${target}"]\ntrust_level = "trusted"`
 })
 const trustSnippetCopied = ref(false)
+
+const retryTrustedSubmission = async () => {
+  if (!isTrustError.value) {
+    return
+  }
+  const draft = input.value
+  if (!draft.trim() && attachments.value.length === 0) {
+    return
+  }
+  input.value = ''
+  await onSubmit(undefined, draft)
+}
+
+watch(skipGitRepoCheck, (value) => {
+  if (value) {
+    void retryTrustedSubmission()
+  }
+})
 
 const copyTrustSnippet = async () => {
   if (!import.meta.client) {

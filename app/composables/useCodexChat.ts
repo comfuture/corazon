@@ -23,6 +23,8 @@ const isCodexEventPart = (part: DataUIPart<CodexUIDataTypes>): part is CodexEven
   part.type === CODEX_EVENT_PART
 const isCodexItemPart = (part: DataUIPart<CodexUIDataTypes>): part is CodexItemPart =>
   part.type === CODEX_ITEM_PART
+const isTrustErrorMessage = (message: string) =>
+  message.includes('Not inside a trusted directory') || message.includes('skip-git-repo-check')
 
 export const useCodexChat = () => {
   const { upsertThread, setThreadTitle, applyTurnUsage } = useCodexThreads()
@@ -32,6 +34,7 @@ export const useCodexChat = () => {
   const input = useState('codex-chat-input', () => '')
   const selectedModel = useState('codex-selected-model', () => 'gpt-5.2-codex')
   const skipGitRepoCheck = useState('codex-skip-git-repo-check', () => false)
+  const skipGitRepoCheckLoaded = useState('codex-skip-git-repo-check-loaded', () => false)
   const workdirRoot = useState<string | null>('codex-workdir-root', () => null)
   const modelOptions = [
     { label: 'gpt-5.2-codex', value: 'gpt-5.2-codex' },
@@ -43,6 +46,25 @@ export const useCodexChat = () => {
   const autoRedirectThreadId = useState<string | null>('codex-auto-redirect-thread-id', () => null)
   const resumeThread = useState<boolean>('codex-resume-thread', () => false)
   const lastRestoredThreadId = useState<string | null>('codex-last-restored-thread-id', () => null)
+  const pendingInput = useState<string | null>('codex-pending-input', () => null)
+
+  if (import.meta.client && !skipGitRepoCheckLoaded.value) {
+    const stored = window.localStorage.getItem('codex-skip-git-repo-check')
+    if (stored === 'true') {
+      skipGitRepoCheck.value = true
+    }
+    if (stored === 'false') {
+      skipGitRepoCheck.value = false
+    }
+    skipGitRepoCheckLoaded.value = true
+  }
+
+  watch(skipGitRepoCheck, (value) => {
+    if (!import.meta.client) {
+      return
+    }
+    window.localStorage.setItem('codex-skip-git-repo-check', value ? 'true' : 'false')
+  })
 
   if (import.meta.client && !chat.value) {
     chat.value = markRaw(new Chat<CodexUIMessage>({
@@ -171,29 +193,54 @@ export const useCodexChat = () => {
     return { body: { ...base.body, ...extraBody } }
   }
 
-  const sendMessage = async (options?: { fileParts?: FileUIPart[], attachmentUploadId?: string | null }) => {
+  const sendMessage = async (options?: {
+    fileParts?: FileUIPart[]
+    attachmentUploadId?: string | null
+    text?: string
+    clearInput?: boolean
+  }) => {
     const chatInstance = chat.value
     if (!chatInstance) {
       return
     }
-    const message = input.value.trim()
+    const rawText = options?.text ?? input.value
+    const message = rawText.trim()
     const fileParts = options?.fileParts ?? []
     if (message.length === 0 && fileParts.length === 0) {
       return
     }
-
-    input.value = ''
+    const shouldClearInput = options?.clearInput ?? options?.text === undefined
     const usedResume = resumeThread.value
     const extraBody = options?.attachmentUploadId
       ? { attachmentUploadId: options.attachmentUploadId }
       : undefined
-    if (message.length > 0) {
-      await chatInstance.sendMessage({ text: message, files: fileParts }, buildRequestOptions(extraBody))
-    } else {
-      await chatInstance.sendMessage({ files: fileParts }, buildRequestOptions(extraBody))
+    let caughtError: unknown
+    if (shouldClearInput && message.length > 0) {
+      pendingInput.value = message
+      input.value = ''
     }
-    if (usedResume) {
+    try {
+      if (message.length > 0) {
+        await chatInstance.sendMessage({ text: message, files: fileParts }, buildRequestOptions(extraBody))
+      } else {
+        await chatInstance.sendMessage({ files: fileParts }, buildRequestOptions(extraBody))
+      }
+    } catch (error) {
+      caughtError = error
+    }
+
+    const trustError = isTrustErrorMessage(chatInstance.error?.message ?? '') && !skipGitRepoCheck.value
+    if (usedResume && !trustError) {
       resumeThread.value = false
+    }
+    if (trustError && shouldClearInput && pendingInput.value && !input.value) {
+      input.value = pendingInput.value
+    }
+    if (!trustError || skipGitRepoCheck.value) {
+      pendingInput.value = null
+    }
+    if (caughtError) {
+      throw caughtError
     }
   }
 
