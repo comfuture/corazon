@@ -542,6 +542,7 @@ const getErrorItem = (part: unknown): ErrorItem | undefined => {
         <UChatMessages
           :messages="chat?.messages ?? []"
           :status="chat?.status ?? 'ready'"
+          should-auto-scroll
         >
           <template #content="{ message }">
             <div class="space-y-4">
@@ -658,12 +659,6 @@ const getErrorItem = (part: unknown): ErrorItem | undefined => {
                         <span class="font-mono text-xs break-all">
                           {{ getCommandExecutionItem(part)?.command }}
                         </span>
-                        <UBadge
-                          :color="statusColor(getCommandExecutionItem(part)?.status)"
-                          variant="soft"
-                        >
-                          {{ getCommandExecutionItem(part)?.status }}
-                        </UBadge>
                       </div>
 
                       <UCollapsible
