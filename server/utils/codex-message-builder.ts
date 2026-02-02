@@ -98,6 +98,17 @@ export const createCodexAssistantBuilder = () => {
       return
     }
 
+    if (chunk.type === 'data-codex-item') {
+      const existingIndex = state.parts.findIndex(part => part.type === chunk.type && part.id === chunk.id)
+      if (existingIndex !== -1) {
+        state.parts[existingIndex] = {
+          ...state.parts[existingIndex],
+          data: chunk.data
+        } as CodexPart
+        return
+      }
+    }
+
     state.parts.push({
       type: chunk.type,
       id: chunk.id,

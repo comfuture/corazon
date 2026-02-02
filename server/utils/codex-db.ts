@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Usage } from '@openai/codex-sdk'
-import type { CodexUIMessage } from '@@/types/codex-ui'
+import { CODEX_ITEM_PART, type CodexUIMessage } from '@@/types/codex-ui'
 
 export type ThreadSummary = {
   id: string
@@ -30,6 +30,45 @@ type ThreadRow = {
   total_output_tokens: number
   turn_count: number
 }
+
+type CodexPart = CodexUIMessage['parts'][number]
+
+const normalizeCodexItemParts = (messages: CodexUIMessage[]) =>
+  messages.map((message) => {
+    const parts = message.parts as CodexPart[] | undefined
+    if (!parts || parts.length === 0) {
+      return message
+    }
+
+    const merged: CodexPart[] = []
+    const indexById = new Map<string, number>()
+    let hasDuplicates = false
+
+    for (const part of parts) {
+      if (part?.type === CODEX_ITEM_PART && typeof part.id === 'string') {
+        const existingIndex = indexById.get(part.id)
+        if (existingIndex !== undefined) {
+          hasDuplicates = true
+          merged[existingIndex] = {
+            ...merged[existingIndex],
+            data: part.data
+          } as CodexPart
+          continue
+        }
+        indexById.set(part.id, merged.length)
+      }
+      merged.push(part)
+    }
+
+    if (!hasDuplicates) {
+      return message
+    }
+
+    return {
+      ...message,
+      parts: merged
+    }
+  })
 
 const getThreadRootDirectory = () => {
   const home = homedir()
@@ -159,6 +198,7 @@ export const saveThreadMessages = (threadId: string, messages: CodexUIMessage[])
     'INSERT INTO messages (thread_id, seq, message_json, created_at) VALUES (?, ?, ?, ?)'
   )
   const updateThread = database.prepare('UPDATE threads SET updated_at = ? WHERE id = ?')
+  const normalized = normalizeCodexItemParts(messages)
 
   const insertMessages = database.transaction((items: CodexUIMessage[]) => {
     deleteStmt.run(threadId)
@@ -169,7 +209,7 @@ export const saveThreadMessages = (threadId: string, messages: CodexUIMessage[])
   })
 
   ensureThread(threadId)
-  insertMessages(messages)
+  insertMessages(normalized)
 }
 
 export const loadThreadMessages = (threadId: string): CodexUIMessage[] | null => {
@@ -197,7 +237,10 @@ export const loadThreadMessages = (threadId: string): CodexUIMessage[] | null =>
     }
   }
 
-  return parsed.length ? parsed : null
+  if (!parsed.length) {
+    return null
+  }
+  return normalizeCodexItemParts(parsed)
 }
 
 export const recordThreadUsage = (threadId: string, usage: Usage) => {
