@@ -6,7 +6,9 @@ export default defineNuxtPlugin(() => {
   if (import.meta.client) {
     void import('stream-monaco')
       .then(async (monaco) => {
-        await monaco.preloadMonacoWorkers?.()
+        if (!import.meta.dev) {
+          await monaco.preloadMonacoWorkers?.()
+        }
         if (typeof monaco.getOrCreateHighlighter === 'function') {
           await monaco.getOrCreateHighlighter(
             ['vitesse-dark', 'vitesse-light'],
