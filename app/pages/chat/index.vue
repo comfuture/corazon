@@ -38,7 +38,7 @@ const route = useRoute()
 
 clearForNewThread()
 
-const onSubmit = async (event?: Event, overrideText?: string) => {
+const onSubmit = async (event?: Event, overrideText?: string, reusePendingMessageId = false) => {
   if (event && !shouldSubmit(event)) {
     return
   }
@@ -56,7 +56,8 @@ const onSubmit = async (event?: Event, overrideText?: string) => {
       await sendMessage({
         fileParts,
         attachmentUploadId: uploadId,
-        text: messageText.length ? messageText : undefined
+        text: messageText.length ? messageText : undefined,
+        reusePendingMessageId
       })
     } else {
       await sendMessage({ fileParts, attachmentUploadId: uploadId })
@@ -96,7 +97,7 @@ const retryTrustedSubmission = async () => {
     return
   }
   input.value = ''
-  await onSubmit(undefined, draft)
+  await onSubmit(undefined, draft, true)
 }
 
 watch(skipGitRepoCheck, (value) => {

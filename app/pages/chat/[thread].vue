@@ -119,7 +119,7 @@ const retryTrustedSubmission = async () => {
     return
   }
   input.value = ''
-  await onSubmit(undefined, draft)
+  await onSubmit(undefined, draft, true)
 }
 
 watch(skipGitRepoCheck, (value) => {
@@ -172,7 +172,7 @@ const formatTokenTotal = (value: number) => {
   return `${rounded.replace(/\.0$/, '')}k`
 }
 
-const onSubmit = async (event?: Event, overrideText?: string) => {
+const onSubmit = async (event?: Event, overrideText?: string, reusePendingMessageId = false) => {
   if (event && !shouldSubmit(event)) {
     return
   }
@@ -190,7 +190,8 @@ const onSubmit = async (event?: Event, overrideText?: string) => {
       await sendMessage({
         fileParts,
         attachmentUploadId: uploadId,
-        text: messageText.length ? messageText : undefined
+        text: messageText.length ? messageText : undefined,
+        reusePendingMessageId
       })
     } else {
       await sendMessage({ fileParts, attachmentUploadId: uploadId })

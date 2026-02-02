@@ -47,6 +47,7 @@ export const useCodexChat = () => {
   const resumeThread = useState<boolean>('codex-resume-thread', () => false)
   const lastRestoredThreadId = useState<string | null>('codex-last-restored-thread-id', () => null)
   const pendingInput = useState<string | null>('codex-pending-input', () => null)
+  const pendingMessageId = useState<string | null>('codex-pending-message-id', () => null)
 
   if (import.meta.client && !skipGitRepoCheckLoaded.value) {
     const stored = window.localStorage.getItem('codex-skip-git-repo-check')
@@ -198,6 +199,8 @@ export const useCodexChat = () => {
     attachmentUploadId?: string | null
     text?: string
     clearInput?: boolean
+    messageId?: string
+    reusePendingMessageId?: boolean
   }) => {
     const chatInstance = chat.value
     if (!chatInstance) {
@@ -214,16 +217,26 @@ export const useCodexChat = () => {
     const extraBody = options?.attachmentUploadId
       ? { attachmentUploadId: options.attachmentUploadId }
       : undefined
+    const resolvedMessageId = options?.messageId
+      ?? (options?.reusePendingMessageId ? pendingMessageId.value ?? undefined : undefined)
+      ?? (shouldClearInput ? chatInstance.generateId() : undefined)
     let caughtError: unknown
     if (shouldClearInput && message.length > 0) {
       pendingInput.value = message
+      pendingMessageId.value = resolvedMessageId ?? pendingMessageId.value
       input.value = ''
     }
     try {
       if (message.length > 0) {
-        await chatInstance.sendMessage({ text: message, files: fileParts }, buildRequestOptions(extraBody))
+        await chatInstance.sendMessage(
+          { text: message, files: fileParts, messageId: resolvedMessageId },
+          buildRequestOptions(extraBody)
+        )
       } else {
-        await chatInstance.sendMessage({ files: fileParts }, buildRequestOptions(extraBody))
+        await chatInstance.sendMessage(
+          { files: fileParts, messageId: resolvedMessageId },
+          buildRequestOptions(extraBody)
+        )
       }
     } catch (error) {
       caughtError = error
@@ -238,6 +251,7 @@ export const useCodexChat = () => {
     }
     if (!trustError || skipGitRepoCheck.value) {
       pendingInput.value = null
+      pendingMessageId.value = null
     }
     if (caughtError) {
       throw caughtError
