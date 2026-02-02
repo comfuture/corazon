@@ -62,8 +62,8 @@ export const useCodexChat = () => {
             applyTurnUsage(threadId.value, part.data.usage)
           }
 
-          const durationMs = part.data.durationMs
-          if (!durationMs) {
+          const durations = part.data.reasoningDurations
+          if (!durations || Object.keys(durations).length === 0) {
             return
           }
 
@@ -78,11 +78,21 @@ export const useCodexChat = () => {
           }
 
           for (const partItem of lastAssistant.parts ?? []) {
-            if (partItem.type === 'reasoning') {
-              partItem.providerMetadata = {
-                ...(partItem.providerMetadata ?? {}),
-                thinkingDurationMs: { value: durationMs }
-              }
+            if (partItem.type !== 'reasoning') {
+              continue
+            }
+            const metadata = partItem.providerMetadata as { reasoningId?: string } | undefined
+            const reasoningId = metadata?.reasoningId
+            if (!reasoningId) {
+              continue
+            }
+            const durationMs = durations[reasoningId]
+            if (typeof durationMs !== 'number') {
+              continue
+            }
+            partItem.providerMetadata = {
+              ...(partItem.providerMetadata ?? {}),
+              thinkingDurationMs: { value: durationMs }
             }
           }
 

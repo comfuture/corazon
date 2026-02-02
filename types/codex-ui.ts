@@ -22,6 +22,7 @@ export type CodexThreadEventData
     kind: 'turn.completed'
     usage: Usage
     durationMs?: number
+    reasoningDurations?: Record<string, number>
   }
   | {
     kind: 'thread.title'

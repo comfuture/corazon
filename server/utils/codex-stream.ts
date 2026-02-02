@@ -97,14 +97,15 @@ const pushTextDelta = (
   kind: TextKind,
   itemId: string,
   nextText: string,
-  done: boolean
+  done: boolean,
+  providerMetadata?: Record<string, unknown>
 ) => {
   const startType = kind === 'text' ? 'text-start' : 'reasoning-start'
   const deltaType = kind === 'text' ? 'text-delta' : 'reasoning-delta'
   const endType = kind === 'text' ? 'text-end' : 'reasoning-end'
 
   if (!state.opened.has(itemId)) {
-    writer.write({ type: startType, id: itemId })
+    writer.write({ type: startType, id: itemId, providerMetadata })
     state.opened.add(itemId)
   }
 
@@ -230,7 +231,15 @@ export const createThreadEventHandler = (
       }
 
       if (item.type === 'reasoning') {
-        pushTextDelta(writer, reasoningState, 'reasoning', item.id, item.text ?? '', done)
+        pushTextDelta(
+          writer,
+          reasoningState,
+          'reasoning',
+          item.id,
+          item.text ?? '',
+          done,
+          { reasoningId: item.id }
+        )
         return
       }
 

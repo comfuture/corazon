@@ -203,6 +203,8 @@ export default defineLazyEventHandler(async () => {
         const executeStartedAt = Date.now()
         let turnStartedAt: number | null = null
         let turnDurationMs: number | null = null
+        const reasoningStartedAt = new Map<string, number>()
+        const reasoningDurations = new Map<string, number>()
 
         const originalWrite = writer.write.bind(writer)
         const writeChunk: typeof writer.write = (chunk) => {
@@ -266,15 +268,27 @@ export default defineLazyEventHandler(async () => {
             recordThreadUsage(resolvedThreadId, usage)
           },
           buildTurnCompletedData(usage) {
+            const durations = Object.fromEntries(reasoningDurations)
             return {
               kind: 'turn.completed',
               usage,
-              durationMs: turnDurationMs ?? undefined
+              durationMs: turnDurationMs ?? undefined,
+              reasoningDurations: Object.keys(durations).length > 0 ? durations : undefined
             }
           }
         })
         const { events } = await thread.runStreamed(input)
         for await (const threadEvent of events) {
+          if (threadEvent.type === 'item.started' && threadEvent.item?.type === 'reasoning') {
+            reasoningStartedAt.set(threadEvent.item.id, Date.now())
+          }
+          if (threadEvent.type === 'item.completed' && threadEvent.item?.type === 'reasoning') {
+            const startedAt = reasoningStartedAt.get(threadEvent.item.id)
+            const endedAt = Date.now()
+            if (startedAt) {
+              reasoningDurations.set(threadEvent.item.id, Math.max(0, endedAt - startedAt))
+            }
+          }
           if (threadEvent.type === 'turn.started') {
             turnStartedAt = Date.now()
           }
@@ -292,13 +306,23 @@ export default defineLazyEventHandler(async () => {
 
         if (resolvedThreadId) {
           const assistantMessage = assistantBuilder.build()
-          if (assistantMessage && typeof turnDurationMs === 'number' && turnDurationMs > 0) {
+          if (assistantMessage && reasoningDurations.size > 0) {
             for (const part of assistantMessage.parts) {
-              if (part.type === 'reasoning') {
-                part.providerMetadata = {
-                  ...(part.providerMetadata ?? {}),
-                  thinkingDurationMs: { value: turnDurationMs }
-                }
+              if (part.type !== 'reasoning') {
+                continue
+              }
+              const metadata = part.providerMetadata as { reasoningId?: string } | undefined
+              const reasoningId = metadata?.reasoningId
+              if (!reasoningId) {
+                continue
+              }
+              const duration = reasoningDurations.get(reasoningId)
+              if (duration == null) {
+                continue
+              }
+              part.providerMetadata = {
+                ...(part.providerMetadata ?? {}),
+                thinkingDurationMs: { value: duration }
               }
             }
           }
