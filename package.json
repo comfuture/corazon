@@ -21,7 +21,11 @@
     "better-sqlite3": "^12.6.2",
     "katex": "^0.16.28",
     "markstream-vue": "0.0.7-beta.3",
+    "monaco-editor": "^0.52.2",
     "nuxt": "^4.3.0",
+    "shiki": "^3.22.0",
+    "stream-markdown": "^0.0.13",
+    "stream-monaco": "^0.0.18",
     "tailwindcss": "^4.1.18",
     "zod": "^4.3.6"
   },

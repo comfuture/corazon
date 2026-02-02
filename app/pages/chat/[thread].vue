@@ -362,6 +362,51 @@ const getReasoningLabel = (
   return durationMs == null ? 'Thinking...' : formatThinkingDuration(durationMs)
 }
 
+const commandOutputOpenState = reactive(new Map<string, boolean>())
+const commandStatusState = reactive(new Map<string, string>())
+
+const getCommandKey = (item?: CommandExecutionItem | null) => {
+  if (!item?.id) {
+    return null
+  }
+  return `command-${item.id}`
+}
+
+const syncCommandOutputState = (item?: CommandExecutionItem | null) => {
+  const key = getCommandKey(item)
+  if (!key || !item) {
+    return
+  }
+  const lastStatus = commandStatusState.get(key)
+  if (lastStatus === item.status) {
+    return
+  }
+  commandStatusState.set(key, item.status)
+  if (item.status !== 'in_progress') {
+    commandOutputOpenState.set(key, false)
+  }
+}
+
+const isCommandOutputOpen = (item?: CommandExecutionItem | null) => {
+  const key = getCommandKey(item)
+  if (!key || !item) {
+    return false
+  }
+  syncCommandOutputState(item)
+  if (commandOutputOpenState.has(key)) {
+    return commandOutputOpenState.get(key) ?? false
+  }
+  return item.status === 'in_progress'
+}
+
+const setCommandOutputOpen = (item: CommandExecutionItem | undefined, open: boolean) => {
+  const key = getCommandKey(item)
+  if (!key) {
+    return
+  }
+  commandOutputOpenState.set(key, open)
+}
+
 const isReasoningOpen = (
   message: { id?: string, parts?: unknown[] } | null | undefined,
   index: number
@@ -585,45 +630,63 @@ const getErrorItem = (part: unknown): ErrorItem | undefined => {
 
                 <template v-else-if="part?.type === CODEX_ITEM_PART">
                   <template v-if="getCommandExecutionItem(part)">
-                    <UCard>
-                      <template #header>
-                        <div class="flex flex-wrap items-center gap-2">
-                          <UBadge
-                            color="primary"
-                            variant="subtle"
-                          >
-                            Command
-                          </UBadge>
-                          <span class="font-mono text-xs break-all">
-                            {{ getCommandExecutionItem(part)?.command }}
-                          </span>
-                          <UBadge
-                            :color="statusColor(getCommandExecutionItem(part)?.status)"
-                            variant="soft"
-                          >
-                            {{ getCommandExecutionItem(part)?.status }}
-                          </UBadge>
-                          <UBadge
-                            v-if="getCommandExecutionItem(part)?.exit_code !== undefined"
-                            color="neutral"
-                            variant="subtle"
-                          >
-                            exit {{ getCommandExecutionItem(part)?.exit_code }}
-                          </UBadge>
-                        </div>
-                      </template>
+                    <div class="rounded-md border border-muted/50 bg-muted/20 p-3 space-y-2">
+                      <div class="flex flex-wrap items-center gap-2 text-xs">
+                        <UBadge
+                          color="primary"
+                          variant="subtle"
+                        >
+                          Command
+                        </UBadge>
+                        <span class="font-mono text-xs break-all">
+                          {{ getCommandExecutionItem(part)?.command }}
+                        </span>
+                        <UBadge
+                          :color="statusColor(getCommandExecutionItem(part)?.status)"
+                          variant="soft"
+                        >
+                          {{ getCommandExecutionItem(part)?.status }}
+                        </UBadge>
+                        <UBadge
+                          v-if="getCommandExecutionItem(part)?.exit_code !== undefined"
+                          color="neutral"
+                          variant="subtle"
+                        >
+                          exit {{ getCommandExecutionItem(part)?.exit_code }}
+                        </UBadge>
+                      </div>
 
-                      <MarkdownRender
+                      <UCollapsible
                         v-if="getCommandExecutionItem(part)?.aggregated_output"
-                        :content="asCodeBlock(getCommandExecutionItem(part)?.aggregated_output ?? '', 'text')"
-                      />
+                        :open="isCommandOutputOpen(getCommandExecutionItem(part))"
+                        class="rounded-md border border-muted/40 bg-background/60"
+                        @update:open="value => setCommandOutputOpen(getCommandExecutionItem(part) ?? undefined, value)"
+                      >
+                        <UButton
+                          :label="isCommandOutputOpen(getCommandExecutionItem(part)) ? 'Hide output' : 'Show output'"
+                          color="neutral"
+                          variant="ghost"
+                          trailing-icon="i-lucide-chevron-down"
+                          size="xs"
+                          class="w-full justify-between px-2 py-1.5 text-xs"
+                        />
+
+                        <template #content>
+                          <div class="pt-2">
+                            <div class="rounded-md bg-muted/10 px-3 py-2">
+                              <pre class="whitespace-pre-wrap break-words font-mono text-xs text-muted-foreground">{{ getCommandExecutionItem(part)?.aggregated_output }}</pre>
+                            </div>
+                          </div>
+                        </template>
+                      </UCollapsible>
+
                       <p
                         v-else
-                        class="text-xs text-muted"
+                        class="text-xs text-muted-foreground"
                       >
                         No output yet.
                       </p>
-                    </UCard>
+                    </div>
                   </template>
 
                   <template v-else-if="getFileChangeItem(part)">
