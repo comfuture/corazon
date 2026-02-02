@@ -4,6 +4,9 @@ const {
   input,
   selectedModel,
   modelOptions,
+  skipGitRepoCheck,
+  workdirRoot,
+  loadWorkdirRoot,
   threadId,
   pendingThreadId,
   sendMessage,
@@ -59,6 +62,47 @@ const onReload = () => {
   void regenerate()
 }
 
+const trustErrorMessage = computed(() => chat.value?.error?.message ?? '')
+const showTrustAlert = computed(() => {
+  const message = trustErrorMessage.value
+  if (skipGitRepoCheck.value) {
+    return false
+  }
+  return message.includes('Not inside a trusted directory')
+    || message.includes('skip-git-repo-check')
+})
+const trustConfigSnippet = computed(() => {
+  const target = workdirRoot.value
+  if (!target) {
+    return 'Loading...'
+  }
+  return `[projects."${target}"]\ntrust_level = "trusted"`
+})
+const trustSnippetCopied = ref(false)
+
+const copyTrustSnippet = async () => {
+  if (!import.meta.client) {
+    return
+  }
+  const value = trustConfigSnippet.value
+  if (!value || value === 'Loading...') {
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(value)
+    trustSnippetCopied.value = true
+    window.setTimeout(() => {
+      trustSnippetCopied.value = false
+    }, 1500)
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+onMounted(() => {
+  void loadWorkdirRoot()
+})
+
 const onAttachmentInputChange = (event: Event) => {
   onFileInputChange(event)
   nextTick(() => {
@@ -98,16 +142,51 @@ watch(pendingThreadId, async (value) => {
     <template #body>
       <div class="flex h-full items-center justify-center px-4">
         <div class="w-full max-w-2xl">
+          <UAlert
+            v-if="showTrustAlert"
+            color="warning"
+            variant="soft"
+            icon="i-lucide-shield-alert"
+            title="Untrusted working directory"
+            class="mb-4"
+          >
+            <template #description>
+              <div class="space-y-3 text-sm">
+                <p>
+                  Codex only runs inside trusted directories. Add your working directory to
+                  <span class="font-mono text-xs">~/.codex/config.toml</span>:
+                </p>
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <pre class="w-full rounded-md bg-muted/40 px-3 py-2 text-xs sm:w-auto sm:flex-1">{{ trustConfigSnippet }}</pre>
+                  <UButton
+                    :label="trustSnippetCopied ? 'Copied' : 'Copy'"
+                    icon="i-lucide-copy"
+                    size="xs"
+                    variant="ghost"
+                    @click="copyTrustSnippet"
+                  />
+                </div>
+                <p class="text-xs text-muted-foreground">
+                  Security note: bypassing this check lets Codex run outside a Git repo and may
+                  write to your filesystem.
+                </p>
+                <UCheckbox
+                  v-model="skipGitRepoCheck"
+                  label="I understand the risks and want to run with --skip-git-repo-check"
+                />
+              </div>
+            </template>
+          </UAlert>
           <UChatPrompt
             ref="chatPromptRef"
             v-model="input"
-            :error="chat?.error"
+            :error="skipGitRepoCheck ? undefined : chat?.error"
             :ui="{ body: 'ps-2' }"
             @submit="onSubmit"
             @keydown.enter.capture="onKeydownEnter"
-              @compositionstart="onCompositionStart"
-              @compositionend="onCompositionEnd"
-            >
+            @compositionstart="onCompositionStart"
+            @compositionend="onCompositionEnd"
+          >
             <template #leading>
               <div class="flex items-center gap-1 -mt-1.5">
                 <UButton

@@ -15,6 +15,9 @@ const {
   input,
   selectedModel,
   modelOptions,
+  skipGitRepoCheck,
+  workdirRoot,
+  loadWorkdirRoot,
   setThreadFromRoute,
   sendMessage,
   regenerate,
@@ -60,6 +63,7 @@ watch(
 
 onMounted(() => {
   void refreshThreads()
+  void loadWorkdirRoot()
 })
 
 const threadTitle = computed(() => {
@@ -81,6 +85,51 @@ const threadTokens = computed(() => {
   }
   return thread.totalInputTokens + thread.totalCachedInputTokens + thread.totalOutputTokens
 })
+
+const threadWorkingDirectory = computed(() => {
+  const id = routeThreadId.value
+  if (!id) {
+    return null
+  }
+  return threads.value.find(item => item.id === id)?.workingDirectory ?? null
+})
+
+const trustErrorMessage = computed(() => chat.value?.error?.message ?? '')
+const showTrustAlert = computed(() => {
+  const message = trustErrorMessage.value
+  if (skipGitRepoCheck.value) {
+    return false
+  }
+  return message.includes('Not inside a trusted directory')
+    || message.includes('skip-git-repo-check')
+})
+const trustConfigSnippet = computed(() => {
+  const target = threadWorkingDirectory.value ?? workdirRoot.value
+  if (!target) {
+    return 'Loading...'
+  }
+  return `[projects."${target}"]\ntrust_level = "trusted"`
+})
+const trustSnippetCopied = ref(false)
+
+const copyTrustSnippet = async () => {
+  if (!import.meta.client) {
+    return
+  }
+  const value = trustConfigSnippet.value
+  if (!value || value === 'Loading...') {
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(value)
+    trustSnippetCopied.value = true
+    window.setTimeout(() => {
+      trustSnippetCopied.value = false
+    }, 1500)
+  } catch (error) {
+    console.error(error)
+  }
+}
 
 const threadUsage = computed(() => {
   const id = routeThreadId.value
@@ -754,36 +803,71 @@ const getErrorItem = (part: unknown): ErrorItem | undefined => {
         </div>
       </div>
       <UContainer class="pb-4 sm:pb-6">
-          <UChatPrompt
-            ref="chatPromptRef"
-            v-model="input"
-            :error="chat?.error"
-            :ui="{ body: 'ps-2' }"
-            @submit="onSubmit"
-            @keydown.enter.capture="onKeydownEnter"
-            @compositionstart="onCompositionStart"
-            @compositionend="onCompositionEnd"
-          >
-            <template #leading>
-              <div class="flex items-center gap-1 -mt-1.5">
+        <UAlert
+          v-if="showTrustAlert"
+          color="warning"
+          variant="soft"
+          icon="i-lucide-shield-alert"
+          title="Untrusted working directory"
+          class="mb-4"
+        >
+          <template #description>
+            <div class="space-y-3 text-sm">
+              <p>
+                Codex only runs inside trusted directories. Add your working directory to
+                <span class="font-mono text-xs">~/.codex/config.toml</span>:
+              </p>
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <pre class="w-full rounded-md bg-muted/40 px-3 py-2 text-xs sm:w-auto sm:flex-1">{{ trustConfigSnippet }}</pre>
                 <UButton
-                  icon="i-lucide-plus"
-                  color="neutral"
+                  :label="trustSnippetCopied ? 'Copied' : 'Copy'"
+                  icon="i-lucide-copy"
+                  size="xs"
                   variant="ghost"
-                  size="sm"
-                  class="size-8"
-                  aria-label="Add attachments"
-                  @click="openFilePicker"
+                  @click="copyTrustSnippet"
                 />
-                <input
-                  ref="fileInputRef"
-                  type="file"
-                  multiple
-                  class="hidden"
-                  @change="onAttachmentInputChange"
-                >
               </div>
-            </template>
+              <p class="text-xs text-muted-foreground">
+                Security note: bypassing this check lets Codex run outside a Git repo and may
+                write to your filesystem.
+              </p>
+              <UCheckbox
+                v-model="skipGitRepoCheck"
+                label="I understand the risks and want to run with --skip-git-repo-check"
+              />
+            </div>
+          </template>
+        </UAlert>
+        <UChatPrompt
+          ref="chatPromptRef"
+          v-model="input"
+          :error="skipGitRepoCheck ? undefined : chat?.error"
+          :ui="{ body: 'ps-2' }"
+          @submit="onSubmit"
+          @keydown.enter.capture="onKeydownEnter"
+          @compositionstart="onCompositionStart"
+          @compositionend="onCompositionEnd"
+        >
+          <template #leading>
+            <div class="flex items-center gap-1 -mt-1.5">
+              <UButton
+                icon="i-lucide-plus"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                class="size-8"
+                aria-label="Add attachments"
+                @click="openFilePicker"
+              />
+              <input
+                ref="fileInputRef"
+                type="file"
+                multiple
+                class="hidden"
+                @change="onAttachmentInputChange"
+              >
+            </div>
+          </template>
 
           <template
             v-if="attachments.length"

@@ -24,6 +24,8 @@ export const useCodexChat = () => {
     : shallowRef<Chat<CodexUIMessage> | null>(null)
   const input = useState('codex-chat-input', () => '')
   const selectedModel = useState('codex-selected-model', () => 'gpt-5.2-codex')
+  const skipGitRepoCheck = useState('codex-skip-git-repo-check', () => false)
+  const workdirRoot = useState<string | null>('codex-workdir-root', () => null)
   const modelOptions = [
     { label: 'gpt-5.2-codex', value: 'gpt-5.2-codex' },
     { label: 'gpt-5.2', value: 'gpt-5.2' },
@@ -91,13 +93,14 @@ export const useCodexChat = () => {
   }
 
   const baseRequestOptions = () => {
+    const safetyBody = skipGitRepoCheck.value ? { skipGitRepoCheck: true } : {}
     if (!threadId.value) {
-      return { body: { model: selectedModel.value } }
+      return { body: { model: selectedModel.value, ...safetyBody } }
     }
 
     return resumeThread.value
-      ? { body: { threadId: threadId.value, resume: true } }
-      : { body: { threadId: threadId.value } }
+      ? { body: { threadId: threadId.value, resume: true, ...safetyBody } }
+      : { body: { threadId: threadId.value, ...safetyBody } }
   }
 
   const buildRequestOptions = (extraBody?: Record<string, unknown>) => {
@@ -222,11 +225,28 @@ export const useCodexChat = () => {
     await restoreHistory(next)
   }
 
+  const loadWorkdirRoot = async () => {
+    if (workdirRoot.value) {
+      return
+    }
+    try {
+      const data = await $fetch<{ root?: string }>('/api/chat/workdir')
+      if (data?.root) {
+        workdirRoot.value = data.root
+      }
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
   return {
     chat,
     input,
     selectedModel,
     modelOptions,
+    skipGitRepoCheck,
+    workdirRoot,
+    loadWorkdirRoot,
     threadId,
     pendingThreadId,
     sendMessage,

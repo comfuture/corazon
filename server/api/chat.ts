@@ -147,14 +147,16 @@ const normalizeTitle = (value: string) => {
 const generateThreadTitle = async (
   codex: Codex,
   userText: string,
-  assistantText: string
+  assistantText: string,
+  skipGitRepoCheck: boolean
 ) => {
   const prompt = buildTitlePrompt(userText, assistantText)
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const titleThread = codex.startThread({
       model: TITLE_MODEL,
       modelReasoningEffort: TITLE_REASONING_EFFORT,
-      workingDirectory: TITLE_WORKDIR
+      workingDirectory: TITLE_WORKDIR,
+      skipGitRepoCheck
     })
     const result = await titleThread.run(prompt)
     const title = normalizeTitle(result.finalResponse ?? '')
@@ -184,6 +186,7 @@ export default defineLazyEventHandler(async () => {
     const attachmentUploadId = typeof body?.attachmentUploadId === 'string'
       ? body.attachmentUploadId
       : null
+    const skipGitRepoCheck = body?.skipGitRepoCheck === true
     const requestedModel = resolveModel(body?.model)
     const messages = (body?.messages ?? []) as CodexUIMessage[]
     const threadConfig = threadId ? getThreadConfig(threadId) : null
@@ -215,14 +218,16 @@ export default defineLazyEventHandler(async () => {
           if (threadId && shouldResume) {
             const resumed = codex.resumeThread(threadId, {
               workingDirectory: existingWorkdir ?? baseWorkdir,
-              model: effectiveModel
+              model: effectiveModel,
+              skipGitRepoCheck
             })
             threads.set(threadId, resumed)
             return resumed
           }
           return codex.startThread({
             workingDirectory: baseWorkdir,
-            model: requestedModel
+            model: requestedModel,
+            skipGitRepoCheck
           })
         })()
 
@@ -244,7 +249,8 @@ export default defineLazyEventHandler(async () => {
             setThreadModel(startedThreadId, requestedModel)
             const resumed = codex.resumeThread(startedThreadId, {
               workingDirectory,
-              model: requestedModel
+              model: requestedModel,
+              skipGitRepoCheck
             })
             threads.set(startedThreadId, resumed)
           },
@@ -305,7 +311,7 @@ export default defineLazyEventHandler(async () => {
               const assistantText = extractTextFromMessage(assistantMessage) || firstAssistantText
               if (userText && assistantText) {
                 try {
-                  const title = await generateThreadTitle(codex, userText, assistantText)
+                  const title = await generateThreadTitle(codex, userText, assistantText, skipGitRepoCheck)
                   if (title) {
                     const updatedAt = setThreadTitle(resolvedThreadId, title)
                     const titleEvent: CodexThreadEventData = {
