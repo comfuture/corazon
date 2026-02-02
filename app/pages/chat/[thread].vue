@@ -349,6 +349,7 @@ const getFilePreviewUrl = (part?: { url?: string, mediaType?: string }) => {
 }
 
 const reasoningOpenState = reactive(new Map<string, boolean>())
+const reasoningCompletionState = reactive(new Map<string, boolean>())
 
 const getReasoningDurationMs = (
   message: { parts?: unknown[] } | null | undefined,
@@ -438,10 +439,14 @@ const isReasoningOpen = (
   index: number
 ) => {
   const key = getReasoningKey(message, index)
+  const durationMs = getReasoningDurationMs(message, index)
+  if (durationMs != null && !reasoningCompletionState.get(key)) {
+    reasoningCompletionState.set(key, true)
+    reasoningOpenState.set(key, false)
+  }
   if (reasoningOpenState.has(key)) {
     return reasoningOpenState.get(key) ?? false
   }
-  const durationMs = getReasoningDurationMs(message, index)
   return durationMs == null
 }
 
