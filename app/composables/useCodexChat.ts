@@ -2,6 +2,7 @@ import { Chat } from '@ai-sdk/vue'
 import type { DataUIPart, FileUIPart } from 'ai'
 import {
   CODEX_EVENT_PART,
+  CODEX_ITEM_PART,
   type CodexThreadEventData,
   type CodexUIDataTypes,
   type CodexUIMessage
@@ -14,8 +15,14 @@ type CodexEventPart = DataUIPart<CodexUIDataTypes> & {
   data: CodexThreadEventData
 }
 
+type CodexItemPart = DataUIPart<CodexUIDataTypes> & {
+  type: typeof CODEX_ITEM_PART
+}
+
 const isCodexEventPart = (part: DataUIPart<CodexUIDataTypes>): part is CodexEventPart =>
   part.type === CODEX_EVENT_PART
+const isCodexItemPart = (part: DataUIPart<CodexUIDataTypes>): part is CodexItemPart =>
+  part.type === CODEX_ITEM_PART
 
 export const useCodexChat = () => {
   const { upsertThread, setThreadTitle, applyTurnUsage } = useCodexThreads()
@@ -44,6 +51,43 @@ export const useCodexChat = () => {
       },
       onData(part) {
         if (!isCodexEventPart(part)) {
+          if (isCodexItemPart(part) && part.data?.kind === 'command_execution') {
+            const chatInstance = chat.value
+            if (!chatInstance) {
+              return
+            }
+
+            const messages = chatInstance.messages as CodexUIMessage[]
+            for (let index = messages.length - 1; index >= 0; index -= 1) {
+              const message = messages[index]
+              if (!message) {
+                continue
+              }
+              const parts = message?.parts as DataUIPart<CodexUIDataTypes>[] | undefined
+              if (!parts || parts.length === 0) {
+                continue
+              }
+
+              let hasMatch = false
+              const nextParts: DataUIPart<CodexUIDataTypes>[] = []
+              for (const existingPart of parts) {
+                if (existingPart.type === CODEX_ITEM_PART && existingPart.id === part.id) {
+                  if (!hasMatch) {
+                    hasMatch = true
+                    nextParts.push({ ...existingPart, data: part.data })
+                  }
+                  continue
+                }
+                nextParts.push(existingPart)
+              }
+
+              if (hasMatch) {
+                message.parts = nextParts
+                chatInstance.messages = [...chatInstance.messages]
+                return
+              }
+            }
+          }
           return
         }
 

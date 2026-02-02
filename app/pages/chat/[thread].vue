@@ -630,7 +630,24 @@ const getErrorItem = (part: unknown): ErrorItem | undefined => {
 
                 <template v-else-if="part?.type === CODEX_ITEM_PART">
                   <template v-if="getCommandExecutionItem(part)">
-                    <div class="rounded-md border border-muted/50 bg-muted/20 p-3 space-y-2">
+                    <div class="relative rounded-md border border-muted/50 bg-muted/20 p-3 space-y-2">
+                      <div class="absolute right-3 top-3">
+                        <UIcon
+                          v-if="getCommandExecutionItem(part)?.status === 'in_progress'"
+                          name="i-lucide-loader-2"
+                          class="h-4 w-4 animate-spin text-amber-500"
+                        />
+                        <UIcon
+                          v-else-if="getCommandExecutionItem(part)?.status === 'completed'"
+                          name="i-lucide-check"
+                          class="h-4 w-4 text-emerald-500"
+                        />
+                        <UIcon
+                          v-else-if="getCommandExecutionItem(part)?.status === 'failed'"
+                          name="i-lucide-x"
+                          class="h-4 w-4 text-rose-500"
+                        />
+                      </div>
                       <div class="flex flex-wrap items-center gap-2 text-xs">
                         <UBadge
                           color="primary"
@@ -646,13 +663,6 @@ const getErrorItem = (part: unknown): ErrorItem | undefined => {
                           variant="soft"
                         >
                           {{ getCommandExecutionItem(part)?.status }}
-                        </UBadge>
-                        <UBadge
-                          v-if="getCommandExecutionItem(part)?.exit_code !== undefined"
-                          color="neutral"
-                          variant="subtle"
-                        >
-                          exit {{ getCommandExecutionItem(part)?.exit_code }}
                         </UBadge>
                       </div>
 
