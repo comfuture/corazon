@@ -1,0 +1,12 @@
+services:
+  corazon:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      NITRO_HOST: 0.0.0.0
+      NITRO_PORT: 3000
+    volumes:
+      - ${HOME}/.codex:/root/.codex
+      - ./.data:/app/.data
+      - ./.corazon:/root/.corazon

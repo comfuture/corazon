@@ -42,6 +42,29 @@ pnpm build
 pnpm preview
 ```
 
+### Docker (production)
+
+Build and run with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+Or build and run with Docker directly:
+
+```bash
+docker build -t corazon .
+docker run --rm -p 3000:3000 \
+  -v "${HOME}/.codex:/root/.codex" \
+  -v "$(pwd)/.data:/app/.data" \
+  -v "$(pwd)/.corazon:/root/.corazon" \
+  corazon
+```
+
+Notes:
+- The `~/.codex` mount lets the container reuse your Codex CLI auth.
+- `.data` and `.corazon` are mounted to persist the SQLite DB and thread directories.
+
 ## Data & storage
 
 - SQLite database: `.data/codex.sqlite`
