@@ -44,6 +44,12 @@ pnpm preview
 
 ### Docker (production)
 
+Prepare a runtime root (copies Codex config without logs/sessions/tmp):
+
+```bash
+npx corazon setup --runtime-root ./.corazon
+```
+
 Build and run with Docker Compose:
 
 ```bash
@@ -55,23 +61,18 @@ Or build and run with Docker directly:
 ```bash
 docker build -t corazon .
 docker run --rm -p 3000:3000 \
-  -v "${HOME}/.codex:/root/.codex" \
-  -v "$(pwd)/.data:/app/.data" \
   -v "$(pwd)/.corazon:/root/.corazon" \
   corazon
 ```
 
 Notes:
-- The `~/.codex` mount lets the container reuse your Codex CLI auth.
-- `.data` and `.corazon` are mounted to persist the SQLite DB and thread directories.
+- The runtime root (e.g. `./.corazon`) should contain `.codex`, `data/`, and `threads/`.
+- If you want a different runtime root, run `npx corazon setup --runtime-root /path/to/root` and mount it to `/root/.corazon` (or set `CORAZON_ROOT_DIR`).
 
 ## Data & storage
 
-- SQLite database: `.data/codex.sqlite`
-- Thread working directories:
-  - macOS: `~/Library/Application Support/Corazon/threads/{threadId}`
-  - Linux: `~/.corazon/threads/{threadId}`
-  - Windows: `%APPDATA%/Corazon/threads/{threadId}` (fallbacks to `%LOCALAPPDATA%`)
+- SQLite database: `${CORAZON_ROOT_DIR}/data/codex.sqlite` (default: `~/.corazon/data/codex.sqlite`)
+- Thread working directories: `${CORAZON_ROOT_DIR}/threads/{threadId}` (default: `~/.corazon/threads/{threadId}`)
 - Attachments are stored under each thread’s `attachments/` directory.
 
 ## TODO
