@@ -173,7 +173,8 @@ export default defineLazyEventHandler(async () => {
     },
     config: {
       show_raw_agent_reasoning: true,
-      sandbox_workspace_write: { network_access: true }
+      approval_policy: 'never',
+      sandbox_mode: 'danger-full-access'
     }
   })
 
