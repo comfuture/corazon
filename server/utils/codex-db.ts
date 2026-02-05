@@ -70,27 +70,26 @@ const normalizeCodexItemParts = (messages: CodexUIMessage[]) =>
     }
   })
 
-const getThreadRootDirectory = () => {
-  const home = homedir()
-  const platform = process.platform
-  if (platform === 'darwin') {
-    return join(home, 'Library', 'Application Support', 'Corazon', 'threads')
+const getRuntimeRoot = () => {
+  const configuredRoot = process.env.CORAZON_ROOT_DIR?.trim()
+  if (configuredRoot) {
+    return configuredRoot
   }
-  if (platform === 'win32') {
-    const appData = process.env.APPDATA || process.env.LOCALAPPDATA || join(home, 'AppData', 'Roaming')
-    return join(appData, 'Corazon', 'threads')
-  }
-  return join(home, '.corazon', 'threads')
+  return join(homedir(), '.corazon')
 }
 
+const getThreadRootDirectory = () => join(getRuntimeRoot(), 'threads')
+
 let db: Database.Database | null = null
+
+const getDataDirectory = () => join(getRuntimeRoot(), 'data')
 
 const getDb = () => {
   if (db) {
     return db
   }
 
-  const dataDir = join(process.cwd(), '.data')
+  const dataDir = getDataDirectory()
   mkdirSync(dataDir, { recursive: true })
   const dbPath = join(dataDir, 'codex.sqlite')
 
