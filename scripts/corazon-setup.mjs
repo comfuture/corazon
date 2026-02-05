@@ -1,5 +1,14 @@
 #!/usr/bin/env node
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, symlinkSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync
+} from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -72,6 +81,15 @@ const log = (state, message) => {
 const copySymlink = (source, destination, overwrite) => {
   if (!overwrite && existsSync(destination)) {
     return false
+  }
+  if (overwrite && existsSync(destination)) {
+    try {
+      rmSync(destination, { force: true, recursive: false })
+    } catch (error) {
+      if (error && error.code !== 'ENOENT') {
+        throw error
+      }
+    }
   }
   const target = readlinkSync(source)
   try {
