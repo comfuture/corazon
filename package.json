@@ -8,8 +8,12 @@
     "dev": "nuxt dev",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
+    "setup": "node scripts/corazon-setup.mjs",
     "lint": "eslint .",
     "typecheck": "nuxt typecheck"
+  },
+  "bin": {
+    "corazon": "bin/corazon.js"
   },
   "dependencies": {
     "@ai-sdk/vue": "^3.0.67",
