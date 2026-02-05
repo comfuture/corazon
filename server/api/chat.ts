@@ -1,7 +1,6 @@
 import { Codex } from '@openai/codex-sdk'
 import { existsSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
-import type { Thread } from '@openai/codex-sdk'
 import {
   CODEX_EVENT_PART,
   type CodexThreadEventData,
@@ -168,7 +167,6 @@ const generateThreadTitle = async (
 }
 
 export default defineLazyEventHandler(async () => {
-  const threads = new Map<string, Thread>()
   const codex = new Codex({
     env: {
       PATH: '/tmp'
@@ -214,8 +212,8 @@ export default defineLazyEventHandler(async () => {
         writer.write = writeChunk
 
         const thread = (() => {
-          if (threadId && threads.has(threadId)) {
-            return threads.get(threadId)!
+          if (threadId && hasRuntimeThread(threadId)) {
+            return getRuntimeThread(threadId)!
           }
           if (threadId && shouldResume) {
             const resumed = codex.resumeThread(threadId, {
@@ -223,7 +221,7 @@ export default defineLazyEventHandler(async () => {
               model: effectiveModel,
               skipGitRepoCheck
             })
-            threads.set(threadId, resumed)
+            setRuntimeThread(threadId, resumed)
             return resumed
           }
           return codex.startThread({
@@ -254,7 +252,7 @@ export default defineLazyEventHandler(async () => {
               model: requestedModel,
               skipGitRepoCheck
             })
-            threads.set(startedThreadId, resumed)
+            setRuntimeThread(startedThreadId, resumed)
           },
           onItemCompleted(item) {
             if (!firstAssistantText && item.type === 'agent_message' && item.text) {
