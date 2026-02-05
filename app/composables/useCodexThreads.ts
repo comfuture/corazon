@@ -20,7 +20,9 @@ export const useCodexThreads = () => {
 
   const refreshThreads = async () => {
     try {
-      const data = await $fetch<CodexThreadSummary[]>('/api/chat/threads')
+      const data = await $fetch<CodexThreadSummary[]>('/api/chat/threads', {
+        cache: 'no-store'
+      })
       if (Array.isArray(data)) {
         threads.value = sortThreads(data)
         loaded.value = true
