@@ -29,6 +29,7 @@ export default defineEventHandler((event: H3Event) => {
   if (!deleted) {
     throw createError({ statusCode: 404, statusMessage: 'Thread not found.' })
   }
+  deleteRuntimeThread(threadId)
 
   return { ok: true }
 })
