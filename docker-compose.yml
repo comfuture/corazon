@@ -6,7 +6,7 @@ services:
     environment:
       NITRO_HOST: 0.0.0.0
       NITRO_PORT: 3000
+      CORAZON_ROOT_DIR: /root/.corazon
+      CODEX_HOME: /root/.corazon/.codex
     volumes:
-      - ${HOME}/.codex:/root/.codex
-      - ./.data:/app/.data
       - ./.corazon:/root/.corazon
