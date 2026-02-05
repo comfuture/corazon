@@ -43,6 +43,7 @@ const {
 const chatPromptRef = ref<{ textareaRef?: HTMLTextAreaElement | null } | null>(null)
 
 const route = useRoute()
+const router = useRouter()
 const routeThreadId = computed(() => {
   const param = route.params.thread
   if (Array.isArray(param)) {
@@ -50,6 +51,33 @@ const routeThreadId = computed(() => {
   }
   return typeof param === 'string' ? param : null
 })
+const isDeleteModalOpen = ref(false)
+const isDeletingThread = ref(false)
+
+const openDeleteModal = () => {
+  if (!routeThreadId.value) {
+    return
+  }
+  isDeleteModalOpen.value = true
+}
+
+const confirmDeleteThread = async () => {
+  const threadId = routeThreadId.value
+  if (!threadId || isDeletingThread.value) {
+    return
+  }
+  isDeletingThread.value = true
+  try {
+    await $fetch(`/api/chat/threads/${threadId}`, { method: 'DELETE' })
+    isDeleteModalOpen.value = false
+    await refreshThreads()
+    await router.push('/chat')
+  } catch (error) {
+    console.error(error)
+  } finally {
+    isDeletingThread.value = false
+  }
+}
 
 watch(
   routeThreadId,
@@ -527,9 +555,24 @@ const getErrorItem = (part: unknown): ErrorItem | undefined => {
     @drop="onDrop"
   >
     <template #header>
-      <UDashboardNavbar :title="threadTitle ?? routeThreadId ?? 'Chat'">
+      <UDashboardNavbar>
         <template #leading>
           <UDashboardSidebarCollapse />
+        </template>
+        <template #title>
+          <div class="flex min-w-0 items-center gap-2">
+            <span class="truncate">{{ threadTitle ?? routeThreadId ?? 'Chat' }}</span>
+            <UButton
+              icon="i-lucide-trash-2"
+              color="neutral"
+              variant="ghost"
+              size="xs"
+              class="text-muted-foreground hover:text-foreground"
+              aria-label="Delete chat"
+              :disabled="!routeThreadId"
+              @click="openDeleteModal"
+            />
+          </div>
         </template>
         <template #right>
           <div class="flex items-center gap-3">
@@ -1017,6 +1060,35 @@ const getErrorItem = (part: unknown): ErrorItem | undefined => {
           />
         </div>
       </UContainer>
+      <UModal
+        v-model:open="isDeleteModalOpen"
+        title="Delete chat?"
+        description="This permanently deletes the current chat thread."
+        :ui="{ footer: 'justify-end' }"
+      >
+        <template #body>
+          <p class="text-sm text-muted-foreground">
+            This action cannot be undone. You will be redirected to start a new chat.
+          </p>
+        </template>
+        <template #footer>
+          <div class="flex gap-2">
+            <UButton
+              label="Cancel"
+              color="neutral"
+              variant="outline"
+              :disabled="isDeletingThread"
+              @click="isDeleteModalOpen = false"
+            />
+            <UButton
+              label="Delete"
+              color="error"
+              :loading="isDeletingThread"
+              @click="confirmDeleteThread"
+            />
+          </div>
+        </template>
+      </UModal>
     </template>
   </UDashboardPanel>
 </template>

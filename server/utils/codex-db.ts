@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Usage } from '@openai/codex-sdk'
@@ -329,6 +329,16 @@ export const getThreadConfig = (threadId: string) => {
   return {
     model: row.model ?? null,
     workingDirectory: row.working_directory ?? null
+  }
+}
+
+export const deleteThread = (threadId: string) => {
+  const database = getDb()
+  database.prepare('DELETE FROM threads WHERE id = ?').run(threadId)
+
+  const threadDirectory = join(getThreadRootDirectory(), threadId)
+  if (existsSync(threadDirectory)) {
+    rmSync(threadDirectory, { recursive: true, force: true })
   }
 }
 
