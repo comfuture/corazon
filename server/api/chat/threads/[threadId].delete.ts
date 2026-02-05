@@ -7,7 +7,13 @@ export default defineEventHandler((event: H3Event) => {
     throw createError({ statusCode: 400, statusMessage: 'Missing thread id.' })
   }
 
-  if (threadId === '.' || threadId === '..' || threadId.includes('/') || threadId.includes('\\')) {
+  if (
+    threadId === '.'
+    || threadId === '..'
+    || threadId === '_pending'
+    || threadId.includes('/')
+    || threadId.includes('\\')
+  ) {
     throw createError({ statusCode: 400, statusMessage: 'Invalid thread id.' })
   }
 
@@ -19,7 +25,10 @@ export default defineEventHandler((event: H3Event) => {
     throw createError({ statusCode: 400, statusMessage: 'Invalid thread id.' })
   }
 
-  deleteThread(threadId)
+  const deleted = deleteThread(threadId)
+  if (!deleted) {
+    throw createError({ statusCode: 404, statusMessage: 'Thread not found.' })
+  }
 
   return { ok: true }
 })

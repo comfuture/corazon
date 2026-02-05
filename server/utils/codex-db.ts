@@ -333,13 +333,21 @@ export const getThreadConfig = (threadId: string) => {
 }
 
 export const deleteThread = (threadId: string) => {
+  if (threadId === '_pending') {
+    return false
+  }
   const database = getDb()
-  database.prepare('DELETE FROM threads WHERE id = ?').run(threadId)
+  const result = database.prepare('DELETE FROM threads WHERE id = ?').run(threadId)
+  if (result.changes === 0) {
+    return false
+  }
 
   const threadDirectory = join(getThreadRootDirectory(), threadId)
   if (existsSync(threadDirectory)) {
     rmSync(threadDirectory, { recursive: true, force: true })
   }
+
+  return true
 }
 
 export const loadThreadSummaries = (): ThreadSummary[] => {
