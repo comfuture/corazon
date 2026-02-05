@@ -53,11 +53,13 @@ const routeThreadId = computed(() => {
 })
 const isDeleteModalOpen = ref(false)
 const isDeletingThread = ref(false)
+const deleteError = ref<string | null>(null)
 
 const openDeleteModal = () => {
   if (!routeThreadId.value) {
     return
   }
+  deleteError.value = null
   isDeleteModalOpen.value = true
 }
 
@@ -67,6 +69,7 @@ const confirmDeleteThread = async () => {
     return
   }
   isDeletingThread.value = true
+  deleteError.value = null
   try {
     await $fetch(`/api/chat/threads/${threadId}`, { method: 'DELETE' })
     isDeleteModalOpen.value = false
@@ -74,6 +77,8 @@ const confirmDeleteThread = async () => {
     await router.push('/chat')
   } catch (error) {
     console.error(error)
+    const message = (error as { data?: { statusMessage?: string } })?.data?.statusMessage
+    deleteError.value = message || 'Failed to delete chat.'
   } finally {
     isDeletingThread.value = false
   }
@@ -1070,6 +1075,13 @@ const getErrorItem = (part: unknown): ErrorItem | undefined => {
           <p class="text-sm text-muted-foreground">
             This action cannot be undone. You will be redirected to start a new chat.
           </p>
+          <UAlert
+            v-if="deleteError"
+            color="error"
+            variant="soft"
+            :title="deleteError"
+            class="mt-4"
+          />
         </template>
         <template #footer>
           <div class="flex gap-2">
@@ -1078,7 +1090,7 @@ const getErrorItem = (part: unknown): ErrorItem | undefined => {
               color="neutral"
               variant="outline"
               :disabled="isDeletingThread"
-              @click="isDeleteModalOpen = false"
+              @click="isDeleteModalOpen = false; deleteError = null"
             />
             <UButton
               label="Delete"
