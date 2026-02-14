@@ -274,11 +274,9 @@ watch(pendingThreadId, async (value) => {
             />
           </UChatPrompt>
           <div class="mt-3 flex items-center">
-            <USelect
+            <cz-model-select
               v-model="selectedModel"
               :items="modelOptions"
-              size="sm"
-              variant="ghost"
               class="w-40"
             />
           </div>

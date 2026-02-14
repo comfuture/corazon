@@ -1,21 +1,3 @@
-<script setup lang="ts">
-import type { NavigationMenuItem } from '@nuxt/ui'
-
-const { threads, refreshThreads } = useCodexThreads()
-
-onMounted(() => {
-  void refreshThreads()
-})
-
-const menuItems = computed<NavigationMenuItem[]>(() =>
-  threads.value.map(thread => ({
-    label: thread.title ?? thread.id,
-    icon: 'i-lucide-message-circle',
-    to: `/chat/${thread.id}`
-  }))
-)
-</script>
-
 <template>
   <UDashboardGroup>
     <UDashboardSidebar
@@ -45,11 +27,7 @@ const menuItems = computed<NavigationMenuItem[]>(() =>
           class="mb-4 w-full justify-center"
           :block="!collapsed"
         />
-        <UNavigationMenu
-          :collapsed="collapsed"
-          :items="menuItems"
-          orientation="vertical"
-        />
+        <cz-thread-list :collapsed="collapsed" />
       </template>
     </UDashboardSidebar>
     <NuxtPage />
