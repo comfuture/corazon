@@ -232,31 +232,9 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
       const executeStartedAt = Date.now()
       let turnStartedAt: number | null = null
       let turnDurationMs: number | null = null
-      const reasoningStartedAt = new Map<string, number>()
       const reasoningDurations = new Map<string, number>()
-
-      const markReasoningStarted = (reasoningId: string, now: number) => {
-        if (reasoningStartedAt.has(reasoningId)) {
-          return
-        }
-        // Per-reasoning timing: start from the first event we observe for this reasoning item.
-        reasoningStartedAt.set(reasoningId, now)
-      }
-
-      const finalizeReasoningDuration = (reasoningId: string, now: number) => {
-        if (reasoningDurations.has(reasoningId)) {
-          return
-        }
-        const startedAt = reasoningStartedAt.get(reasoningId) ?? now
-        reasoningDurations.set(reasoningId, Math.max(0, now - startedAt))
-        reasoningStartedAt.delete(reasoningId)
-      }
-
-      const finalizePendingReasoningDurations = (now: number) => {
-        for (const reasoningId of reasoningStartedAt.keys()) {
-          finalizeReasoningDuration(reasoningId, now)
-        }
-      }
+      let reasoningWindowStartedAt = executeStartedAt
+      let waitingForNextReasoningWindowStart = false
 
       if (resolvedThreadId && workflowRunId) {
         setThreadActiveRun(resolvedThreadId, workflowRunId)
@@ -355,30 +333,25 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
             turnStartedAt = now
           }
 
-          if (
-            (threadEvent.type === 'item.started'
-              || threadEvent.type === 'item.updated'
-              || threadEvent.type === 'item.completed')
-            && threadEvent.item?.type === 'reasoning'
-          ) {
-            markReasoningStarted(threadEvent.item.id, now)
-            if (threadEvent.type === 'item.completed') {
-              finalizeReasoningDuration(threadEvent.item.id, now)
-            }
+          if (threadEvent.type === 'item.completed' && threadEvent.item?.type === 'reasoning') {
+            const duration = Math.max(0, now - reasoningWindowStartedAt)
+            reasoningDurations.set(threadEvent.item.id, duration)
+            waitingForNextReasoningWindowStart = true
           }
 
-          if (threadEvent.type === 'item.completed' && threadEvent.item?.type !== 'reasoning') {
-            if (reasoningStartedAt.size > 0) {
-              finalizePendingReasoningDurations(now)
-            }
+          if (
+            threadEvent.type === 'item.completed'
+            && threadEvent.item?.type !== 'reasoning'
+            && waitingForNextReasoningWindowStart
+          ) {
+            // Start next reasoning window right after the first non-reasoning item completes.
+            reasoningWindowStartedAt = now
+            waitingForNextReasoningWindowStart = false
           }
 
           if (threadEvent.type === 'turn.completed') {
             const startedAt = turnStartedAt ?? executeStartedAt
             turnDurationMs = now - startedAt
-            if (reasoningStartedAt.size > 0) {
-              finalizePendingReasoningDurations(now)
-            }
           }
 
           handleEvent(threadEvent)
