@@ -18,6 +18,16 @@ export type ThreadSummary = {
   totalOutputTokens: number
 }
 
+export type ThreadSummaryCursor = {
+  updatedAt: number
+  id: string
+}
+
+export type ThreadSummaryPage = {
+  items: ThreadSummary[]
+  nextCursor: ThreadSummaryCursor | null
+}
+
 type ThreadRow = {
   id: string
   title: string | null
@@ -413,7 +423,25 @@ export const deleteThread = (threadId: string) => {
   return true
 }
 
-export const loadThreadSummaries = (): ThreadSummary[] => {
+const toThreadSummary = (row: ThreadRow): ThreadSummary => ({
+  id: row.id,
+  title: row.title ?? null,
+  model: row.model ?? null,
+  workingDirectory: row.working_directory ?? null,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  turnCount: row.turn_count,
+  totalInputTokens: row.total_input_tokens,
+  totalCachedInputTokens: row.total_cached_input_tokens,
+  totalOutputTokens: row.total_output_tokens
+})
+
+export const loadThreadSummaries = (
+  limit = 50,
+  cursor: ThreadSummaryCursor | null = null
+): ThreadSummaryPage => {
+  const safeLimit = Math.max(1, Math.min(limit, 100))
+  const requestedCount = safeLimit + 1
   const database = getDb()
   const rows = database
     .prepare(
@@ -430,21 +458,36 @@ export const loadThreadSummaries = (): ThreadSummary[] => {
         total_output_tokens,
         turn_count
       FROM threads
+      WHERE (
+        ? IS NULL
+        OR updated_at < ?
+        OR (updated_at = ? AND id < ?)
+      )
       ORDER BY updated_at DESC
+      , id DESC
+      LIMIT ?
     `
     )
-    .all() as ThreadRow[]
+    .all(
+      cursor?.updatedAt ?? null,
+      cursor?.updatedAt ?? null,
+      cursor?.updatedAt ?? null,
+      cursor?.id ?? null,
+      requestedCount
+    ) as ThreadRow[]
 
-  return rows.map(row => ({
-    id: row.id,
-    title: row.title ?? null,
-    model: row.model ?? null,
-    workingDirectory: row.working_directory ?? null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    turnCount: row.turn_count,
-    totalInputTokens: row.total_input_tokens,
-    totalCachedInputTokens: row.total_cached_input_tokens,
-    totalOutputTokens: row.total_output_tokens
-  }))
+  const hasMore = rows.length > safeLimit
+  const slicedRows = hasMore ? rows.slice(0, safeLimit) : rows
+  const items = slicedRows.map(toThreadSummary)
+  const last = items.at(-1) ?? null
+
+  return {
+    items,
+    nextCursor: hasMore && last
+      ? {
+          updatedAt: last.updatedAt,
+          id: last.id
+        }
+      : null
+  }
 }
