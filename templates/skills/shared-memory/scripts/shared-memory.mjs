@@ -4,8 +4,58 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname, resolve } from 'node:path'
 
 const DEFAULT_SECTIONS = ['Facts', 'Preferences', 'Decisions', 'Tasks']
-const DEFAULT_THRESHOLD = 0.72
+const DEFAULT_THRESHOLD = 0.62
 const DEFAULT_LIMIT = 5
+const SIMILARITY_STOPWORDS = new Set([
+  '사용자',
+  'user',
+  'the',
+  'a',
+  'an',
+  'my',
+  'me',
+  '내',
+  '나',
+  '저',
+  '뭐',
+  '무엇'
+])
+const KOREAN_SUFFIXES = [
+  '입니다',
+  '이었다',
+  '였다',
+  '이다',
+  '라고',
+  '으로',
+  '에서',
+  '에게',
+  '한테',
+  '이고',
+  '이며',
+  '하는',
+  '했다',
+  '한다',
+  '하면',
+  '보다',
+  '처럼',
+  '까지',
+  '부터',
+  '으로는',
+  '으로도',
+  '으로만',
+  '은',
+  '는',
+  '이',
+  '가',
+  '을',
+  '를',
+  '에',
+  '도',
+  '의',
+  '와',
+  '과',
+  '로'
+]
 
 const toJson = payload => JSON.stringify(payload, null, 2)
 
@@ -22,12 +72,27 @@ const toTokenSet = (value) => {
   if (!normalized) {
     return new Set()
   }
-  return new Set(normalized.split(' ').filter(Boolean))
+  const tokens = new Set()
+  for (const token of normalized.split(' ').filter(Boolean)) {
+    tokens.add(token)
+    let reduced = token
+    for (let pass = 0; pass < 2; pass += 1) {
+      const suffix = KOREAN_SUFFIXES.find(
+        candidate => reduced.length > candidate.length + 1 && reduced.endsWith(candidate)
+      )
+      if (!suffix) {
+        break
+      }
+      reduced = reduced.slice(0, -suffix.length)
+      if (reduced.length >= 2) {
+        tokens.add(reduced)
+      }
+    }
+  }
+  return tokens
 }
 
-const jaccard = (left, right) => {
-  const leftTokens = toTokenSet(left)
-  const rightTokens = toTokenSet(right)
+const jaccardFromSets = (leftTokens, rightTokens) => {
   const union = new Set([...leftTokens, ...rightTokens])
   if (union.size === 0) {
     return 0
@@ -41,6 +106,34 @@ const jaccard = (left, right) => {
   return intersection / union.size
 }
 
+const toCharacterNgramSet = (value, size) => {
+  const compact = normalizeText(value).replace(/\s+/g, '')
+  if (!compact) {
+    return new Set()
+  }
+  if (compact.length < size) {
+    return new Set([compact])
+  }
+  const grams = new Set()
+  for (let index = 0; index <= compact.length - size; index += 1) {
+    grams.add(compact.slice(index, index + size))
+  }
+  return grams
+}
+
+const diceFromSets = (leftSet, rightSet) => {
+  if (leftSet.size === 0 || rightSet.size === 0) {
+    return 0
+  }
+  let intersection = 0
+  for (const token of leftSet) {
+    if (rightSet.has(token)) {
+      intersection += 1
+    }
+  }
+  return (2 * intersection) / (leftSet.size + rightSet.size)
+}
+
 const scoreSimilarity = (left, right) => {
   const normalizedLeft = normalizeText(left)
   const normalizedRight = normalizeText(right)
@@ -50,7 +143,29 @@ const scoreSimilarity = (left, right) => {
   if (normalizedLeft === normalizedRight) {
     return 1
   }
-  return jaccard(normalizedLeft, normalizedRight)
+
+  const leftTokens = toTokenSet(normalizedLeft)
+  const rightTokens = toTokenSet(normalizedRight)
+  const tokenScore = jaccardFromSets(leftTokens, rightTokens)
+  const sharedCoreTokens = [...leftTokens].filter(
+    token => rightTokens.has(token) && token.length >= 2 && !SIMILARITY_STOPWORDS.has(token)
+  )
+  const longestSharedCoreToken = sharedCoreTokens.reduce(
+    (max, token) => Math.max(max, token.length),
+    0
+  )
+  const sharedCoreTokenScore = longestSharedCoreToken > 0 ? Math.min(0.42, 0.2 + longestSharedCoreToken * 0.05) : 0
+
+  const leftBiGrams = toCharacterNgramSet(normalizedLeft, 2)
+  const rightBiGrams = toCharacterNgramSet(normalizedRight, 2)
+  const leftTriGrams = toCharacterNgramSet(normalizedLeft, 3)
+  const rightTriGrams = toCharacterNgramSet(normalizedRight, 3)
+  const ngramScore = Math.max(
+    diceFromSets(leftBiGrams, rightBiGrams),
+    diceFromSets(leftTriGrams, rightTriGrams)
+  )
+
+  return Math.max(tokenScore, ngramScore * 0.9, sharedCoreTokenScore)
 }
 
 const parseDocument = (raw) => {
