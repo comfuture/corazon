@@ -22,10 +22,6 @@ export default defineEventHandler(async (event: H3Event) => {
 
   const run = await start(codexChatTurnWorkflow, [input])
 
-  if (input.threadId) {
-    setThreadActiveRun(input.threadId, run.runId)
-  }
-
   return createUIMessageStreamResponse({
     stream: run.readable,
     status: 200,
