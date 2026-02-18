@@ -1,8 +1,23 @@
+<script setup lang="ts">
+const sidebarCollapsed = ref(false)
+
+const sidebarUi = computed(() =>
+  sidebarCollapsed.value
+    ? { body: 'flex flex-col gap-4 flex-1 overflow-y-auto px-1 py-2' }
+    : undefined
+)
+</script>
+
 <template>
   <UDashboardGroup>
     <UDashboardSidebar
+      v-model:collapsed="sidebarCollapsed"
       resizable
       collapsible
+      :default-size="24"
+      :min-size="21"
+      :max-size="40"
+      :ui="sidebarUi"
     >
       <template #header="{ collapsed }">
         <div class="flex items-center justify-center text-xl">
