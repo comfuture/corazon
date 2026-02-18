@@ -3,6 +3,7 @@ import type { H3Event } from 'h3'
 type LocalFileTokenRequest = {
   path?: unknown
   mediaType?: unknown
+  threadId?: unknown
 }
 
 type LocalFileTokenResponse = {
@@ -20,8 +21,16 @@ const asHttpError = (error: unknown) => {
     return createError({ statusCode: 400, statusMessage: message })
   }
 
+  if (message === 'Missing thread id.' || message === 'Invalid thread context.') {
+    return createError({ statusCode: 400, statusMessage: message })
+  }
+
   if (message === 'Invalid local file path.') {
     return createError({ statusCode: 403, statusMessage: message })
+  }
+
+  if (message === 'Unsupported local file type.') {
+    return createError({ statusCode: 415, statusMessage: message })
   }
 
   if (message === 'Local file not found.') {
@@ -38,9 +47,10 @@ export default defineEventHandler(async (event: H3Event): Promise<LocalFileToken
   const body = await readBody<LocalFileTokenRequest>(event)
   const filePath = normalizeString(body?.path)
   const mediaType = normalizeString(body?.mediaType) || undefined
+  const threadId = normalizeString(body?.threadId)
 
   try {
-    const created = await createLocalFilePreviewToken(filePath, mediaType)
+    const created = await createLocalFilePreviewToken(filePath, mediaType, threadId)
     return {
       token: created.token,
       url: `/api/chat/local-file/${encodeURIComponent(created.token)}`,

@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto'
 import { readFile, realpath, stat } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { basename, isAbsolute, relative, resolve } from 'node:path'
 import { lookup } from 'mime-types'
 
@@ -11,6 +10,7 @@ type LocalFilePreviewEntry = {
 }
 
 const TOKEN_TTL_MS = 10 * 60 * 1000
+const PREVIEW_SAFE_MEDIA_TYPE_PREFIX = 'image/'
 
 const localFilePreviewEntries = new Map<string, LocalFilePreviewEntry>()
 
@@ -55,54 +55,65 @@ const normalizeInputPath = (value: string) => {
   }
 }
 
-const resolveCandidatePath = (inputPath: string) => {
+const resolveCandidatePath = (inputPath: string, baseDirectory: string) => {
   if (isAbsolute(inputPath)) {
     return resolve(inputPath)
   }
-  return resolve(process.cwd(), inputPath)
+  return resolve(baseDirectory, inputPath)
 }
 
 const inferMediaType = (filePath: string) => lookup(filePath) || 'application/octet-stream'
 
-const getAllowedRoots = () => {
-  const roots = [
-    resolve(ensureThreadRootDirectory()),
-    resolve(resolveCorazonRootDir()),
-    resolve(process.cwd()),
-    resolve(tmpdir()),
-    resolve('/tmp'),
-    resolve('/private/tmp')
-  ]
-  return [...new Set(roots)]
-}
-
-const assertAllowedPreviewPath = (resolvedPath: string) => {
-  const allowedRoots = getAllowedRoots()
-  const isAllowed = allowedRoots.some(root => isInsideDirectory(resolvedPath, root))
+const assertAllowedPreviewPath = (resolvedPath: string, threadWorkingDirectory: string) => {
+  const isAllowed = isInsideDirectory(resolvedPath, threadWorkingDirectory)
   if (!isAllowed) {
     throw new Error('Invalid local file path.')
   }
 }
 
-export const createLocalFilePreviewToken = async (path: string, preferredMediaType?: string) => {
+export const createLocalFilePreviewToken = async (
+  path: string,
+  preferredMediaType?: string,
+  threadId?: string
+) => {
   const normalizedPath = normalizeInputPath(path)
   if (!normalizedPath) {
     throw new Error('Missing local file path.')
   }
 
-  const resolvedPath = resolveCandidatePath(normalizedPath)
+  const normalizedThreadId = threadId?.trim() || ''
+  if (!normalizedThreadId) {
+    throw new Error('Missing thread id.')
+  }
+  const threadConfig = getThreadConfig(normalizedThreadId)
+  const threadWorkingDirectory = threadConfig?.workingDirectory?.trim() || ''
+  if (!threadWorkingDirectory) {
+    throw new Error('Invalid thread context.')
+  }
+
+  const canonicalThreadWorkingDirectory = await realpath(threadWorkingDirectory).catch(() => null)
+  if (!canonicalThreadWorkingDirectory) {
+    throw new Error('Invalid thread context.')
+  }
+
+  const resolvedPath = resolveCandidatePath(normalizedPath, canonicalThreadWorkingDirectory)
   const canonicalPath = await realpath(resolvedPath).catch(() => null)
   if (!canonicalPath) {
     throw new Error('Local file not found.')
   }
-  assertAllowedPreviewPath(canonicalPath)
+  assertAllowedPreviewPath(canonicalPath, canonicalThreadWorkingDirectory)
 
   const fileStat = await stat(canonicalPath).catch(() => null)
   if (!fileStat || !fileStat.isFile()) {
     throw new Error('Local file not found.')
   }
 
-  const mediaType = preferredMediaType?.trim() || inferMediaType(canonicalPath)
+  const preferredType = preferredMediaType?.trim().toLowerCase()
+  const inferredType = String(inferMediaType(canonicalPath)).toLowerCase()
+  const mediaType = preferredType?.startsWith(PREVIEW_SAFE_MEDIA_TYPE_PREFIX) ? preferredType : inferredType
+  if (!mediaType.startsWith(PREVIEW_SAFE_MEDIA_TYPE_PREFIX)) {
+    throw new Error('Unsupported local file type.')
+  }
   const now = Date.now()
   cleanupExpiredEntries(now)
 

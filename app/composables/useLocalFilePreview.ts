@@ -210,10 +210,14 @@ const collectHtmlImageOccurrences = (content: string): SourceOccurrence[] => {
   return results
 }
 
-const buildCacheKey = (source: string, preferredMediaType?: string) =>
-  `${source}::${preferredMediaType ?? ''}`
+const buildCacheKey = (source: string, preferredMediaType?: string, threadId?: string | null) =>
+  `${threadId ?? ''}::${source}::${preferredMediaType ?? ''}`
 
-const resolveLocalFilePreviewUrl = async (source: string, preferredMediaType?: string) => {
+const resolveLocalFilePreviewUrl = async (
+  source: string,
+  preferredMediaType?: string,
+  threadId?: string | null
+) => {
   if (!import.meta.client) {
     return null
   }
@@ -225,7 +229,7 @@ const resolveLocalFilePreviewUrl = async (source: string, preferredMediaType?: s
 
   cleanupExpiredCache()
 
-  const cacheKey = buildCacheKey(normalizedSource, preferredMediaType)
+  const cacheKey = buildCacheKey(normalizedSource, preferredMediaType, threadId)
   const cached = previewCache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now() + CACHE_STALE_BUFFER_MS) {
     return cached.url
@@ -242,7 +246,8 @@ const resolveLocalFilePreviewUrl = async (source: string, preferredMediaType?: s
         method: 'POST',
         body: {
           path: normalizedSource,
-          mediaType: preferredMediaType
+          mediaType: preferredMediaType,
+          threadId
         }
       })
 
@@ -263,7 +268,7 @@ const resolveLocalFilePreviewUrl = async (source: string, preferredMediaType?: s
   return request
 }
 
-const rewriteContentWithLocalImagePreviews = async (content: string) => {
+const rewriteContentWithLocalImagePreviews = async (content: string, threadId?: string | null) => {
   if (!import.meta.client || !content) {
     return content
   }
@@ -279,7 +284,7 @@ const rewriteContentWithLocalImagePreviews = async (content: string) => {
 
   const uniqueSources = [...new Set(occurrences.map(item => item.source))]
   const resolvedEntries = await Promise.all(uniqueSources.map(async (source) => {
-    const url = await resolveLocalFilePreviewUrl(source, inferImageMediaType(source))
+    const url = await resolveLocalFilePreviewUrl(source, inferImageMediaType(source), threadId)
     return [source, url] as const
   }))
 
