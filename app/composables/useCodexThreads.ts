@@ -24,7 +24,19 @@ export const useCodexThreads = () => {
         cache: 'no-store'
       })
       if (Array.isArray(data)) {
-        threads.value = sortThreads(data)
+        const existingById = new Map(threads.value.map(thread => [thread.id, thread]))
+        const merged = data.map((thread) => {
+          const existing = existingById.get(thread.id)
+          if (!existing || thread.title) {
+            return thread
+          }
+
+          return {
+            ...thread,
+            title: existing.title
+          }
+        })
+        threads.value = sortThreads(merged)
         loaded.value = true
       }
     } catch (error) {

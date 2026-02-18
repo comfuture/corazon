@@ -29,9 +29,15 @@ const isTrustErrorMessage = (message: string) =>
   message.includes('Not inside a trusted directory') || message.includes('skip-git-repo-check')
 const isChatInFlight = (status: string | undefined) =>
   status === 'streaming' || status === 'submitted'
+const isStreamAbortError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  const name = error instanceof Error ? error.name : ''
+  return name === 'AbortError' || message.includes('BodyStreamBuffer was aborted')
+}
 const CHAT_MESSAGES_ROOT_SELECTOR = '.codex-chat-messages-root'
 const CHAT_SCROLL_RETRY_DELAY_MS = 48
 const CHAT_SCROLL_RETRY_COUNT = 4
+const OPTIMISTIC_THREAD_TITLE_MAX_LENGTH = 80
 
 const notifyThreadEnded = () => {
   if (!import.meta.client) {
@@ -52,6 +58,37 @@ const notifyThreadEnded = () => {
 const isCompletedCodexItem = (part: CodexItemPart) => {
   const item = part.data?.item as Record<string, unknown> | undefined
   return !!item && 'status' in item && item.status === 'completed'
+}
+
+const toOptimisticThreadTitle = (value: string) => {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  if (!normalized) {
+    return null
+  }
+  if (normalized.length <= OPTIMISTIC_THREAD_TITLE_MAX_LENGTH) {
+    return normalized
+  }
+  return normalized.slice(0, OPTIMISTIC_THREAD_TITLE_MAX_LENGTH).trim()
+}
+
+const getFirstUserTextFromMessages = (messages: CodexUIMessage[]) => {
+  for (const message of messages) {
+    if (message?.role !== 'user') {
+      continue
+    }
+
+    const text = (message.parts ?? [])
+      .filter(part => part.type === 'text')
+      .map(part => part.text ?? '')
+      .join(' ')
+      .trim()
+
+    if (text) {
+      return text
+    }
+  }
+
+  return null
 }
 
 const getChatScrollContainer = () => {
@@ -92,7 +129,7 @@ const queueScrollChatToBottom = (attempt = 0) => {
 }
 
 export const useCodexChat = () => {
-  const { upsertThread, setThreadTitle, applyTurnUsage } = useCodexThreads()
+  const { threads, upsertThread, setThreadTitle, applyTurnUsage } = useCodexThreads()
   const { enableNotifications } = useSettings()
   const chat = import.meta.client
     ? sharedChat
@@ -114,6 +151,7 @@ export const useCodexChat = () => {
   const resumeThread = useState<boolean>('codex-resume-thread', () => false)
   const lastRestoredThreadId = useState<string | null>('codex-last-restored-thread-id', () => null)
   const pendingInput = useState<string | null>('codex-pending-input', () => null)
+  const pendingInitialThreadTitle = useState<string | null>('codex-pending-thread-title', () => null)
   const pendingMessageId = useState<string | null>('codex-pending-message-id', () => null)
   const pendingAttachmentUploadId = useState<string | null>('codex-pending-attachment-upload-id', () => null)
   const threadRunMap = useState<Record<string, string>>('codex-thread-run-map', () => ({}))
@@ -233,6 +271,9 @@ export const useCodexChat = () => {
         }
       }),
       onError(error) {
+        if (isStreamAbortError(error)) {
+          return
+        }
         console.error(error)
       },
       onData(part) {
@@ -282,12 +323,36 @@ export const useCodexChat = () => {
         }
 
         if (part.data.kind === 'thread.started') {
-          threadId.value = part.data.threadId
-          pendingThreadId.value = part.data.threadId
-          upsertThread({ id: part.data.threadId, updatedAt: Date.now() })
+          const startedThreadId = part.data.threadId
+          threadId.value = startedThreadId
+          pendingThreadId.value = startedThreadId
+
+          const existingThread = threads.value.find(thread => thread.id === startedThreadId)
+          const shouldApplyOptimisticTitle = !existingThread?.title
+
+          if (shouldApplyOptimisticTitle) {
+            const optimisticTitle = toOptimisticThreadTitle(
+              getFirstUserTextFromMessages((chat.value?.messages ?? []) as CodexUIMessage[])
+              ?? pendingInitialThreadTitle.value
+              ?? pendingInput.value
+              ?? ''
+            )
+
+            upsertThread({
+              id: startedThreadId,
+              title: optimisticTitle ?? undefined,
+              updatedAt: Date.now()
+            })
+          } else {
+            upsertThread({
+              id: startedThreadId,
+              updatedAt: Date.now()
+            })
+          }
+          pendingInitialThreadTitle.value = null
 
           if (pendingWorkflowRunId.value) {
-            setThreadRunId(part.data.threadId, pendingWorkflowRunId.value)
+            setThreadRunId(startedThreadId, pendingWorkflowRunId.value)
             pendingWorkflowRunId.value = null
           }
         }
@@ -397,6 +462,10 @@ export const useCodexChat = () => {
     }
     const rawText = options?.text ?? input.value
     const message = rawText.trim()
+    const optimisticTitle = toOptimisticThreadTitle(message)
+    if (!threadId.value && optimisticTitle && !pendingInitialThreadTitle.value) {
+      pendingInitialThreadTitle.value = optimisticTitle
+    }
     const fileParts = options?.fileParts ?? []
     if (message.length === 0 && fileParts.length === 0) {
       return
@@ -470,6 +539,7 @@ export const useCodexChat = () => {
     lastResumedRunId.value = null
     pendingWorkflowRunId.value = null
     pendingAttachmentUploadId.value = null
+    pendingInitialThreadTitle.value = null
 
     const chatInstance = chat.value
     if (!chatInstance) {
