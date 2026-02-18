@@ -23,6 +23,8 @@ const { data, pending, refresh } = await useFetch<McpSettingsResponse>('/api/set
 
 const forms = ref<McpServerForm[]>([])
 const saving = ref(false)
+const isDeleteModalOpen = ref(false)
+const pendingDeleteServer = ref<{ index: number, name: string } | null>(null)
 
 const transportItems = [
   { label: 'Command', value: 'command' as const },
@@ -64,8 +66,30 @@ const addServer = () => {
   })
 }
 
-const removeServer = (index: number) => {
-  forms.value.splice(index, 1)
+const requestRemoveServer = (index: number) => {
+  const target = forms.value[index]
+  if (!target) {
+    return
+  }
+  pendingDeleteServer.value = {
+    index,
+    name: target.name.trim() || 'Unnamed server'
+  }
+  isDeleteModalOpen.value = true
+}
+
+const closeDeleteServerModal = () => {
+  isDeleteModalOpen.value = false
+  pendingDeleteServer.value = null
+}
+
+const confirmRemoveServer = () => {
+  const target = pendingDeleteServer.value
+  if (!target) {
+    return
+  }
+  forms.value.splice(target.index, 1)
+  closeDeleteServerModal()
 }
 
 const parseArgsText = (value: string) =>
@@ -227,7 +251,7 @@ const saveServers = async () => {
                   icon="i-lucide-trash-2"
                   color="error"
                   variant="ghost"
-                  @click="removeServer(index)"
+                  @click="requestRemoveServer(index)"
                 />
               </div>
 
@@ -257,6 +281,36 @@ const saveServers = async () => {
           </UCard>
         </div>
       </UContainer>
+
+      <UModal
+        v-model:open="isDeleteModalOpen"
+        title="Delete MCP server?"
+        description="This removes the server from the current draft."
+        :ui="{ footer: 'justify-end' }"
+      >
+        <template #body>
+          <p class="text-sm text-muted-foreground">
+            <span class="font-medium text-default">{{ pendingDeleteServer?.name }}</span>
+            will be removed from this screen. Click Save to persist this deletion to
+            <span class="font-mono text-xs">{{ agentHome?.configPath }}</span>.
+          </p>
+        </template>
+        <template #footer>
+          <div class="flex gap-2">
+            <UButton
+              label="Cancel"
+              color="neutral"
+              variant="outline"
+              @click="closeDeleteServerModal"
+            />
+            <UButton
+              label="Delete"
+              color="error"
+              @click="confirmRemoveServer"
+            />
+          </div>
+        </template>
+      </UModal>
     </template>
   </UDashboardPanel>
 </template>
