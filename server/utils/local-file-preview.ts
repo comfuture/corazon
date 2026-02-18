@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { readFile, stat } from 'node:fs/promises'
+import { readFile, realpath, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, isAbsolute, relative, resolve } from 'node:path'
 import { lookup } from 'mime-types'
@@ -34,9 +34,19 @@ const normalizeInputPath = (value: string) => {
   }
 
   const withoutQuotes = trimmed.replace(/^['"]+|['"]+$/g, '')
-  const filePath = withoutQuotes.startsWith('file://')
-    ? withoutQuotes.replace(/^file:\/\//, '')
-    : withoutQuotes
+  let filePath = withoutQuotes
+  if (withoutQuotes.startsWith('file://')) {
+    try {
+      const parsed = new URL(withoutQuotes)
+      const hostname = parsed.hostname.toLowerCase()
+      if (hostname && hostname !== 'localhost') {
+        return ''
+      }
+      filePath = parsed.pathname
+    } catch {
+      filePath = withoutQuotes.replace(/^file:\/\//, '')
+    }
+  }
 
   try {
     return decodeURIComponent(filePath)
@@ -81,14 +91,18 @@ export const createLocalFilePreviewToken = async (path: string, preferredMediaTy
   }
 
   const resolvedPath = resolveCandidatePath(normalizedPath)
-  assertAllowedPreviewPath(resolvedPath)
+  const canonicalPath = await realpath(resolvedPath).catch(() => null)
+  if (!canonicalPath) {
+    throw new Error('Local file not found.')
+  }
+  assertAllowedPreviewPath(canonicalPath)
 
-  const fileStat = await stat(resolvedPath).catch(() => null)
+  const fileStat = await stat(canonicalPath).catch(() => null)
   if (!fileStat || !fileStat.isFile()) {
     throw new Error('Local file not found.')
   }
 
-  const mediaType = preferredMediaType?.trim() || inferMediaType(resolvedPath)
+  const mediaType = preferredMediaType?.trim() || inferMediaType(canonicalPath)
   const now = Date.now()
   cleanupExpiredEntries(now)
 
@@ -96,7 +110,7 @@ export const createLocalFilePreviewToken = async (path: string, preferredMediaTy
   const expiresAt = now + TOKEN_TTL_MS
 
   localFilePreviewEntries.set(token, {
-    path: resolvedPath,
+    path: canonicalPath,
     mediaType,
     expiresAt
   })

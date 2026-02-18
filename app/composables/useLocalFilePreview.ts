@@ -39,7 +39,7 @@ const normalizeSource = (value: string) => {
   }
 
   if (trimmed.startsWith('file://localhost/')) {
-    return `file://${trimmed.slice('file://localhost/'.length)}`
+    return `file:///${trimmed.slice('file://localhost/'.length)}`
   }
 
   return trimmed

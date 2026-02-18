@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve, sep } from 'node:path'
 import type { SkillSummary } from '@@/types/settings'
@@ -16,6 +16,27 @@ const normalizeSkillName = (name: string) =>
     .trim()
     .replace(/\.git$/i, '')
     .replace(/\s+/g, '-')
+
+const parseSkillNameFromSkillFile = (sourcePath: string) => {
+  const skillFilePath = join(sourcePath, SKILL_FILE_NAME)
+  if (!existsSync(skillFilePath)) {
+    return null
+  }
+  const content = readFileSync(skillFilePath, 'utf8')
+  const frontMatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!frontMatterMatch) {
+    return null
+  }
+  const nameMatch = frontMatterMatch[1]?.match(/^\s*name\s*:\s*(.+)\s*$/m)
+  if (!nameMatch) {
+    return null
+  }
+  const rawName = nameMatch[1]
+  if (!rawName) {
+    return null
+  }
+  return normalizeSkillName(rawName.replace(/^['"]|['"]$/g, ''))
+}
 
 const isInsideDirectory = (targetPath: string, basePath: string) => {
   const normalizedTarget = resolve(targetPath)
@@ -36,12 +57,13 @@ const toSkillSummary = (name: string): SkillSummary => {
   }
 }
 
-const collectInstallTargets = (sourceRoot: string) => {
+const collectInstallTargets = (sourceRoot: string, preferredRootName?: string) => {
   const rootSkillFile = join(sourceRoot, SKILL_FILE_NAME)
   if (existsSync(rootSkillFile)) {
-    const rootName = normalizeSkillName(basename(sourceRoot))
+    const rootNameFromSkillFile = parseSkillNameFromSkillFile(sourceRoot)
+    const rootName = normalizeSkillName(rootNameFromSkillFile || preferredRootName || basename(sourceRoot))
     if (!rootName || !isSafeSkillName(rootName)) {
-      throw new Error(`Invalid skill name from source root: ${basename(sourceRoot)}`)
+      throw new Error(`Invalid skill name from source root: ${rootName}`)
     }
     return [{
       name: rootName,
@@ -80,6 +102,20 @@ const isRemoteGitSource = (source: string) =>
   || source.startsWith('https://')
   || source.startsWith('git@')
   || source.startsWith('ssh://')
+
+const getStableSkillNameFromSource = (source: string) => {
+  const normalizedSource = source.trim().replace(/\/+$/, '')
+  if (!normalizedSource) {
+    return null
+  }
+  const sourceWithoutGit = normalizedSource.replace(/\.git$/i, '')
+  const gitUrlMatch = sourceWithoutGit.match(/[:/]([^/:]+)$/)
+  if (!gitUrlMatch) {
+    return null
+  }
+  const candidate = normalizeSkillName(gitUrlMatch[1] || '')
+  return candidate || null
+}
 
 const resolveInstallSource = (source: string) => {
   if (isRemoteGitSource(source)) {
@@ -124,7 +160,8 @@ export const installSkillsFromSource = (source: string): SkillSummary[] => {
   mkdirSync(skillsRoot, { recursive: true })
 
   try {
-    const targets = collectInstallTargets(resolved.path)
+    const preferredRootName = getStableSkillNameFromSource(normalizedSource)
+    const targets = collectInstallTargets(resolved.path, preferredRootName ?? undefined)
     const installed: SkillSummary[] = []
 
     for (const target of targets) {
