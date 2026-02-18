@@ -9,6 +9,9 @@ const toast = useToast()
 const source = ref('')
 const installing = ref(false)
 const deletingSkillName = ref<string | null>(null)
+const isDeleteModalOpen = ref(false)
+const pendingDeleteSkill = ref<SkillSummary | null>(null)
+const deleteError = ref<string | null>(null)
 
 const { data: agentHome } = await useFetch<AgentHomeInfo>('/api/settings/agent-home')
 const { data, pending, refresh } = await useFetch<SkillListResponse>('/api/settings/skill')
@@ -57,16 +60,39 @@ const installSkill = async () => {
   }
 }
 
-const removeSkill = async (skill: SkillSummary) => {
+const requestRemoveSkill = (skill: SkillSummary) => {
   if (skill.isSystem) {
     return
   }
+  pendingDeleteSkill.value = skill
+  deleteError.value = null
+  isDeleteModalOpen.value = true
+}
+
+const closeDeleteSkillModal = () => {
+  if (deletingSkillName.value) {
+    return
+  }
+  isDeleteModalOpen.value = false
+  pendingDeleteSkill.value = null
+  deleteError.value = null
+}
+
+const confirmRemoveSkill = async () => {
+  const skill = pendingDeleteSkill.value
+  if (!skill || skill.isSystem) {
+    return
+  }
+
   try {
     deletingSkillName.value = skill.name
+    deleteError.value = null
     await $fetch(`/api/settings/skill/${encodeURIComponent(skill.name)}`, {
       method: 'DELETE'
     })
     await refresh()
+    isDeleteModalOpen.value = false
+    pendingDeleteSkill.value = null
     toast.add({
       title: 'Deleted',
       description: `${skill.name} was removed.`,
@@ -74,6 +100,7 @@ const removeSkill = async (skill: SkillSummary) => {
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to delete skill.'
+    deleteError.value = message
     toast.add({
       title: 'Delete failed',
       description: message,
@@ -185,12 +212,49 @@ const removeSkill = async (skill: SkillSummary) => {
                 variant="ghost"
                 :disabled="skill.isSystem"
                 :loading="deletingSkillName === skill.name"
-                @click="removeSkill(skill)"
+                @click="requestRemoveSkill(skill)"
               />
             </div>
           </UCard>
         </div>
       </UContainer>
+
+      <UModal
+        v-model:open="isDeleteModalOpen"
+        title="Delete skill?"
+        :description="pendingDeleteSkill ? `This permanently removes ${pendingDeleteSkill.name}.` : 'This permanently removes the selected skill.'"
+        :ui="{ footer: 'justify-end' }"
+      >
+        <template #body>
+          <p class="text-sm text-muted-foreground">
+            This action cannot be undone.
+          </p>
+          <UAlert
+            v-if="deleteError"
+            color="error"
+            variant="soft"
+            :title="deleteError"
+            class="mt-4"
+          />
+        </template>
+        <template #footer>
+          <div class="flex gap-2">
+            <UButton
+              label="Cancel"
+              color="neutral"
+              variant="outline"
+              :disabled="Boolean(deletingSkillName)"
+              @click="closeDeleteSkillModal"
+            />
+            <UButton
+              label="Delete"
+              color="error"
+              :loading="Boolean(deletingSkillName)"
+              @click="confirmRemoveSkill"
+            />
+          </div>
+        </template>
+      </UModal>
     </template>
   </UDashboardPanel>
 </template>
