@@ -338,6 +338,15 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
               durationMs: turnDurationMs ?? undefined,
               reasoningDurations: Object.keys(durations).length > 0 ? durations : undefined
             }
+          },
+          getReasoningEndMetadata(reasoningId) {
+            const duration = reasoningDurations.get(reasoningId)
+            if (typeof duration !== 'number') {
+              return undefined
+            }
+            return {
+              thinkingDurationMs: { value: duration }
+            }
           }
         })
 

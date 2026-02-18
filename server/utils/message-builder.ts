@@ -77,18 +77,24 @@ export const createCodexAssistantBuilder = () => {
     part.text += delta
   }
 
-  const endTextPart = (id: string) => {
+  const endTextPart = (id: string, providerMetadata?: TextUIPart['providerMetadata']) => {
     const part = state.textParts.get(id)
     if (part) {
       part.state = 'done'
+      if (providerMetadata) {
+        part.providerMetadata = providerMetadata
+      }
       state.textParts.delete(id)
     }
   }
 
-  const endReasoningPart = (id: string) => {
+  const endReasoningPart = (id: string, providerMetadata?: ReasoningUIPart['providerMetadata']) => {
     const part = state.reasoningParts.get(id)
     if (part) {
       part.state = 'done'
+      if (providerMetadata) {
+        part.providerMetadata = providerMetadata
+      }
       state.reasoningParts.delete(id)
     }
   }
@@ -125,7 +131,7 @@ export const createCodexAssistantBuilder = () => {
         appendTextDelta(chunk.id, chunk.delta)
         return
       case 'text-end':
-        endTextPart(chunk.id)
+        endTextPart(chunk.id, chunk.providerMetadata)
         return
       case 'reasoning-start':
         startReasoningPart(chunk.id, chunk.providerMetadata)
@@ -134,7 +140,7 @@ export const createCodexAssistantBuilder = () => {
         appendReasoningDelta(chunk.id, chunk.delta)
         return
       case 'reasoning-end':
-        endReasoningPart(chunk.id)
+        endReasoningPart(chunk.id, chunk.providerMetadata)
         return
       default:
         if (chunk.type === 'data-codex-event' || chunk.type === 'data-codex-item') {

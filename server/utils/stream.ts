@@ -99,7 +99,8 @@ const pushTextDelta = (
   itemId: string,
   nextText: string,
   done: boolean,
-  providerMetadata?: ProviderMetadata
+  providerMetadata?: ProviderMetadata,
+  endProviderMetadata?: ProviderMetadata
 ) => {
   const startType = kind === 'text' ? 'text-start' : 'reasoning-start'
   const deltaType = kind === 'text' ? 'text-delta' : 'reasoning-delta'
@@ -120,7 +121,7 @@ const pushTextDelta = (
   state.buffer.set(itemId, nextText)
 
   if (done) {
-    writer.write({ type: endType, id: itemId })
+    writer.write({ type: endType, id: itemId, providerMetadata: endProviderMetadata })
   }
 }
 
@@ -165,6 +166,7 @@ type ThreadEventHandlerOptions = {
   onItemCompleted?: (item: ThreadItem) => void
   onTurnCompleted?: (usage: Usage) => void
   buildTurnCompletedData?: (usage: Usage) => CodexThreadEventData
+  getReasoningEndMetadata?: (reasoningId: string) => ProviderMetadata | undefined
 }
 
 const isTransientEvent = (data: CodexThreadEventData) =>
@@ -232,6 +234,14 @@ export const createThreadEventHandler = (
       }
 
       if (item.type === 'reasoning') {
+        const reasoningStartMetadata = { reasoningId: { value: item.id } }
+        const reasoningEndMetadata = done
+          ? {
+              ...reasoningStartMetadata,
+              ...(options.getReasoningEndMetadata?.(item.id) ?? {})
+            }
+          : undefined
+
         pushTextDelta(
           writer,
           reasoningState,
@@ -239,7 +249,8 @@ export const createThreadEventHandler = (
           item.id,
           item.text ?? '',
           done,
-          { reasoningId: { value: item.id } }
+          reasoningStartMetadata,
+          reasoningEndMetadata
         )
         return
       }
