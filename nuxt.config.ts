@@ -1,6 +1,7 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   modules: [
+    'workflow/nuxt',
     '@nuxt/eslint',
     '@nuxt/ui'
   ],
@@ -20,6 +21,16 @@ export default defineNuxtConfig({
 
   compatibilityDate: '2025-01-15',
 
+  nitro: {
+    typescript: {
+      tsConfig: {
+        compilerOptions: {
+          allowImportingTsExtensions: true
+        }
+      }
+    }
+  },
+
   vite: {
     optimizeDeps: {
       include: [
@@ -29,6 +40,14 @@ export default defineNuxtConfig({
         'monaco-editor/esm/vs/language/html/html.worker',
         'monaco-editor/esm/vs/language/typescript/ts.worker'
       ]
+    }
+  },
+
+  typescript: {
+    tsConfig: {
+      compilerOptions: {
+        allowImportingTsExtensions: true
+      }
     }
   },
 

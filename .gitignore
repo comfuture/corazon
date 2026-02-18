@@ -2,6 +2,7 @@
 .output
 .data
 .corazon
+.workflow-data/
 .nuxt
 .nitro
 .cache

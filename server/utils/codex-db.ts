@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Usage } from '@openai/codex-sdk'
-import { CODEX_ITEM_PART, type CodexUIMessage } from '@@/types/codex-ui'
+import { CODEX_ITEM_PART, type CodexUIMessage } from '../../types/codex-ui.ts'
 
 export type ThreadSummary = {
   id: string
@@ -102,6 +102,8 @@ const getDb = () => {
       title TEXT,
       model TEXT,
       working_directory TEXT,
+      active_run_id TEXT,
+      active_run_updated_at INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       total_input_tokens INTEGER NOT NULL DEFAULT 0,
@@ -134,6 +136,14 @@ const getDb = () => {
 
   if (!hasColumn('working_directory')) {
     db.exec('ALTER TABLE threads ADD COLUMN working_directory TEXT')
+  }
+
+  if (!hasColumn('active_run_id')) {
+    db.exec('ALTER TABLE threads ADD COLUMN active_run_id TEXT')
+  }
+
+  if (!hasColumn('active_run_updated_at')) {
+    db.exec('ALTER TABLE threads ADD COLUMN active_run_updated_at INTEGER')
   }
 
   return db
@@ -307,6 +317,60 @@ export const setThreadWorkingDirectory = (threadId: string, workingDirectory: st
     .prepare('UPDATE threads SET working_directory = ?, updated_at = ? WHERE id = ?')
     .run(workingDirectory, now, threadId)
   return now
+}
+
+export const setThreadActiveRun = (threadId: string, runId: string, updatedAt?: number) => {
+  const now = updatedAt ?? Date.now()
+  const database = getDb()
+  ensureThread(threadId)
+  database
+    .prepare(
+      `
+      UPDATE threads
+      SET active_run_id = ?, active_run_updated_at = ?, updated_at = ?
+      WHERE id = ?
+    `
+    )
+    .run(runId, now, now, threadId)
+  return now
+}
+
+export const clearThreadActiveRun = (threadId: string, runId?: string) => {
+  const now = Date.now()
+  const database = getDb()
+  ensureThread(threadId)
+
+  if (runId) {
+    const result = database
+      .prepare(
+        `
+        UPDATE threads
+        SET active_run_id = NULL, active_run_updated_at = ?, updated_at = ?
+        WHERE id = ? AND active_run_id = ?
+      `
+      )
+      .run(now, now, threadId, runId)
+    return result.changes > 0
+  }
+
+  database
+    .prepare(
+      `
+      UPDATE threads
+      SET active_run_id = NULL, active_run_updated_at = ?, updated_at = ?
+      WHERE id = ?
+    `
+    )
+    .run(now, now, threadId)
+  return true
+}
+
+export const getThreadActiveRun = (threadId: string): string | null => {
+  const database = getDb()
+  const row = database
+    .prepare('SELECT active_run_id FROM threads WHERE id = ?')
+    .get(threadId) as { active_run_id?: string | null } | undefined
+  return row?.active_run_id ?? null
 }
 
 export const getThreadTitle = (threadId: string): string | null => {
