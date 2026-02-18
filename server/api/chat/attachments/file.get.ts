@@ -1,33 +1,10 @@
 import { readFile, stat } from 'node:fs/promises'
-import { basename, extname, isAbsolute, relative, resolve } from 'node:path'
+import { basename, isAbsolute, relative, resolve } from 'node:path'
 import type { H3Event } from 'h3'
+import { lookup } from 'mime-types'
 
 const inferMediaType = (filePath: string) => {
-  const extension = extname(filePath).toLowerCase()
-  switch (extension) {
-    case '.png':
-      return 'image/png'
-    case '.jpg':
-    case '.jpeg':
-      return 'image/jpeg'
-    case '.gif':
-      return 'image/gif'
-    case '.webp':
-      return 'image/webp'
-    case '.svg':
-      return 'image/svg+xml'
-    case '.bmp':
-      return 'image/bmp'
-    case '.ico':
-      return 'image/x-icon'
-    case '.tif':
-    case '.tiff':
-      return 'image/tiff'
-    case '.avif':
-      return 'image/avif'
-    default:
-      return 'application/octet-stream'
-  }
+  return lookup(filePath) || 'application/octet-stream'
 }
 
 const isInsideDirectory = (targetPath: string, directory: string) => {

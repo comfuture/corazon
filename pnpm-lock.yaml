@@ -41,6 +41,9 @@ importers:
       markstream-vue:
         specifier: 0.0.7-beta.3
         version: 0.0.7-beta.3(katex@0.16.28)(shiki@3.22.0)(stream-markdown@0.0.13(shiki@3.22.0))(stream-monaco@0.0.18(monaco-editor@0.52.2))(vue@3.5.27(typescript@5.9.3))
+      mime-types:
+        specifier: ^3.0.2
+        version: 3.0.2
       monaco-editor:
         specifier: ^0.52.2
         version: 0.52.2
@@ -72,6 +75,9 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
+      '@types/mime-types':
+        specifier: ^3.0.1
+        version: 3.0.1
       '@types/node':
         specifier: ^25.2.0
         version: 25.2.0
@@ -2764,6 +2770,9 @@ packages:
 
   '@types/mdurl@2.0.0':
     resolution: {integrity: sha512-RGdgjQUZba5p6QEFAVx2OGb8rQDL/cPRG7GiedRzMcJ1tYnUANBncjbSB1NRGwbvjcPeikRABz2nshyPk1bhWg==}
+
+  '@types/mime-types@3.0.1':
+    resolution: {integrity: sha512-xRMsfuQbnRq1Ef+C+RKaENOxXX87Ygl38W1vDfPHRku02TgQr+Qd8iivLtAMcR0KF5/29xlnFihkTlbqFrGOVQ==}
 
   '@types/ms@2.1.0':
     resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
@@ -10398,6 +10407,8 @@ snapshots:
       '@types/unist': 3.0.3
 
   '@types/mdurl@2.0.0': {}
+
+  '@types/mime-types@3.0.1': {}
 
   '@types/ms@2.1.0': {}
 

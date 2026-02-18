@@ -336,6 +336,8 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
           if (threadEvent.type === 'item.completed' && threadEvent.item?.type === 'reasoning') {
             const duration = Math.max(0, now - reasoningWindowStartedAt)
             reasoningDurations.set(threadEvent.item.id, duration)
+            // Fallback window start for consecutive reasoning items without an interleaving non-reasoning item.
+            reasoningWindowStartedAt = now
             waitingForNextReasoningWindowStart = true
           }
 

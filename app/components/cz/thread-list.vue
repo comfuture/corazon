@@ -4,9 +4,11 @@ import type { NavigationMenuItem } from '@nuxt/ui'
 const props = withDefaults(
   defineProps<{
     collapsed?: boolean
+    scrollContainer?: HTMLElement | null
   }>(),
   {
-    collapsed: false
+    collapsed: false,
+    scrollContainer: null
   }
 )
 
@@ -26,7 +28,7 @@ let resizeObserver: ResizeObserver | null = null
 let detachScrollListener: (() => void) | null = null
 
 const maybeLoadMore = async () => {
-  const container = rootRef.value?.closest<HTMLElement>('[data-slot="body"]')
+  const container = props.scrollContainer
   if (!container || !loaded.value || !hasMore.value || isRefreshing.value || isLoadingMore.value) {
     return
   }
@@ -47,7 +49,7 @@ const detachScrollAwareness = () => {
 const attachScrollAwareness = () => {
   detachScrollAwareness()
 
-  const container = rootRef.value?.closest<HTMLElement>('[data-slot="body"]')
+  const container = props.scrollContainer
   if (!container) {
     return
   }
@@ -98,6 +100,16 @@ watch(
 
 watch(
   () => props.collapsed,
+  () => {
+    void nextTick(() => {
+      attachScrollAwareness()
+      void maybeLoadMore()
+    })
+  }
+)
+
+watch(
+  () => props.scrollContainer,
   () => {
     void nextTick(() => {
       attachScrollAwareness()
