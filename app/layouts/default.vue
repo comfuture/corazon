@@ -1,5 +1,6 @@
 <script setup lang="ts">
 const sidebarCollapsed = ref(false)
+const threadScrollContainerRef = ref<HTMLElement | null>(null)
 
 const sidebarUi = computed(() =>
   sidebarCollapsed.value
@@ -42,7 +43,15 @@ const sidebarUi = computed(() =>
           class="mb-4 w-full justify-center"
           :block="!collapsed"
         />
-        <cz-thread-list :collapsed="collapsed" />
+        <div
+          ref="threadScrollContainerRef"
+          class="min-h-0 flex-1 overflow-y-auto"
+        >
+          <cz-thread-list
+            :collapsed="collapsed"
+            :scroll-container="threadScrollContainerRef"
+          />
+        </div>
       </template>
       <template #footer="{ collapsed }">
         <UButton
