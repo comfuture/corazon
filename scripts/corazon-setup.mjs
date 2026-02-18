@@ -7,19 +7,58 @@ import {
   readdirSync,
   readlinkSync,
   rmSync,
-  symlinkSync
+  symlinkSync,
+  writeFileSync
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-const DEFAULT_EXCLUDES = new Set(['log', 'logs', 'tmp', 'sessions'])
-const SESSION_LOG_PATTERN = /^session-.*\.jsonl$/
+const SEED_FILES = ['config.toml']
+const SEED_DIRECTORIES = ['skills', 'rules', 'vendor_imports']
+const AUTH_FILE = 'auth.json'
+const AGENTS_FILE = 'AGENTS.md'
 
-const getDefaultRuntimeRoot = () => join(homedir(), '.corazon')
+const DEFAULT_AGENTS_TEMPLATE = `# Corazon Agent Defaults
+
+- Use Corazon runtime home as primary Codex home.
+- Manage MCP servers from Settings > MCP.
+- Manage local skills from Settings > Skill.
+- Keep project instructions in repository AGENTS.md up to date.
+`
+
+const getPlatformDefaultRuntimeRoot = () => {
+  if (process.platform === 'darwin') {
+    return join(homedir(), 'Library', 'Application Support', 'Corazon')
+  }
+  if (process.platform === 'win32') {
+    const appData = process.env.APPDATA?.trim()
+    if (appData) {
+      return join(appData, 'Corazon')
+    }
+    return join(homedir(), 'AppData', 'Roaming', 'Corazon')
+  }
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim()
+  if (xdgConfigHome) {
+    return join(xdgConfigHome, 'corazon')
+  }
+  return join(homedir(), '.config', 'corazon')
+}
+
+const getDefaultRuntimeRoot = () => {
+  const configured = process.env.CORAZON_ROOT_DIR?.trim()
+  if (configured) {
+    return configured
+  }
+  const legacyRoot = join(homedir(), '.corazon')
+  if (existsSync(legacyRoot)) {
+    return legacyRoot
+  }
+  return getPlatformDefaultRuntimeRoot()
+}
 
 const getDefaultCodexHome = () => {
-  const configured = process.env.CODEX_HOME?.trim()
+  const configured = process.env.CORAZON_CODEX_SEED_SOURCE?.trim()
   if (configured) {
     return configured
   }
@@ -78,100 +117,95 @@ const log = (state, message) => {
   }
 }
 
-const copySymlink = (source, destination, overwrite) => {
-  if (!overwrite && existsSync(destination)) {
-    return false
-  }
-  if (overwrite && existsSync(destination)) {
-    try {
-      rmSync(destination, { force: true, recursive: false })
-    } catch (error) {
-      if (error && error.code !== 'ENOENT') {
-        throw error
-      }
-    }
-  }
-  const target = readlinkSync(source)
-  try {
-    symlinkSync(target, destination)
-  } catch (error) {
-    if (error && error.code === 'EEXIST') {
-      return false
-    }
-    throw error
-  }
-  return true
-}
-
-const copyFile = (source, destination, overwrite) => {
-  if (!overwrite && existsSync(destination)) {
-    return false
-  }
-  copyFileSync(source, destination)
-  return true
-}
-
-const shouldSkipEntry = (name, isDirectory) => {
-  if (DEFAULT_EXCLUDES.has(name)) {
-    return true
-  }
-  if (!isDirectory && SESSION_LOG_PATTERN.test(name)) {
-    return true
-  }
-  return false
-}
-
-const copyTree = (sourceRoot, destinationRoot, overwrite) => {
-  const stats = lstatSync(sourceRoot)
-  if (stats.isSymbolicLink()) {
-    const didCopy = copySymlink(sourceRoot, destinationRoot, overwrite)
-    return {
-      copied: didCopy ? 1 : 0,
-      skipped: didCopy ? 0 : 1
-    }
-  }
-  if (!stats.isDirectory()) {
-    const didCopy = copyFile(sourceRoot, destinationRoot, overwrite)
-    return {
-      copied: didCopy ? 1 : 0,
-      skipped: didCopy ? 0 : 1
-    }
-  }
-
-  if (!existsSync(destinationRoot)) {
-    mkdirSync(destinationRoot, { recursive: true })
-  }
-
-  let copied = 0
-  let skipped = 0
-
-  for (const entry of readdirSync(sourceRoot, { withFileTypes: true })) {
-    const entryName = entry.name
-    const isDirectory = entry.isDirectory()
-    if (shouldSkipEntry(entryName, isDirectory)) {
-      skipped += 1
+const copyDirectoryRecursive = (sourceDir, destinationDir, overwrite, counters) => {
+  mkdirSync(destinationDir, { recursive: true })
+  for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
+    const sourcePath = join(sourceDir, entry.name)
+    const destinationPath = join(destinationDir, entry.name)
+    if (entry.isDirectory()) {
+      copyDirectoryRecursive(sourcePath, destinationPath, overwrite, counters)
       continue
     }
-    const sourcePath = join(sourceRoot, entryName)
-    const destinationPath = join(destinationRoot, entryName)
     if (entry.isSymbolicLink()) {
-      const didCopy = copySymlink(sourcePath, destinationPath, overwrite)
-      copied += didCopy ? 1 : 0
-      skipped += didCopy ? 0 : 1
+      if (existsSync(destinationPath) && !overwrite) {
+        counters.skipped += 1
+        continue
+      }
+      if (existsSync(destinationPath)) {
+        rmSync(destinationPath, { recursive: true, force: true })
+      }
+      const linkTarget = readlinkSync(sourcePath)
+      symlinkSync(linkTarget, destinationPath)
+      counters.copied += 1
       continue
     }
-    if (isDirectory) {
-      const result = copyTree(sourcePath, destinationPath, overwrite)
-      copied += result.copied
-      skipped += result.skipped
+    if (existsSync(destinationPath) && !overwrite) {
+      counters.skipped += 1
       continue
     }
-    const didCopy = copyFile(sourcePath, destinationPath, overwrite)
-    copied += didCopy ? 1 : 0
-    skipped += didCopy ? 0 : 1
+    copyFileSync(sourcePath, destinationPath)
+    counters.copied += 1
   }
+}
 
-  return { copied, skipped }
+const ensureSeededFile = (sourcePath, destinationPath, overwrite, counters) => {
+  if (!existsSync(sourcePath)) {
+    counters.skipped += 1
+    return
+  }
+  if (existsSync(destinationPath) && !overwrite) {
+    counters.skipped += 1
+    return
+  }
+  mkdirSync(dirname(destinationPath), { recursive: true })
+  copyFileSync(sourcePath, destinationPath)
+  counters.copied += 1
+}
+
+const ensureSeededDirectory = (sourcePath, destinationPath, overwrite, counters) => {
+  if (!existsSync(sourcePath)) {
+    counters.skipped += 1
+    return
+  }
+  if (existsSync(destinationPath) && !overwrite) {
+    counters.skipped += 1
+    return
+  }
+  if (existsSync(destinationPath) && overwrite) {
+    rmSync(destinationPath, { recursive: true, force: true })
+  }
+  const sourceStats = lstatSync(sourcePath)
+  if (!sourceStats.isDirectory()) {
+    counters.skipped += 1
+    return
+  }
+  copyDirectoryRecursive(sourcePath, destinationPath, overwrite, counters)
+}
+
+const ensureLinkedAuthFile = (sourcePath, destinationPath, overwrite, counters) => {
+  if (!existsSync(sourcePath)) {
+    counters.skipped += 1
+    return
+  }
+  if (existsSync(destinationPath) && !overwrite) {
+    counters.skipped += 1
+    return
+  }
+  if (existsSync(destinationPath)) {
+    rmSync(destinationPath, { recursive: true, force: true })
+  }
+  symlinkSync(sourcePath, destinationPath, 'file')
+  counters.linked += 1
+}
+
+const ensureAgentsFile = (runtimeRoot, overwrite, counters) => {
+  const destinationPath = join(runtimeRoot, AGENTS_FILE)
+  if (existsSync(destinationPath) && !overwrite) {
+    counters.skipped += 1
+    return
+  }
+  writeFileSync(destinationPath, DEFAULT_AGENTS_TEMPLATE, 'utf8')
+  counters.copied += 1
 }
 
 const printUsage = () => {
@@ -182,8 +216,8 @@ Usage:
 
 Options:
   -r, --runtime-root <path>  Destination runtime root directory
-  -c, --codex-home <path>    Source Codex home directory
-  --overwrite, --force       Overwrite existing files
+  -c, --codex-home <path>    Source Codex home directory (default: ~/.codex)
+  --overwrite, --force       Overwrite existing seeded files
   -q, --quiet                Suppress logs
   -h, --help                 Show this help
 
@@ -202,26 +236,52 @@ export const run = (args = []) => {
 
   const runtimeRoot = resolve(options.runtimeRoot || getDefaultRuntimeRoot())
   const codexHome = resolve(options.codexHome || getDefaultCodexHome())
-  const targetCodexHome = join(runtimeRoot, '.codex')
-
-  log(options, `Corazon setup starting...`)
-  log(options, `Runtime root: ${runtimeRoot}`)
-  log(options, `Codex home: ${codexHome}`)
-
-  if (!existsSync(codexHome)) {
-    console.error(`Codex home not found at ${codexHome}`)
-    console.error(`Run codex once or set --codex-home to the correct path.`)
-    process.exit(1)
+  const counters = {
+    copied: 0,
+    linked: 0,
+    skipped: 0
   }
 
+  log(options, 'Corazon setup starting...')
+  log(options, `Runtime root: ${runtimeRoot}`)
+  log(options, `Codex seed source: ${codexHome}`)
+
   mkdirSync(runtimeRoot, { recursive: true })
-  mkdirSync(targetCodexHome, { recursive: true })
   mkdirSync(join(runtimeRoot, 'data'), { recursive: true })
   mkdirSync(join(runtimeRoot, 'threads'), { recursive: true })
 
-  const result = copyTree(codexHome, targetCodexHome, options.overwrite)
+  if (existsSync(codexHome)) {
+    for (const filename of SEED_FILES) {
+      ensureSeededFile(
+        join(codexHome, filename),
+        join(runtimeRoot, filename),
+        options.overwrite,
+        counters
+      )
+    }
 
-  log(options, `Copied ${result.copied} item(s), skipped ${result.skipped} item(s).`)
+    for (const directoryName of SEED_DIRECTORIES) {
+      ensureSeededDirectory(
+        join(codexHome, directoryName),
+        join(runtimeRoot, directoryName),
+        options.overwrite,
+        counters
+      )
+    }
+
+    ensureLinkedAuthFile(
+      join(codexHome, AUTH_FILE),
+      join(runtimeRoot, AUTH_FILE),
+      options.overwrite,
+      counters
+    )
+  } else {
+    log(options, `Codex seed source not found: ${codexHome} (continuing without seed copy).`)
+  }
+
+  ensureAgentsFile(runtimeRoot, options.overwrite, counters)
+
+  log(options, `Seeded/copied ${counters.copied} item(s), linked ${counters.linked} item(s), skipped ${counters.skipped} item(s).`)
   log(options, `Done. Mount ${runtimeRoot} into the container runtime root.`)
 }
 

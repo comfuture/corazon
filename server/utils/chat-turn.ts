@@ -9,6 +9,7 @@ import {
 } from '../../types/chat-ui.ts'
 import type { InferUIMessageChunk } from 'ai'
 import { createUIMessageStream } from 'ai'
+import { ensureAgentBootstrap } from './agent-bootstrap.ts'
 import { createCodexAssistantBuilder } from './message-builder.ts'
 import {
   clearThreadActiveRun,
@@ -42,12 +43,24 @@ const MODEL_OPTIONS = new Set([
 
 let codexInstance: Codex | null = null
 
+const getCodexEnv = () => {
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === 'string') {
+      env[key] = value
+    }
+  }
+  env.CODEX_HOME = ensureAgentBootstrap()
+  return env
+}
+
 const getCodex = () => {
   if (codexInstance) {
     return codexInstance
   }
 
   codexInstance = new Codex({
+    env: getCodexEnv(),
     config: {
       show_raw_agent_reasoning: true,
       approval_policy: 'never',

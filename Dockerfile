@@ -18,7 +18,7 @@ ENV NODE_ENV=production
 ENV NITRO_HOST=0.0.0.0
 ENV NITRO_PORT=3000
 ENV CORAZON_ROOT_DIR=/root/.corazon
-ENV CODEX_HOME=/root/.corazon/.codex
+ENV CODEX_HOME=/root/.corazon
 
 COPY scripts/docker-entrypoint.sh /usr/local/bin/corazon-entrypoint
 RUN chmod +x /usr/local/bin/corazon-entrypoint

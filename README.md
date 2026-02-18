@@ -44,7 +44,7 @@ pnpm preview
 
 ### Docker (production)
 
-Prepare a runtime root (copies Codex config without logs/sessions/tmp):
+Prepare a runtime root (seeds config/skills/rules/vendor imports and links auth):
 
 ```bash
 npx corazon setup --runtime-root ./.corazon
@@ -66,7 +66,7 @@ docker run --rm -p 3000:3000 \
 ```
 
 Notes:
-- The runtime root (e.g. `./.corazon`) should contain `.codex`, `data/`, and `threads/`.
+- The runtime root (e.g. `./.corazon`) should contain `config.toml`, `skills/`, `data/`, and `threads/`.
 - If you want a different runtime root, run `npx corazon setup --runtime-root /path/to/root` and mount it to `/root/.corazon` (or set `CORAZON_ROOT_DIR`).
 
 ## Data & storage
