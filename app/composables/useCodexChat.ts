@@ -191,7 +191,6 @@ export const useCodexChat = () => {
           }
           if (pendingAttachmentUploadId.value) {
             body.attachmentUploadId = pendingAttachmentUploadId.value
-            pendingAttachmentUploadId.value = null
           }
 
           return {

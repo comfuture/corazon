@@ -3,7 +3,15 @@ import type { H3Event } from 'h3'
 import { getRun } from 'workflow/api'
 import type { UIMessageChunk } from 'ai'
 
-export default defineEventHandler((event: H3Event) => {
+const createTerminalFinishStream = () =>
+  new ReadableStream<UIMessageChunk>({
+    start(controller) {
+      controller.enqueue({ type: 'finish' })
+      controller.close()
+    }
+  })
+
+export default defineEventHandler(async (event: H3Event) => {
   const runId = getRouterParam(event, 'runId')
   if (!runId) {
     throw createError({ statusCode: 400, statusMessage: 'Missing run id.' })
@@ -21,6 +29,16 @@ export default defineEventHandler((event: H3Event) => {
   }
 
   const run = getRun(runId)
+  let runStatus = ''
+  try {
+    runStatus = await run.status
+  } catch {
+    return createUIMessageStreamResponse({
+      stream: createTerminalFinishStream(),
+      status: 200
+    })
+  }
+
   const readable = run.getReadable<UIMessageChunk>({ startIndex })
   const stream = new ReadableStream<UIMessageChunk>({
     start(controller) {
@@ -29,8 +47,7 @@ export default defineEventHandler((event: H3Event) => {
 
       void (async () => {
         const terminalStatuses = new Set(['completed', 'failed', 'cancelled'])
-        const status = await run.status
-        const useIdleTimeout = terminalStatuses.has(status)
+        const useIdleTimeout = terminalStatuses.has(runStatus)
         const IDLE_TIMEOUT_MS = 1000
         const IDLE = Symbol('idle')
 
