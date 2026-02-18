@@ -1,9 +1,9 @@
 import Database from 'better-sqlite3'
 import { existsSync, mkdirSync, rmSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Usage } from '@openai/codex-sdk'
 import { CODEX_ITEM_PART, type CodexUIMessage } from '../../types/chat-ui.ts'
+import { resolveCorazonRootDir } from './agent-home.ts'
 
 export type ThreadSummary = {
   id: string
@@ -80,13 +80,7 @@ const normalizeCodexItemParts = (messages: CodexUIMessage[]) =>
     }
   })
 
-const getRuntimeRoot = () => {
-  const configuredRoot = process.env.CORAZON_ROOT_DIR?.trim()
-  if (configuredRoot) {
-    return configuredRoot
-  }
-  return join(homedir(), '.corazon')
-}
+const getRuntimeRoot = () => resolveCorazonRootDir()
 
 const getThreadRootDirectory = () => join(getRuntimeRoot(), 'threads')
 
