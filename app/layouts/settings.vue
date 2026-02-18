@@ -18,9 +18,9 @@ const items = computed<NavigationMenuItem[][]>(() => [[
     <UDashboardSidebar
       resizable
       collapsible
-      :default-size="18"
-      :min-size="14"
-      :max-size="24"
+      :default-size="24"
+      :min-size="21"
+      :max-size="40"
       :ui="{ footer: 'border-t border-default' }"
     >
       <template #header="{ collapsed }">
