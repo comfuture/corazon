@@ -29,6 +29,18 @@
         />
         <cz-thread-list :collapsed="collapsed" />
       </template>
+      <template #footer="{ collapsed }">
+        <UButton
+          to="/settings/general"
+          color="neutral"
+          variant="ghost"
+          icon="i-lucide-settings"
+          :label="collapsed ? undefined : 'Settings'"
+          :square="collapsed"
+          class="w-full justify-center"
+          :block="!collapsed"
+        />
+      </template>
     </UDashboardSidebar>
     <NuxtPage />
   </UDashboardGroup>
