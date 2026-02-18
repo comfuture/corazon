@@ -107,7 +107,7 @@ const threadTokens = computed(() => {
   if (!thread) {
     return null
   }
-  return thread.totalInputTokens + thread.totalCachedInputTokens + thread.totalOutputTokens
+  return thread.totalInputTokens + thread.totalOutputTokens
 })
 
 const threadWorkingDirectory = computed(() => {
@@ -441,7 +441,7 @@ const onAttachmentInputChange = (event: Event) => {
             </div>
             <div class="text-[11px] text-muted-foreground/80">
               in {{ formatTokenTotal(threadUsage.input) }}
-              ({{ formatTokenTotal(threadUsage.cached) }})
+              (cached {{ formatTokenTotal(threadUsage.cached) }})
               · out {{ formatTokenTotal(threadUsage.output) }}
             </div>
           </div>
