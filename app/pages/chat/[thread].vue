@@ -266,19 +266,11 @@ const onAttachmentInputChange = (event: Event) => {
         </template>
         <template #right>
           <div class="flex items-center gap-3">
-            <div
-              v-if="threadTokens !== null && threadUsage"
-              class="text-right leading-tight text-muted-foreground"
-            >
-              <div class="text-xs font-medium">
-                {{ formatTokenTotal(threadTokens) }} tokens
-              </div>
-              <div class="text-[11px] text-muted-foreground/80">
-                in {{ formatTokenTotal(threadUsage.input) }}
-                ({{ formatTokenTotal(threadUsage.cached) }})
-                · out {{ formatTokenTotal(threadUsage.output) }}
-              </div>
-            </div>
+            <UColorModeButton
+              color="neutral"
+              variant="ghost"
+              size="sm"
+            />
             <UButton
               to="/chat"
               icon="i-lucide-plus"
@@ -432,12 +424,25 @@ const onAttachmentInputChange = (event: Event) => {
             @reload="onReload"
           />
         </UChatPrompt>
-        <div class="mt-3 flex items-center">
+        <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
           <cz-model-select
             v-model="selectedModel"
             :items="modelOptions"
             class="w-40"
           />
+          <div
+            v-if="threadTokens !== null && threadUsage"
+            class="text-right leading-tight text-muted-foreground"
+          >
+            <div class="text-xs font-medium">
+              {{ formatTokenTotal(threadTokens) }} tokens
+            </div>
+            <div class="text-[11px] text-muted-foreground/80">
+              in {{ formatTokenTotal(threadUsage.input) }}
+              ({{ formatTokenTotal(threadUsage.cached) }})
+              · out {{ formatTokenTotal(threadUsage.output) }}
+            </div>
+          </div>
         </div>
       </UContainer>
       <UModal
