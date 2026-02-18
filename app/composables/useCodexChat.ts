@@ -33,6 +33,22 @@ const CHAT_MESSAGES_ROOT_SELECTOR = '.codex-chat-messages-root'
 const CHAT_SCROLL_RETRY_DELAY_MS = 48
 const CHAT_SCROLL_RETRY_COUNT = 4
 
+const notifyThreadEnded = () => {
+  if (!import.meta.client) {
+    return
+  }
+  if (document.visibilityState === 'visible') {
+    return
+  }
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
+    return
+  }
+
+  new Notification('Thread ended', {
+    body: 'Your Codex thread has completed.'
+  })
+}
+
 const isCompletedCodexItem = (part: CodexItemPart) => {
   const item = part.data?.item as Record<string, unknown> | undefined
   return !!item && 'status' in item && item.status === 'completed'
@@ -77,6 +93,7 @@ const queueScrollChatToBottom = (attempt = 0) => {
 
 export const useCodexChat = () => {
   const { upsertThread, setThreadTitle, applyTurnUsage } = useCodexThreads()
+  const { enableNotifications } = useSettings()
   const chat = import.meta.client
     ? sharedChat
     : shallowRef<Chat<CodexUIMessage> | null>(null)
@@ -280,6 +297,10 @@ export const useCodexChat = () => {
           pendingWorkflowRunId.value = null
           upsertThread({ id: part.data.threadId, updatedAt: part.data.endedAt })
           queueScrollChatToBottom()
+
+          if (enableNotifications.value) {
+            notifyThreadEnded()
+          }
 
           const chatInstance = chat.value
           if (threadId.value === part.data.threadId && chatInstance && isChatInFlight(chatInstance.status)) {
