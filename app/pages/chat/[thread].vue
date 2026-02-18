@@ -333,7 +333,7 @@ const onAttachmentInputChange = (event: Event) => {
             <div class="space-y-3 text-sm">
               <p>
                 Codex only runs inside trusted directories. Add your working directory to
-                <span class="font-mono text-xs">~/.codex/config.toml</span>:
+                <span class="font-mono text-xs">~/.corazon/config.toml</span>:
               </p>
               <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <pre class="w-full rounded-md bg-muted/40 px-3 py-2 text-xs sm:w-auto sm:flex-1">{{ trustConfigSnippet }}</pre>

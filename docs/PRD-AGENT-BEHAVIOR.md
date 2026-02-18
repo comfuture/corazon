@@ -72,18 +72,18 @@
 9. `pnpm typecheck`, `pnpm lint` 통과
 
 ## 구현 체크리스트
-- [ ] PRD 문서 생성
-- [ ] agent home 경로 해석 유틸 추가
-- [ ] bootstrap 유틸 추가 및 서버 시작 시 적용
-- [ ] Codex SDK `CODEX_HOME` 오버라이드
-- [ ] setup 스크립트 `.corazon` seed 정책으로 전환
-- [ ] docker entrypoint/env 경로 전환
-- [ ] settings 타입 정의 추가
-- [ ] TOML 파서/writer 의존성 추가
-- [ ] settings/mcp API 구현
-- [ ] settings/skill API 구현
-- [ ] settings/mcp UI 구현
-- [ ] settings/skill UI 구현
-- [ ] settings navigation 확장
-- [ ] 관련 문구/문서 업데이트
-- [ ] typecheck/lint 통과
+- [x] PRD 문서 생성
+- [x] agent home 경로 해석 유틸 추가
+- [x] bootstrap 유틸 추가 및 서버 시작 시 적용
+- [x] Codex SDK `CODEX_HOME` 오버라이드
+- [x] setup 스크립트 `.corazon` seed 정책으로 전환
+- [x] docker entrypoint/env 경로 전환
+- [x] settings 타입 정의 추가
+- [x] TOML 파서/writer 의존성 추가
+- [x] settings/mcp API 구현
+- [x] settings/skill API 구현
+- [x] settings/mcp UI 구현
+- [x] settings/skill UI 구현
+- [x] settings navigation 확장
+- [x] 관련 문구/문서 업데이트
+- [x] typecheck/lint 통과

@@ -5,6 +5,7 @@ import type { AgentHomeInfo, McpServerConfig } from '@@/types/settings'
 import { ensureAgentBootstrap } from './agent-bootstrap.ts'
 
 type JsonObject = Record<string, unknown>
+type TomlInput = Parameters<typeof stringify>[0]
 
 const isPlainObject = (value: unknown): value is JsonObject =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -23,7 +24,7 @@ const toStringRecord = (value: unknown) => {
   if (!isPlainObject(value)) {
     return undefined
   }
-  const entries = Object.entries(value).filter((entry) =>
+  const entries = Object.entries(value).filter(entry =>
     typeof entry[0] === 'string' && typeof entry[1] === 'string'
   ) as Array<[string, string]>
   if (!entries.length) {
@@ -135,5 +136,5 @@ export const writeMcpServerConfigs = (servers: McpServerConfig[]) => {
 
   configRoot.mcp_servers = nextMcpServers
   mkdirSync(dirname(configPath), { recursive: true })
-  writeFileSync(configPath, stringify(configRoot as any), 'utf8')
+  writeFileSync(configPath, stringify(configRoot as TomlInput), 'utf8')
 }
