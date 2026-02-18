@@ -84,7 +84,9 @@ watch(
 )
 
 onMounted(() => {
-  void refreshThreads()
+  if (!threads.value.length) {
+    void refreshThreads()
+  }
   void loadWorkdirRoot()
 })
 
