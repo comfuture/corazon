@@ -8,5 +8,6 @@ services:
       NITRO_PORT: 3000
       CORAZON_ROOT_DIR: /root/.corazon
       CODEX_HOME: /root/.corazon
+      WORKFLOW_LOCAL_DATA_DIR: /root/.corazon/workflow-data
     volumes:
       - ./.corazon:/root/.corazon

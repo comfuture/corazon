@@ -3,6 +3,9 @@ set -e
 
 RUNTIME_ROOT=${CORAZON_ROOT_DIR:-/root/.corazon}
 CODEX_HOME=${CODEX_HOME:-"${RUNTIME_ROOT}"}
+WORKFLOW_LOCAL_DATA_DIR=${WORKFLOW_LOCAL_DATA_DIR:-"${RUNTIME_ROOT}/workflow-data"}
+
+export WORKFLOW_LOCAL_DATA_DIR
 
 if [ ! -d "$RUNTIME_ROOT" ]; then
   echo "Corazon runtime root was not found at: $RUNTIME_ROOT" >&2
@@ -16,6 +19,8 @@ fi
 if [ ! -d "$CODEX_HOME" ]; then
   mkdir -p "$CODEX_HOME"
 fi
+
+mkdir -p "$WORKFLOW_LOCAL_DATA_DIR"
 
 if [ ! -f "$CODEX_HOME/config.toml" ]; then
   echo "Codex config.toml was not found at: $CODEX_HOME/config.toml" >&2

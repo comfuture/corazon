@@ -68,12 +68,14 @@ docker run --rm -p 3000:3000 \
 Notes:
 - The runtime root (e.g. `./.corazon`) should contain `config.toml`, `skills/`, `data/`, and `threads/`.
 - If you want a different runtime root, run `npx corazon setup --runtime-root /path/to/root` and mount it to `/root/.corazon` (or set `CORAZON_ROOT_DIR`).
+- Workflow local metadata is stored at `${WORKFLOW_LOCAL_DATA_DIR}` (default: `${CORAZON_ROOT_DIR}/workflow-data`).
 
 ## Data & storage
 
 - SQLite database: `${CORAZON_ROOT_DIR}/data/codex.sqlite` (default: `~/.corazon/data/codex.sqlite`)
 - Thread working directories: `${CORAZON_ROOT_DIR}/threads/{threadId}` (default: `~/.corazon/threads/{threadId}`)
 - Attachments are stored under each thread’s `attachments/` directory.
+- Workflow local metadata: `${WORKFLOW_LOCAL_DATA_DIR}` (default: `${CORAZON_ROOT_DIR}/workflow-data`)
 
 ## TODO
 
