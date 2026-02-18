@@ -1,4 +1,5 @@
 import type { H3Event } from 'h3'
+import type { CodexChatHistoryResponse } from '@@/types/codex-ui'
 
 export default defineEventHandler((event: H3Event) => {
   const threadId = getRouterParam(event, 'threadId')
@@ -8,9 +9,12 @@ export default defineEventHandler((event: H3Event) => {
 
   ensureThreadWorkingDirectory(threadId)
   const messages = loadThreadMessages(threadId)
-  if (!messages) {
-    return []
+  const activeRunId = getThreadActiveRun(threadId)
+
+  const response: CodexChatHistoryResponse = {
+    messages: messages ?? [],
+    activeRunId
   }
 
-  return messages
+  return response
 })

@@ -1,8 +1,10 @@
 import { Chat } from '@ai-sdk/vue'
+import { WorkflowChatTransport } from '@workflow/ai'
 import type { DataUIPart, FileUIPart } from 'ai'
 import {
   CODEX_EVENT_PART,
   CODEX_ITEM_PART,
+  type CodexChatHistoryResponse,
   type CodexThreadEventData,
   type CodexUIDataTypes,
   type CodexUIMessage
@@ -48,6 +50,33 @@ export const useCodexChat = () => {
   const lastRestoredThreadId = useState<string | null>('codex-last-restored-thread-id', () => null)
   const pendingInput = useState<string | null>('codex-pending-input', () => null)
   const pendingMessageId = useState<string | null>('codex-pending-message-id', () => null)
+  const pendingAttachmentUploadId = useState<string | null>('codex-pending-attachment-upload-id', () => null)
+  const threadRunMap = useState<Record<string, string>>('codex-thread-run-map', () => ({}))
+  const pendingWorkflowRunId = useState<string | null>('codex-pending-workflow-run-id', () => null)
+  const lastResumedRunId = useState<string | null>('codex-last-resumed-run-id', () => null)
+
+  const setThreadRunId = (nextThreadId: string, runId: string) => {
+    threadRunMap.value = {
+      ...threadRunMap.value,
+      [nextThreadId]: runId
+    }
+  }
+
+  const clearThreadRunId = (nextThreadId: string) => {
+    if (!threadRunMap.value[nextThreadId]) {
+      return
+    }
+    threadRunMap.value = Object.fromEntries(
+      Object.entries(threadRunMap.value).filter(([key]) => key !== nextThreadId)
+    )
+  }
+
+  const resolveRunIdForThread = (nextThreadId: string | null) => {
+    if (!nextThreadId) {
+      return null
+    }
+    return threadRunMap.value[nextThreadId] ?? null
+  }
 
   if (import.meta.client && !skipGitRepoCheckLoaded.value) {
     const stored = window.localStorage.getItem('codex-skip-git-repo-check')
@@ -69,6 +98,76 @@ export const useCodexChat = () => {
 
   if (import.meta.client && !chat.value) {
     chat.value = markRaw(new Chat<CodexUIMessage>({
+      transport: new WorkflowChatTransport<CodexUIMessage>({
+        api: '/api/chat',
+        onChatSendMessage(response) {
+          const runId = response.headers.get('x-workflow-run-id')
+          if (!runId) {
+            return
+          }
+
+          const currentThreadId = threadId.value
+          if (currentThreadId) {
+            setThreadRunId(currentThreadId, runId)
+            pendingWorkflowRunId.value = null
+            return
+          }
+
+          pendingWorkflowRunId.value = runId
+        },
+        onChatEnd() {
+          const currentThreadId = threadId.value
+          if (currentThreadId) {
+            const currentRunId = resolveRunIdForThread(currentThreadId)
+            clearThreadRunId(currentThreadId)
+            if (currentRunId && lastResumedRunId.value === currentRunId) {
+              lastResumedRunId.value = null
+            }
+          }
+          pendingWorkflowRunId.value = null
+        },
+        prepareSendMessagesRequest(request) {
+          const body: Record<string, unknown> = {
+            messages: request.messages,
+            model: selectedModel.value
+          }
+
+          if (threadId.value) {
+            body.threadId = threadId.value
+          }
+          if (resumeThread.value) {
+            body.resume = true
+          }
+          if (skipGitRepoCheck.value) {
+            body.skipGitRepoCheck = true
+          }
+          if (pendingAttachmentUploadId.value) {
+            body.attachmentUploadId = pendingAttachmentUploadId.value
+            pendingAttachmentUploadId.value = null
+          }
+
+          return {
+            ...request,
+            api: '/api/chat',
+            headers: {
+              ...(request.headers ?? {}),
+              'Content-Type': 'application/json'
+            },
+            body
+          }
+        },
+        prepareReconnectToStreamRequest(request) {
+          const runId = resolveRunIdForThread(threadId.value) ?? pendingWorkflowRunId.value
+          if (!runId) {
+            return request
+          }
+
+          return {
+            ...request,
+            api: `/api/chat/${encodeURIComponent(runId)}/stream`
+          }
+        }
+      }),
       onError(error) {
         console.error(error)
       },
@@ -118,6 +217,11 @@ export const useCodexChat = () => {
           threadId.value = part.data.threadId
           pendingThreadId.value = part.data.threadId
           upsertThread({ id: part.data.threadId, updatedAt: Date.now() })
+
+          if (pendingWorkflowRunId.value) {
+            setThreadRunId(part.data.threadId, pendingWorkflowRunId.value)
+            pendingWorkflowRunId.value = null
+          }
         }
 
         if (part.data.kind === 'thread.title') {
@@ -174,26 +278,6 @@ export const useCodexChat = () => {
     }))
   }
 
-  const baseRequestOptions = () => {
-    const safetyBody = skipGitRepoCheck.value ? { skipGitRepoCheck: true } : {}
-    if (!threadId.value) {
-      return { body: { model: selectedModel.value, ...safetyBody } }
-    }
-
-    return resumeThread.value
-      ? { body: { threadId: threadId.value, resume: true, ...safetyBody } }
-      : { body: { threadId: threadId.value, ...safetyBody } }
-  }
-
-  const buildRequestOptions = (extraBody?: Record<string, unknown>) => {
-    const base = baseRequestOptions()
-    if (!extraBody || Object.keys(extraBody).length === 0) {
-      return base
-    }
-
-    return { body: { ...base.body, ...extraBody } }
-  }
-
   const sendMessage = async (options?: {
     fileParts?: FileUIPart[]
     attachmentUploadId?: string | null
@@ -214,30 +298,27 @@ export const useCodexChat = () => {
     }
     const shouldClearInput = options?.clearInput ?? options?.text === undefined
     const usedResume = resumeThread.value
-    const extraBody = options?.attachmentUploadId
-      ? { attachmentUploadId: options.attachmentUploadId }
-      : undefined
     const resolvedMessageId = options?.messageId
       ?? (options?.reusePendingMessageId ? pendingMessageId.value ?? undefined : undefined)
     let caughtError: unknown
+
+    pendingAttachmentUploadId.value = options?.attachmentUploadId ?? null
+
     if (shouldClearInput && message.length > 0) {
       pendingInput.value = message
       input.value = ''
     }
+
     try {
       if (message.length > 0) {
-        await chatInstance.sendMessage(
-          { text: message, files: fileParts, messageId: resolvedMessageId },
-          buildRequestOptions(extraBody)
-        )
+        await chatInstance.sendMessage({ text: message, files: fileParts, messageId: resolvedMessageId })
       } else {
-        await chatInstance.sendMessage(
-          { files: fileParts, messageId: resolvedMessageId },
-          buildRequestOptions(extraBody)
-        )
+        await chatInstance.sendMessage({ files: fileParts, messageId: resolvedMessageId })
       }
     } catch (error) {
       caughtError = error
+    } finally {
+      pendingAttachmentUploadId.value = null
     }
 
     const trustError = isTrustErrorMessage(chatInstance.error?.message ?? '') && !skipGitRepoCheck.value
@@ -268,7 +349,7 @@ export const useCodexChat = () => {
       return
     }
 
-    await chatInstance.regenerate(baseRequestOptions() ?? {})
+    await chatInstance.regenerate()
   }
 
   const stop = () => {
@@ -281,6 +362,9 @@ export const useCodexChat = () => {
     autoRedirectThreadId.value = null
     resumeThread.value = false
     lastRestoredThreadId.value = null
+    lastResumedRunId.value = null
+    pendingWorkflowRunId.value = null
+    pendingAttachmentUploadId.value = null
 
     const chatInstance = chat.value
     if (!chatInstance) {
@@ -322,10 +406,19 @@ export const useCodexChat = () => {
     }
 
     try {
-      const history = await $fetch<CodexUIMessage[]>(`/api/chat/history/${next}`)
-      if (Array.isArray(history)) {
-        chatInstance.messages = history
-        lastRestoredThreadId.value = next
+      const history = await $fetch<CodexChatHistoryResponse>(`/api/chat/history/${next}`)
+      chatInstance.messages = history?.messages ?? []
+      lastRestoredThreadId.value = next
+
+      if (history?.activeRunId) {
+        setThreadRunId(next, history.activeRunId)
+        if (lastResumedRunId.value !== history.activeRunId) {
+          await chatInstance.resumeStream()
+          lastResumedRunId.value = history.activeRunId
+        }
+      } else {
+        clearThreadRunId(next)
+        lastResumedRunId.value = null
       }
     } catch (error) {
       console.error(error)

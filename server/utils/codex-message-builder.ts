@@ -4,7 +4,7 @@ import type {
   TextUIPart
 } from 'ai'
 import { randomUUID } from 'node:crypto'
-import type { CodexUIMessage } from '@@/types/codex-ui'
+import type { CodexUIMessage } from '../../types/codex-ui.ts'
 
 type CodexChunk = InferUIMessageChunk<CodexUIMessage>
 type CodexPart = CodexUIMessage['parts'][number]

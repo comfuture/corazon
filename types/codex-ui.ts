@@ -72,5 +72,20 @@ export type CodexUIDataTypes = {
 
 export type CodexUIMessage = UIMessage<unknown, CodexUIDataTypes>
 
+export type CodexChatWorkflowInput = {
+  threadId?: string | null
+  resume?: boolean
+  attachmentUploadId?: string | null
+  skipGitRepoCheck?: boolean
+  model?: string | null
+  messages: CodexUIMessage[]
+  workflowRunId?: string | null
+}
+
+export type CodexChatHistoryResponse = {
+  messages: CodexUIMessage[]
+  activeRunId: string | null
+}
+
 export const CODEX_EVENT_PART = 'data-codex-event' as const
 export const CODEX_ITEM_PART = 'data-codex-item' as const
