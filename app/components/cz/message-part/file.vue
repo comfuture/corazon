@@ -37,7 +37,28 @@ const previewUrl = computed(() => {
   if (!props.part?.url || !props.part.mediaType?.startsWith('image/')) {
     return null
   }
-  return props.part.url.startsWith('data:') ? props.part.url : null
+
+  const sourceUrl = props.part.url
+  if (
+    sourceUrl.startsWith('data:')
+    || sourceUrl.startsWith('blob:')
+    || sourceUrl.startsWith('http://')
+    || sourceUrl.startsWith('https://')
+    || sourceUrl.startsWith('/')
+  ) {
+    return sourceUrl
+  }
+
+  if (sourceUrl.startsWith('file://')) {
+    const filePath = sourceUrl.replace(/^file:\/\//, '')
+    const query = new URLSearchParams({
+      path: filePath,
+      mediaType: props.part.mediaType
+    })
+    return `/api/chat/attachments/file?${query.toString()}`
+  }
+
+  return null
 })
 </script>
 
