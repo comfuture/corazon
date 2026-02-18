@@ -48,9 +48,6 @@ const getCodex = () => {
   }
 
   codexInstance = new Codex({
-    env: {
-      PATH: '/tmp'
-    },
     config: {
       show_raw_agent_reasoning: true,
       approval_policy: 'never',
