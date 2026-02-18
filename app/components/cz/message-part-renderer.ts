@@ -2,7 +2,7 @@ import { defineComponent, h, type PropType } from 'vue'
 import {
   CODEX_EVENT_PART,
   CODEX_ITEM_PART
-} from '@@/types/codex-ui'
+} from '@@/types/chat-ui'
 import CzMessagePartText from './message-part/text.vue'
 import CzMessagePartFile from './message-part/file.vue'
 import CzMessagePartReasoning from './message-part/reasoning.vue'

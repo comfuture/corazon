@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import MarkdownRender from 'markstream-vue'
 import 'markstream-vue/index.css'
-import type { CodexItemData } from '@@/types/codex-ui'
+import type { CodexItemData } from '@@/types/chat-ui'
 
 type McpToolCallItem = Extract<CodexItemData, { kind: 'mcp_tool_call' }>['item']
 

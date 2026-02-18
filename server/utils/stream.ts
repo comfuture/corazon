@@ -6,7 +6,7 @@ import {
   type CodexItemData,
   type CodexThreadEventData,
   type CodexUIMessage
-} from '../../types/codex-ui.ts'
+} from '../../types/chat-ui.ts'
 
 type CodexWriter = UIMessageStreamWriter<CodexUIMessage>
 

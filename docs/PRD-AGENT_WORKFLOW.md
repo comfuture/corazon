@@ -15,8 +15,8 @@
 
 ## 아키텍처 변경점
 - `POST /api/chat`는 Codex를 직접 실행하지 않고 워크플로우 run을 시작한다.
-- Codex 실행 본문은 `server/utils/codex-chat-turn.ts`로 분리한다.
-- 워크플로우 `server/workflows/codex-chat-turn.ts`에서 step이 Codex 스트림 청크를 `getWritable()`로 전달한다.
+- Codex 실행 본문은 `server/utils/chat-turn.ts`로 분리한다.
+- 워크플로우 `server/workflows/chat-turn.ts`에서 step이 Codex 스트림 청크를 `getWritable()`로 전달한다.
 - 클라이언트는 `WorkflowChatTransport`를 사용해 런 재연결을 수행한다.
 
 ## API 계약
@@ -57,8 +57,8 @@ SQLite `threads` 테이블 컬럼 추가:
 - [x] Nuxt 모듈 추가: `workflow/nuxt`
 - [x] 타입 추가: `CodexChatHistoryResponse`, `CodexChatWorkflowInput`
 - [x] DB 스키마/유틸 확장 (`active_run_id`, `active_run_updated_at`)
-- [x] Codex 실행 로직 분리 (`server/utils/codex-chat-turn.ts`)
-- [x] 워크플로우 추가 (`server/workflows/codex-chat-turn.ts`)
+- [x] Codex 실행 로직 분리 (`server/utils/chat-turn.ts`)
+- [x] 워크플로우 추가 (`server/workflows/chat-turn.ts`)
 - [x] `/api/chat`를 `start()` 기반으로 전환
 - [x] `/api/chat/[runId]/stream.get.ts` 추가
 - [x] 히스토리 응답 확장 (`messages + activeRunId`)

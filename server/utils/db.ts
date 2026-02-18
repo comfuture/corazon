@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Usage } from '@openai/codex-sdk'
-import { CODEX_ITEM_PART, type CodexUIMessage } from '../../types/codex-ui.ts'
+import { CODEX_ITEM_PART, type CodexUIMessage } from '../../types/chat-ui.ts'
 
 export type ThreadSummary = {
   id: string

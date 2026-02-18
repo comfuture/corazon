@@ -4,7 +4,7 @@ import {
   CODEX_ITEM_PART,
   type CodexItemData,
   type CodexUIDataTypes
-} from '@@/types/codex-ui'
+} from '@@/types/chat-ui'
 import CzMessageItemCommandExecution from '../message-item/command-execution.vue'
 import CzMessageItemFileChange from '../message-item/file-change.vue'
 import CzMessageItemMcpToolCall from '../message-item/mcp-tool-call.vue'

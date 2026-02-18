@@ -8,7 +8,7 @@ import {
   type CodexThreadEventData,
   type CodexUIDataTypes,
   type CodexUIMessage
-} from '@@/types/codex-ui'
+} from '@@/types/chat-ui'
 
 const sharedChat = shallowRef<Chat<CodexUIMessage> | null>(null)
 

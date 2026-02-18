@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CodexItemData } from '@@/types/codex-ui'
+import type { CodexItemData } from '@@/types/chat-ui'
 
 type TodoListItem = Extract<CodexItemData, { kind: 'todo_list' }>['item']
 
