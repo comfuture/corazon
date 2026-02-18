@@ -1,92 +1,110 @@
 <script setup lang="ts">
-import MarkdownRender from 'markstream-vue'
-import 'markstream-vue/index.css'
 import type { CodexItemData } from '@@/types/chat-ui'
 
 type McpToolCallItem = Extract<CodexItemData, { kind: 'mcp_tool_call' }>['item']
 
-defineProps<{
+const props = defineProps<{
   item: McpToolCallItem
 }>()
 
-const statusColor = (status?: string) => {
-  switch (status) {
-    case 'completed':
-      return 'success'
-    case 'failed':
-      return 'error'
-    case 'in_progress':
-      return 'warning'
-    default:
-      return 'neutral'
+const open = ref(false)
+
+const formatOneLineJson = (value: unknown) => {
+  try {
+    return JSON.stringify(value) ?? ''
+  } catch {
+    return String(value)
   }
 }
 
-const asCodeBlock = (value: string, language = 'text') => {
-  const content = value.trim().length > 0 ? value : '(empty)'
-  return `\`\`\`${language}\n${content}\n\`\`\``
-}
-
-const formatJson = (value: unknown) => {
+const formatPrettyJson = (value: unknown) => {
   try {
     return JSON.stringify(value, null, 2) ?? ''
   } catch {
     return String(value)
   }
 }
+
+const callPreview = computed(() => {
+  const server = props.item.server?.trim() || 'mcp'
+  const tool = props.item.tool?.trim() || 'tool'
+  const args = formatOneLineJson(props.item.arguments)
+  return args ? `${server} ${tool} ${args}` : `${server} ${tool}`
+})
+
+const resultText = computed(() => formatPrettyJson(props.item.result))
+
+const toggleOpen = () => {
+  open.value = !open.value
+}
 </script>
 
 <template>
-  <UCard>
-    <template #header>
-      <div class="flex flex-wrap items-center gap-2">
+  <div class="space-y-2">
+    <UButton
+      color="neutral"
+      variant="ghost"
+      size="sm"
+      class="w-full justify-between px-0 py-0.5 text-muted"
+      @click="toggleOpen"
+    >
+      <span class="min-w-0 flex flex-1 items-center gap-2 text-left">
         <UBadge
           color="primary"
           variant="subtle"
+          size="xs"
         >
           MCP
         </UBadge>
-        <span class="text-xs">{{ item.server }}</span>
-        <span class="font-mono text-xs">{{ item.tool }}</span>
-        <UBadge
-          :color="statusColor(item.status)"
-          variant="soft"
-        >
-          {{ item.status }}
-        </UBadge>
-      </div>
-    </template>
-
-    <div class="space-y-3">
-      <div>
-        <div class="text-xs font-semibold text-muted">
-          Arguments
+        <span class="block truncate font-mono text-xs">{{ callPreview }}</span>
+      </span>
+      <template #trailing>
+        <div class="flex items-center gap-2">
+          <UIcon
+            v-if="item.status === 'in_progress'"
+            name="i-lucide-loader-2"
+            class="h-3.5 w-3.5 animate-spin text-amber-500"
+          />
+          <UIcon
+            v-else-if="item.status === 'completed'"
+            name="i-lucide-check"
+            class="h-3.5 w-3.5 text-emerald-500"
+          />
+          <UIcon
+            v-else-if="item.status === 'failed'"
+            name="i-lucide-x"
+            class="h-3.5 w-3.5 text-rose-500"
+          />
+          <UIcon
+            name="i-lucide-chevron-right"
+            class="size-3.5 text-muted transition-transform"
+            :class="open ? 'rotate-90' : ''"
+          />
         </div>
-        <MarkdownRender
-          :content="asCodeBlock(formatJson(item.arguments), 'json')"
-        />
-      </div>
+      </template>
+    </UButton>
 
-      <div v-if="item.result">
-        <div class="text-xs font-semibold text-muted">
-          Result
-        </div>
-        <MarkdownRender
-          :content="asCodeBlock(formatJson(item.result), 'json')"
-        />
-      </div>
-
-      <UAlert
-        v-if="item.error"
-        color="error"
-        variant="soft"
-        icon="i-lucide-alert-triangle"
-        title="Tool error"
+    <template v-if="open">
+      <div
+        v-if="item.result"
+        class="rounded-md bg-muted/10 px-3 py-2"
       >
-        <template #description>
-          {{ item.error?.message }}
-        </template>
-      </UAlert>
-    </div>
-  </UCard>
+        <pre class="whitespace-pre-wrap break-words text-sm text-muted-foreground">{{ resultText }}</pre>
+      </div>
+
+      <p
+        v-else
+        class="text-sm text-muted-foreground"
+      >
+        No result yet.
+      </p>
+
+      <p
+        v-if="item.error?.message"
+        class="text-sm text-rose-500/90"
+      >
+        {{ item.error.message }}
+      </p>
+    </template>
+  </div>
 </template>
