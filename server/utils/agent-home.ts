@@ -44,6 +44,11 @@ export const resolveCorazonRootDir = () => {
   }
 
   const legacyRoot = getLegacyCorazonRootDir()
+  if (process.platform === 'darwin') {
+    cachedCorazonRootDir = legacyRoot
+    return cachedCorazonRootDir
+  }
+
   if (existsSync(legacyRoot)) {
     cachedCorazonRootDir = legacyRoot
     return cachedCorazonRootDir

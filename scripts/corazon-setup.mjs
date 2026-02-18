@@ -47,6 +47,9 @@ const getDefaultRuntimeRoot = () => {
     return configured
   }
   const legacyRoot = join(homedir(), '.corazon')
+  if (process.platform === 'darwin') {
+    return legacyRoot
+  }
   if (existsSync(legacyRoot)) {
     return legacyRoot
   }

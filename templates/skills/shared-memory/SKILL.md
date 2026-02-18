@@ -25,6 +25,8 @@ Use this skill whenever the agent should persist or retrieve durable context sha
 Use `scripts/shared-memory.mjs`.
 All command responses must be parsed as JSON.
 
+Memory reads are also allowed via direct shell reads (`rg`/`cat`) when that is simpler.
+
 ### Ensure Memory File
 
 ```bash
@@ -40,6 +42,13 @@ node scripts/shared-memory.mjs search \
   --limit 5
 ```
 
+### Direct File Read (Allowed)
+
+```bash
+rg -n --no-heading "name|이름" "${CODEX_HOME}/MEMORY.md"
+cat "${CODEX_HOME}/MEMORY.md"
+```
+
 ### Upsert Memory
 
 ```bash
@@ -47,16 +56,17 @@ node scripts/shared-memory.mjs upsert \
   --memory-file "${CODEX_HOME}/MEMORY.md" \
   --section "Preferences" \
   --text "The user prefers concise responses." \
-  --threshold 0.72
+  --threshold 0.62
 ```
 
 ## Required Workflow
 
 1. Run `ensure` before any read/write.
-2. Run `search` before writing when you need explicit evidence of potential duplicates.
-3. Run `upsert` for writes. Do not append directly.
-4. Prefer updating an existing near-duplicate memory over adding a new item.
-5. Create a missing section only when necessary for the new memory.
+2. For each read, always re-read from disk (`search`, `rg`, or `cat`) and do not trust prior in-memory read results.
+3. Run `search` or direct file read before writing when you need duplicate evidence.
+4. Run `upsert` for writes. Do not append directly.
+5. Prefer updating an existing near-duplicate memory over adding a new item.
+6. Create a missing section only when necessary for the new memory.
 
 ## Write Policy
 
