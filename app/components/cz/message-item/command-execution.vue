@@ -8,17 +8,10 @@ const props = defineProps<{
 }>()
 
 const open = ref(false)
-const COMMAND_PREVIEW_MAX_LENGTH = 28
 
 const commandPreview = computed(() => {
   const command = props.item.command?.trim() ?? ''
-  if (!command) {
-    return 'ran command'
-  }
-  if (command.length <= COMMAND_PREVIEW_MAX_LENGTH) {
-    return `ran ${command}`
-  }
-  return `ran ${command.slice(0, COMMAND_PREVIEW_MAX_LENGTH)} ...`
+  return command ? `ran ${command}` : 'ran command'
 })
 
 const toggleOpen = () => {
@@ -35,7 +28,9 @@ const toggleOpen = () => {
       class="w-full justify-between px-0 py-0.5 text-muted"
       @click="toggleOpen"
     >
-      <span class="font-mono text-xs">{{ commandPreview }}</span>
+      <span class="min-w-0 flex-1 text-left">
+        <span class="block truncate font-mono text-xs">{{ commandPreview }}</span>
+      </span>
       <template #trailing>
         <div class="flex items-center gap-2">
           <UIcon
