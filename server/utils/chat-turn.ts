@@ -32,8 +32,9 @@ const TITLE_MODEL = 'gpt-5.1-codex-mini'
 const TITLE_REASONING_EFFORT = 'low'
 const TITLE_MAX_LENGTH = 80
 const TITLE_WORKDIR = '/tmp'
-const DEFAULT_MODEL = 'gpt-5.2-codex'
+const DEFAULT_MODEL = 'gpt-5.3-codex'
 const MODEL_OPTIONS = new Set([
+  'gpt-5.3-codex',
   'gpt-5.2-codex',
   'gpt-5.2',
   'gpt-5.1-codex-mini'

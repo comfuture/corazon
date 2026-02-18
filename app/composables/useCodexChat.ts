@@ -81,11 +81,12 @@ export const useCodexChat = () => {
     ? sharedChat
     : shallowRef<Chat<CodexUIMessage> | null>(null)
   const input = useState('codex-chat-input', () => '')
-  const selectedModel = useState('codex-selected-model', () => 'gpt-5.2-codex')
+  const selectedModel = useState('codex-selected-model', () => 'gpt-5.3-codex')
   const skipGitRepoCheck = useState('codex-skip-git-repo-check', () => false)
   const skipGitRepoCheckLoaded = useState('codex-skip-git-repo-check-loaded', () => false)
   const workdirRoot = useState<string | null>('codex-workdir-root', () => null)
   const modelOptions = [
+    { label: 'gpt-5.3-codex', value: 'gpt-5.3-codex' },
     { label: 'gpt-5.2-codex', value: 'gpt-5.2-codex' },
     { label: 'gpt-5.2', value: 'gpt-5.2' },
     { label: 'gpt-5.1-codex-mini', value: 'gpt-5.1-codex-mini' }
