@@ -1,0 +1,4 @@
+interface:
+  display_name: "Shared Memory"
+  short_description: "Share and update workspace MEMORY.md safely"
+  default_prompt: "Maintain shared long-term memory in MEMORY.md with deduplicated updates"

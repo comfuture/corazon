@@ -20,6 +20,8 @@ const SEED_DIRECTORIES = ['skills', 'rules', 'vendor_imports']
 const AUTH_FILE = 'auth.json'
 const AGENTS_FILE = 'AGENTS.md'
 const AGENTS_SKELETON_FILE = 'agent-behavior.md'
+const MEMORY_FILE = 'MEMORY.md'
+const DEFAULT_MEMORY_SECTIONS = ['Facts', 'Preferences', 'Decisions', 'Tasks']
 
 const getPlatformDefaultRuntimeRoot = () => {
   if (process.platform === 'darwin') {
@@ -192,6 +194,19 @@ const ensureLinkedAuthFile = (sourcePath, destinationPath, overwrite, counters) 
   counters.linked += 1
 }
 
+const buildDefaultMemoryContent = () =>
+  `${DEFAULT_MEMORY_SECTIONS.map(section => `## ${section}`).join('\n\n')}\n`
+
+const ensureMemoryFile = (runtimeRoot, counters) => {
+  const destinationPath = join(runtimeRoot, MEMORY_FILE)
+  if (existsSync(destinationPath)) {
+    counters.skipped += 1
+    return
+  }
+  writeFileSync(destinationPath, buildDefaultMemoryContent(), 'utf8')
+  counters.copied += 1
+}
+
 const ensureAgentsFile = (runtimeRoot, overwrite, counters) => {
   const destinationPath = join(runtimeRoot, AGENTS_FILE)
   if (existsSync(destinationPath) && !overwrite) {
@@ -280,7 +295,16 @@ export const run = (args = []) => {
     log(options, `Codex seed source not found: ${codexHome} (continuing without seed copy).`)
   }
 
+  const scriptDir = dirname(fileURLToPath(import.meta.url))
+  ensureSeededDirectory(
+    resolve(scriptDir, '..', 'templates', 'skills', 'shared-memory'),
+    join(runtimeRoot, 'skills', 'shared-memory'),
+    options.overwrite,
+    counters
+  )
+
   ensureAgentsFile(runtimeRoot, options.overwrite, counters)
+  ensureMemoryFile(runtimeRoot, counters)
 
   log(options, `Seeded/copied ${counters.copied} item(s), linked ${counters.linked} item(s), skipped ${counters.skipped} item(s).`)
   log(options, `Done. Mount ${runtimeRoot} into the container runtime root.`)

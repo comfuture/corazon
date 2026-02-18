@@ -6,8 +6,10 @@ import type { SkillSummary } from '@@/types/settings'
 import { ensureAgentBootstrap } from './agent-bootstrap.ts'
 
 const SKILL_FILE_NAME = 'SKILL.md'
+const SYSTEM_SKILL_NAMES = new Set(['shared-memory'])
 
 const isSafeSkillName = (name: string) => /^[A-Za-z0-9._-]+$/.test(name)
+const isSystemSkillName = (name: string) => name.startsWith('.') || SYSTEM_SKILL_NAMES.has(name)
 
 const normalizeSkillName = (name: string) =>
   name
@@ -30,7 +32,7 @@ const toSkillSummary = (name: string): SkillSummary => {
     name,
     path,
     hasSkillFile: existsSync(join(path, SKILL_FILE_NAME)),
-    isSystem: name.startsWith('.')
+    isSystem: isSystemSkillName(name)
   }
 }
 
@@ -151,7 +153,7 @@ export const removeInstalledSkill = (name: string) => {
   if (!normalizedName || !isSafeSkillName(normalizedName)) {
     throw new Error('Invalid skill name.')
   }
-  if (normalizedName.startsWith('.')) {
+  if (isSystemSkillName(normalizedName)) {
     throw new Error('System skills cannot be removed from UI.')
   }
 
