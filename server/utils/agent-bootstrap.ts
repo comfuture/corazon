@@ -17,6 +17,8 @@ const SEED_DIRECTORIES = ['skills', 'rules', 'vendor_imports'] as const
 const AUTH_FILE = 'auth.json'
 const AGENTS_FILE = 'AGENTS.md'
 const AGENTS_SKELETON_FILE = 'agent-behavior.md'
+const MEMORY_FILE = 'MEMORY.md'
+const DEFAULT_MEMORY_SECTIONS = ['Facts', 'Preferences', 'Decisions', 'Tasks'] as const
 
 let bootstrapDone = false
 
@@ -78,6 +80,23 @@ const ensureDefaultAgentsFile = (agentHomeDir: string) => {
   writeFileSync(destinationPath, '# Corazon Assistant\n', 'utf8')
 }
 
+const buildDefaultMemoryContent = () =>
+  `${DEFAULT_MEMORY_SECTIONS.map(section => `## ${section}`).join('\n\n')}\n`
+
+const ensureDefaultMemoryFile = (agentHomeDir: string) => {
+  const destinationPath = join(agentHomeDir, MEMORY_FILE)
+  if (existsSync(destinationPath)) {
+    return
+  }
+  writeFileSync(destinationPath, buildDefaultMemoryContent(), 'utf8')
+}
+
+const ensureBundledSharedMemorySkill = (agentHomeDir: string) => {
+  const sourcePath = join(process.cwd(), 'templates', 'skills', 'shared-memory')
+  const destinationPath = join(agentHomeDir, 'skills', 'shared-memory')
+  ensureSeededDirectory(sourcePath, destinationPath)
+}
+
 const getCodexSeedSourceDir = () => {
   const configured = process.env.CORAZON_CODEX_SEED_SOURCE?.trim()
   if (configured) {
@@ -108,7 +127,9 @@ export const ensureAgentBootstrap = () => {
     ensureLinkedAuthFile(join(sourceRootDir, AUTH_FILE), join(agentHomeDir, AUTH_FILE))
   }
 
+  ensureBundledSharedMemorySkill(agentHomeDir)
   ensureDefaultAgentsFile(agentHomeDir)
+  ensureDefaultMemoryFile(agentHomeDir)
   bootstrapDone = true
   return agentHomeDir
 }
