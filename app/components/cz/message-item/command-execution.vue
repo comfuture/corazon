@@ -7,92 +7,85 @@ const props = defineProps<{
   item: CommandExecutionItem
 }>()
 
-const outputOpen = ref(false)
-const lastStatus = ref<string | null>(null)
+const open = ref(false)
+const COMMAND_PREVIEW_MAX_LENGTH = 28
 
-watch(
-  () => props.item?.status,
-  (status) => {
-    if (!status) {
-      outputOpen.value = false
-      lastStatus.value = null
-      return
-    }
+const commandPreview = computed(() => {
+  const command = props.item.command?.trim() ?? ''
+  if (!command) {
+    return 'ran command'
+  }
+  if (command.length <= COMMAND_PREVIEW_MAX_LENGTH) {
+    return `ran ${command}`
+  }
+  return `ran ${command.slice(0, COMMAND_PREVIEW_MAX_LENGTH)} ...`
+})
 
-    if (lastStatus.value === status) {
-      return
-    }
-
-    lastStatus.value = status
-    outputOpen.value = status === 'in_progress'
-  },
-  { immediate: true }
-)
-
-const onOutputOpenChange = (open: boolean) => {
-  outputOpen.value = open
+const toggleOpen = () => {
+  open.value = !open.value
 }
 </script>
 
 <template>
-  <div class="relative rounded-md border border-muted/50 bg-muted/20 p-3 space-y-2">
-    <div class="absolute right-3 top-3">
-      <UIcon
-        v-if="item.status === 'in_progress'"
-        name="i-lucide-loader-2"
-        class="h-4 w-4 animate-spin text-amber-500"
-      />
-      <UIcon
-        v-else-if="item.status === 'completed'"
-        name="i-lucide-check"
-        class="h-4 w-4 text-emerald-500"
-      />
-      <UIcon
-        v-else-if="item.status === 'failed'"
-        name="i-lucide-x"
-        class="h-4 w-4 text-rose-500"
-      />
-    </div>
-
-    <div class="flex flex-wrap items-center gap-2 text-xs">
-      <UBadge
-        color="primary"
-        variant="subtle"
-      >
-        Command
-      </UBadge>
-      <span class="font-mono text-xs break-all">{{ item.command }}</span>
-    </div>
-
-    <UCollapsible
-      v-if="item.aggregated_output"
-      :open="outputOpen"
-      class="rounded-md border border-muted/40 bg-background/60"
-      @update:open="onOutputOpenChange"
+  <div class="space-y-2">
+    <UButton
+      color="neutral"
+      variant="ghost"
+      size="sm"
+      class="w-full justify-between px-0 py-0.5 text-muted"
+      @click="toggleOpen"
     >
-      <UButton
-        :label="outputOpen ? 'Hide output' : 'Show output'"
-        color="neutral"
-        variant="ghost"
-        trailing-icon="i-lucide-chevron-down"
-        size="xs"
-        class="w-full justify-between px-2 py-1.5 text-xs"
-      />
-
-      <template #content>
-        <div class="pt-2">
-          <div class="rounded-md bg-muted/10 px-3 py-2">
-            <pre class="whitespace-pre-wrap break-words font-mono text-xs text-muted-foreground">{{ item.aggregated_output }}</pre>
-          </div>
+      <span class="font-mono text-xs">{{ commandPreview }}</span>
+      <template #trailing>
+        <div class="flex items-center gap-2">
+          <UIcon
+            v-if="item.status === 'in_progress'"
+            name="i-lucide-loader-2"
+            class="h-3.5 w-3.5 animate-spin text-amber-500"
+          />
+          <UIcon
+            v-else-if="item.status === 'completed'"
+            name="i-lucide-check"
+            class="h-3.5 w-3.5 text-emerald-500"
+          />
+          <UIcon
+            v-else-if="item.status === 'failed'"
+            name="i-lucide-x"
+            class="h-3.5 w-3.5 text-rose-500"
+          />
+          <UIcon
+            name="i-lucide-chevron-right"
+            class="size-3.5 text-muted transition-transform"
+            :class="open ? 'rotate-90' : ''"
+          />
         </div>
       </template>
-    </UCollapsible>
+    </UButton>
 
-    <p
-      v-else
-      class="text-xs text-muted-foreground"
-    >
-      No output yet.
-    </p>
+    <template v-if="open">
+      <div class="flex flex-wrap items-center gap-2 text-xs">
+        <UBadge
+          color="primary"
+          variant="subtle"
+        >
+          Command
+        </UBadge>
+        <span class="font-mono text-xs break-all">{{ item.command }}</span>
+      </div>
+
+      <div
+        v-if="item.aggregated_output"
+        class="rounded-md bg-muted/10 px-3 py-2"
+      >
+        <pre class="whitespace-pre-wrap break-words font-mono text-xs text-muted-foreground">{{ item.aggregated_output }}</pre>
+      </div>
+
+      <p
+        v-else
+        class="text-xs text-muted-foreground"
+      >
+        No output yet.
+      </p>
+    </template>
   </div>
 </template>

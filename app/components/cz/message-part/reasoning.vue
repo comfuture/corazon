@@ -5,6 +5,8 @@ import 'markstream-vue/index.css'
 const props = defineProps<{
   part?: {
     text?: string
+    state?: 'streaming' | 'done'
+    ended?: boolean
     providerMetadata?: Record<string, unknown>
     [key: string]: unknown
   } | null
@@ -33,18 +35,12 @@ const formatThinkingDuration = (durationMs: number) => {
 }
 
 const reasoningDurationMs = computed(getReasoningDurationMs)
-const open = ref(true)
-const settled = ref(false)
+const reasoningEnded = computed(() => props.part?.ended === true || props.part?.state === 'done')
+const open = ref(!reasoningEnded.value)
 
-watch(reasoningDurationMs, (durationMs) => {
-  if (durationMs != null && !settled.value) {
-    settled.value = true
+watch(reasoningEnded, (ended) => {
+  if (ended) {
     open.value = false
-    return
-  }
-
-  if (!settled.value) {
-    open.value = durationMs == null
   }
 }, { immediate: true })
 
@@ -52,32 +48,37 @@ const label = computed(() =>
   reasoningDurationMs.value == null ? 'Thinking...' : formatThinkingDuration(reasoningDurationMs.value)
 )
 
-const onOpenChange = (value: boolean) => {
-  open.value = value
+const toggleOpen = () => {
+  open.value = !open.value
 }
 </script>
 
 <template>
-  <UCollapsible
-    :open="open"
-    class="flex flex-col gap-2 rounded-md border border-muted/50 bg-muted/30 p-2"
-    @update:open="onOpenChange"
-  >
+  <div class="flex flex-col gap-2">
     <UButton
-      :label="label"
       color="neutral"
       variant="ghost"
-      trailing-icon="i-lucide-chevron-down"
       size="sm"
-      class="justify-between"
-    />
+      class="w-full justify-between px-0 py-0.5 text-muted"
+      @click="toggleOpen"
+    >
+      <span>{{ label }}</span>
+      <template #trailing>
+        <UIcon
+          name="i-lucide-chevron-right"
+          class="size-3.5 text-muted transition-transform"
+          :class="open ? 'rotate-90' : ''"
+        />
+      </template>
+    </UButton>
 
-    <template #content>
-      <div class="reasoning-muted">
-        <MarkdownRender :content="part?.text ?? ''" />
-      </div>
-    </template>
-  </UCollapsible>
+    <div
+      v-if="open"
+      class="reasoning-muted"
+    >
+      <MarkdownRender :content="part?.text ?? ''" />
+    </div>
+  </div>
 </template>
 
 <style scoped>
