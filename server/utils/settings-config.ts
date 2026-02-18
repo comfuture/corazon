@@ -135,5 +135,5 @@ export const writeMcpServerConfigs = (servers: McpServerConfig[]) => {
 
   configRoot.mcp_servers = nextMcpServers
   mkdirSync(dirname(configPath), { recursive: true })
-  writeFileSync(configPath, stringify(configRoot), 'utf8')
+  writeFileSync(configPath, stringify(configRoot as any), 'utf8')
 }
