@@ -29,6 +29,51 @@ const isTrustErrorMessage = (message: string) =>
   message.includes('Not inside a trusted directory') || message.includes('skip-git-repo-check')
 const isChatInFlight = (status: string | undefined) =>
   status === 'streaming' || status === 'submitted'
+const CHAT_MESSAGES_ROOT_SELECTOR = '.codex-chat-messages-root'
+const CHAT_SCROLL_RETRY_DELAY_MS = 48
+const CHAT_SCROLL_RETRY_COUNT = 4
+
+const isCompletedCodexItem = (part: CodexItemPart) => {
+  const item = part.data?.item as Record<string, unknown> | undefined
+  return !!item && 'status' in item && item.status === 'completed'
+}
+
+const getChatScrollContainer = () => {
+  if (!import.meta.client) {
+    return null
+  }
+
+  const root = document.querySelector<HTMLElement>(CHAT_MESSAGES_ROOT_SELECTOR)
+  if (!root) {
+    return null
+  }
+
+  return root.closest<HTMLElement>('[data-slot="body"]')
+}
+
+const scrollChatToBottomNow = () => {
+  const container = getChatScrollContainer()
+  if (!container) {
+    return
+  }
+  container.scrollTop = container.scrollHeight
+}
+
+const queueScrollChatToBottom = (attempt = 0) => {
+  if (!import.meta.client) {
+    return
+  }
+
+  void nextTick(() => {
+    scrollChatToBottomNow()
+    if (attempt >= CHAT_SCROLL_RETRY_COUNT) {
+      return
+    }
+    window.setTimeout(() => {
+      queueScrollChatToBottom(attempt + 1)
+    }, CHAT_SCROLL_RETRY_DELAY_MS)
+  })
+}
 
 export const useCodexChat = () => {
   const { upsertThread, setThreadTitle, applyTurnUsage } = useCodexThreads()
@@ -175,6 +220,10 @@ export const useCodexChat = () => {
       },
       onData(part) {
         if (!isCodexEventPart(part)) {
+          if (isCodexItemPart(part) && isCompletedCodexItem(part)) {
+            queueScrollChatToBottom()
+          }
+
           if (isCodexItemPart(part) && part.data?.kind === 'command_execution') {
             const chatInstance = chat.value
             if (!chatInstance) {
@@ -230,6 +279,7 @@ export const useCodexChat = () => {
           clearThreadRunId(part.data.threadId)
           pendingWorkflowRunId.value = null
           upsertThread({ id: part.data.threadId, updatedAt: part.data.endedAt })
+          queueScrollChatToBottom()
 
           const chatInstance = chat.value
           if (threadId.value === part.data.threadId && chatInstance && isChatInFlight(chatInstance.status)) {
@@ -249,6 +299,7 @@ export const useCodexChat = () => {
 
           const durations = part.data.reasoningDurations
           if (!durations || Object.keys(durations).length === 0) {
+            queueScrollChatToBottom()
             return
           }
 
@@ -287,6 +338,7 @@ export const useCodexChat = () => {
           }
 
           chatInstance.messages = [...chatInstance.messages]
+          queueScrollChatToBottom()
         }
       }
     }))
@@ -419,6 +471,7 @@ export const useCodexChat = () => {
       const history = await $fetch<CodexChatHistoryResponse>(`/api/chat/history/${next}`)
       chatInstance.messages = history?.messages ?? []
       lastRestoredThreadId.value = next
+      queueScrollChatToBottom()
 
       if (history?.activeRunId) {
         pendingWorkflowRunId.value = null
@@ -426,6 +479,7 @@ export const useCodexChat = () => {
         if (lastResumedRunId.value !== history.activeRunId) {
           await chatInstance.resumeStream()
           lastResumedRunId.value = history.activeRunId
+          queueScrollChatToBottom()
         }
       } else {
         clearThreadRunId(next)
@@ -434,6 +488,7 @@ export const useCodexChat = () => {
         if (isChatInFlight(chatInstance.status)) {
           await chatInstance.stop()
         }
+        queueScrollChatToBottom()
       }
     } catch (error) {
       console.error(error)
@@ -461,6 +516,7 @@ export const useCodexChat = () => {
 
     resumeThread.value = true
     await restoreHistory(next)
+    queueScrollChatToBottom()
   }
 
   const loadWorkdirRoot = async () => {

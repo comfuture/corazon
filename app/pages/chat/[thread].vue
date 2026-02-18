@@ -306,6 +306,7 @@ const onAttachmentInputChange = (event: Event) => {
         <UChatMessages
           :messages="chat?.messages ?? []"
           :status="chat?.status ?? 'ready'"
+          :ui="{ root: 'codex-chat-messages-root' }"
           should-auto-scroll
         >
           <template #content="{ message }">
