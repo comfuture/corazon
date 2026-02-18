@@ -96,6 +96,7 @@ export const ensureAgentBootstrap = () => {
   mkdirSync(agentHomeDir, { recursive: true })
   mkdirSync(join(agentHomeDir, 'data'), { recursive: true })
   mkdirSync(join(agentHomeDir, 'threads'), { recursive: true })
+  mkdirSync(join(agentHomeDir, 'workflow-data'), { recursive: true })
 
   const sourceRootDir = getCodexSeedSourceDir()
   if (existsSync(sourceRootDir)) {

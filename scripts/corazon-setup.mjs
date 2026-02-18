@@ -249,6 +249,7 @@ export const run = (args = []) => {
   mkdirSync(runtimeRoot, { recursive: true })
   mkdirSync(join(runtimeRoot, 'data'), { recursive: true })
   mkdirSync(join(runtimeRoot, 'threads'), { recursive: true })
+  mkdirSync(join(runtimeRoot, 'workflow-data'), { recursive: true })
 
   if (existsSync(codexHome)) {
     for (const filename of SEED_FILES) {

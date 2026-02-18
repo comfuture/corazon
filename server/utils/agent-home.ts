@@ -54,3 +54,6 @@ export const resolveCorazonRootDir = () => {
 }
 
 export const getDefaultCodexSeedSourceDir = () => join(homedir(), '.codex')
+
+export const resolveWorkflowLocalDataDir = () =>
+  join(resolveCorazonRootDir(), 'workflow-data')
