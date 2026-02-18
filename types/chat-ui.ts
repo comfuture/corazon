@@ -16,6 +16,11 @@ export type CodexThreadEventData
     threadId: string
   }
   | {
+    kind: 'thread.ended'
+    threadId: string
+    endedAt: number
+  }
+  | {
     kind: 'turn.started'
   }
   | {
