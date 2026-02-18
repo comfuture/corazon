@@ -4,6 +4,7 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   readlinkSync,
   symlinkSync,
   writeFileSync
@@ -15,14 +16,7 @@ const SEED_FILES = ['config.toml'] as const
 const SEED_DIRECTORIES = ['skills', 'rules', 'vendor_imports'] as const
 const AUTH_FILE = 'auth.json'
 const AGENTS_FILE = 'AGENTS.md'
-
-const DEFAULT_AGENTS_TEMPLATE = `# Corazon Agent Defaults
-
-- Use Corazon runtime home as primary Codex home.
-- Manage MCP servers from Settings > MCP.
-- Manage local skills from Settings > Skill.
-- Keep project instructions in repository AGENTS.md up to date.
-`
+const AGENTS_SKELETON_FILE = 'agent-behavior.md'
 
 let bootstrapDone = false
 
@@ -76,7 +70,12 @@ const ensureDefaultAgentsFile = (agentHomeDir: string) => {
   if (existsSync(destinationPath)) {
     return
   }
-  writeFileSync(destinationPath, DEFAULT_AGENTS_TEMPLATE, 'utf8')
+  const skeletonPath = join(process.cwd(), 'templates', AGENTS_SKELETON_FILE)
+  if (existsSync(skeletonPath)) {
+    writeFileSync(destinationPath, readFileSync(skeletonPath, 'utf8'), 'utf8')
+    return
+  }
+  writeFileSync(destinationPath, '# Corazon Assistant\n', 'utf8')
 }
 
 const getCodexSeedSourceDir = () => {

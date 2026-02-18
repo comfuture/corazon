@@ -5,6 +5,7 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   readlinkSync,
   rmSync,
   symlinkSync,
@@ -12,20 +13,13 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const SEED_FILES = ['config.toml']
 const SEED_DIRECTORIES = ['skills', 'rules', 'vendor_imports']
 const AUTH_FILE = 'auth.json'
 const AGENTS_FILE = 'AGENTS.md'
-
-const DEFAULT_AGENTS_TEMPLATE = `# Corazon Agent Defaults
-
-- Use Corazon runtime home as primary Codex home.
-- Manage MCP servers from Settings > MCP.
-- Manage local skills from Settings > Skill.
-- Keep project instructions in repository AGENTS.md up to date.
-`
+const AGENTS_SKELETON_FILE = 'agent-behavior.md'
 
 const getPlatformDefaultRuntimeRoot = () => {
   if (process.platform === 'darwin') {
@@ -204,7 +198,13 @@ const ensureAgentsFile = (runtimeRoot, overwrite, counters) => {
     counters.skipped += 1
     return
   }
-  writeFileSync(destinationPath, DEFAULT_AGENTS_TEMPLATE, 'utf8')
+  const scriptDir = dirname(fileURLToPath(import.meta.url))
+  const skeletonPath = resolve(scriptDir, '..', 'templates', AGENTS_SKELETON_FILE)
+  if (existsSync(skeletonPath)) {
+    writeFileSync(destinationPath, readFileSync(skeletonPath, 'utf8'), 'utf8')
+  } else {
+    writeFileSync(destinationPath, '# Corazon Assistant\n', 'utf8')
+  }
   counters.copied += 1
 }
 
