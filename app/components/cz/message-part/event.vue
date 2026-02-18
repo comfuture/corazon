@@ -30,6 +30,7 @@ const shouldRenderEvent = computed(() => {
   }
 
   return event.kind !== 'thread.started'
+    && event.kind !== 'thread.ended'
     && event.kind !== 'turn.started'
     && event.kind !== 'turn.completed'
     && event.kind !== 'thread.title'
@@ -61,6 +62,8 @@ const title = computed(() => {
   switch (event.kind) {
     case 'thread.started':
       return 'Thread started'
+    case 'thread.ended':
+      return 'Thread ended'
     case 'thread.title':
       return 'Thread title updated'
     case 'turn.started':

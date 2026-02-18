@@ -420,6 +420,20 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
           saveThreadMessages(resolvedThreadId, finalMessages)
         }
       } finally {
+        if (resolvedThreadId) {
+          const endedAt = Date.now()
+          const endedEvent: CodexThreadEventData = {
+            kind: 'thread.ended',
+            threadId: resolvedThreadId,
+            endedAt
+          }
+          writer.write({
+            type: CODEX_EVENT_PART,
+            id: `event-ended-${endedAt}`,
+            data: endedEvent,
+            transient: true
+          })
+        }
         if (resolvedThreadId && workflowRunId) {
           clearThreadActiveRun(resolvedThreadId, workflowRunId)
         }

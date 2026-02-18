@@ -27,6 +27,8 @@ const isCodexItemPart = (part: DataUIPart<CodexUIDataTypes>): part is CodexItemP
   part.type === CODEX_ITEM_PART
 const isTrustErrorMessage = (message: string) =>
   message.includes('Not inside a trusted directory') || message.includes('skip-git-repo-check')
+const isChatInFlight = (status: string | undefined) =>
+  status === 'streaming' || status === 'submitted'
 
 export const useCodexChat = () => {
   const { upsertThread, setThreadTitle, applyTurnUsage } = useCodexThreads()
@@ -224,6 +226,18 @@ export const useCodexChat = () => {
           }
         }
 
+        if (part.data.kind === 'thread.ended') {
+          clearThreadRunId(part.data.threadId)
+          pendingWorkflowRunId.value = null
+          upsertThread({ id: part.data.threadId, updatedAt: part.data.endedAt })
+
+          const chatInstance = chat.value
+          if (threadId.value === part.data.threadId && chatInstance && isChatInFlight(chatInstance.status)) {
+            void chatInstance.stop()
+          }
+          return
+        }
+
         if (part.data.kind === 'thread.title') {
           setThreadTitle(part.data.threadId, part.data.title, part.data.updatedAt)
         }
@@ -353,7 +367,7 @@ export const useCodexChat = () => {
   }
 
   const stop = () => {
-    chat.value?.stop()
+    void chat.value?.stop()
   }
 
   const clearForNewThread = () => {
@@ -371,8 +385,8 @@ export const useCodexChat = () => {
       return
     }
 
-    if (chatInstance.status === 'streaming' || chatInstance.status === 'submitted') {
-      return
+    if (isChatInFlight(chatInstance.status)) {
+      void chatInstance.stop()
     }
 
     chatInstance.messages = []
@@ -401,16 +415,13 @@ export const useCodexChat = () => {
       return
     }
 
-    if (chatInstance.status === 'streaming' || chatInstance.status === 'submitted') {
-      return
-    }
-
     try {
       const history = await $fetch<CodexChatHistoryResponse>(`/api/chat/history/${next}`)
       chatInstance.messages = history?.messages ?? []
       lastRestoredThreadId.value = next
 
       if (history?.activeRunId) {
+        pendingWorkflowRunId.value = null
         setThreadRunId(next, history.activeRunId)
         if (lastResumedRunId.value !== history.activeRunId) {
           await chatInstance.resumeStream()
@@ -419,6 +430,10 @@ export const useCodexChat = () => {
       } else {
         clearThreadRunId(next)
         lastResumedRunId.value = null
+        pendingWorkflowRunId.value = null
+        if (isChatInFlight(chatInstance.status)) {
+          await chatInstance.stop()
+        }
       }
     } catch (error) {
       console.error(error)
@@ -428,6 +443,12 @@ export const useCodexChat = () => {
   const setThreadFromRoute = async (next: string | null) => {
     if (!next) {
       return
+    }
+
+    const currentThreadId = threadId.value
+    const chatInstance = chat.value
+    if (currentThreadId && currentThreadId !== next && chatInstance && isChatInFlight(chatInstance.status)) {
+      await chatInstance.stop()
     }
 
     threadId.value = next
