@@ -9,6 +9,18 @@ const items = computed<NavigationMenuItem[][]>(() => [[
     icon: 'i-lucide-sliders-horizontal',
     to: '/settings/general',
     active: route.path === '/settings' || route.path.startsWith('/settings/general')
+  },
+  {
+    label: 'MCP',
+    icon: 'i-lucide-plug-zap',
+    to: '/settings/mcp',
+    active: route.path.startsWith('/settings/mcp')
+  },
+  {
+    label: 'Skill',
+    icon: 'i-lucide-sparkles',
+    to: '/settings/skill',
+    active: route.path.startsWith('/settings/skill')
   }
 ]])
 </script>

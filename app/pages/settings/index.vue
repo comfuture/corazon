@@ -3,11 +3,11 @@ definePageMeta({
   layout: 'settings'
 })
 
-await navigateTo('/settings/general')
+await navigateTo('/settings/mcp')
 </script>
 
 <template>
   <div class="p-4 text-sm text-muted-foreground">
-    Redirecting to General settings...
+    Redirecting to MCP settings...
   </div>
 </template>

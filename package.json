@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@ai-sdk/vue": "^3.0.67",
+    "@iarna/toml": "^2.2.5",
     "@iconify-json/lucide": "^1.2.87",
     "@iconify-json/simple-icons": "^1.2.68",
     "@nuxt/ui": "^4.4.0",
