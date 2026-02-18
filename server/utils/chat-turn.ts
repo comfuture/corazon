@@ -238,6 +238,29 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
       const reasoningStartedAt = new Map<string, number>()
       const reasoningDurations = new Map<string, number>()
 
+      const markReasoningStarted = (reasoningId: string, now: number) => {
+        if (reasoningStartedAt.has(reasoningId)) {
+          return
+        }
+        // Per-reasoning timing: start from the first event we observe for this reasoning item.
+        reasoningStartedAt.set(reasoningId, now)
+      }
+
+      const finalizeReasoningDuration = (reasoningId: string, now: number) => {
+        if (reasoningDurations.has(reasoningId)) {
+          return
+        }
+        const startedAt = reasoningStartedAt.get(reasoningId) ?? now
+        reasoningDurations.set(reasoningId, Math.max(0, now - startedAt))
+        reasoningStartedAt.delete(reasoningId)
+      }
+
+      const finalizePendingReasoningDurations = (now: number) => {
+        for (const reasoningId of reasoningStartedAt.keys()) {
+          finalizeReasoningDuration(reasoningId, now)
+        }
+      }
+
       if (resolvedThreadId && workflowRunId) {
         setThreadActiveRun(resolvedThreadId, workflowRunId)
       }
@@ -320,24 +343,38 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
 
         const { events } = await thread.runStreamed(inputMessage)
         for await (const threadEvent of events) {
-          if (threadEvent.type === 'item.started' && threadEvent.item?.type === 'reasoning') {
-            reasoningStartedAt.set(threadEvent.item.id, Date.now())
+          const now = Date.now()
+
+          if (threadEvent.type === 'turn.started') {
+            turnStartedAt = now
           }
-          if (threadEvent.type === 'item.completed' && threadEvent.item?.type === 'reasoning') {
-            const startedAt = reasoningStartedAt.get(threadEvent.item.id)
-            const endedAt = Date.now()
-            if (startedAt) {
-              reasoningDurations.set(threadEvent.item.id, Math.max(0, endedAt - startedAt))
+
+          if (
+            (threadEvent.type === 'item.started'
+              || threadEvent.type === 'item.updated'
+              || threadEvent.type === 'item.completed')
+            && threadEvent.item?.type === 'reasoning'
+          ) {
+            markReasoningStarted(threadEvent.item.id, now)
+            if (threadEvent.type === 'item.completed') {
+              finalizeReasoningDuration(threadEvent.item.id, now)
             }
           }
-          if (threadEvent.type === 'turn.started') {
-            turnStartedAt = Date.now()
+
+          if (threadEvent.type === 'item.completed' && threadEvent.item?.type !== 'reasoning') {
+            if (reasoningStartedAt.size > 0) {
+              finalizePendingReasoningDurations(now)
+            }
           }
+
           if (threadEvent.type === 'turn.completed') {
-            const endedAt = Date.now()
             const startedAt = turnStartedAt ?? executeStartedAt
-            turnDurationMs = endedAt - startedAt
+            turnDurationMs = now - startedAt
+            if (reasoningStartedAt.size > 0) {
+              finalizePendingReasoningDurations(now)
+            }
           }
+
           handleEvent(threadEvent)
         }
 
