@@ -1,44 +1,37 @@
 ---
 name: shared-memory
-description: Use this skill when the agent should read or update shared long-term memory in CODEX_HOME/MEMORY.md using sectioned list items with deduplicated upserts.
+description: Use this skill to read and update shared long-term memory in CODEX_HOME/MEMORY.md using sectioned markdown list items with deduplicated upserts.
 ---
 
 # Shared Memory
 
-## Overview
+## When To Use
 
-Use this skill to maintain shared memory across all threads in `MEMORY.md`.
-This skill is file-based only and must not call embedding APIs.
+Use this skill whenever the agent should persist or retrieve durable context shared across all threads.
 
-## Memory File Rules
+## Memory Source
 
-- Memory file path: `${CODEX_HOME}/MEMORY.md`.
-- Shared by all threads.
-- Default sections are:
+- File path: `${CODEX_HOME}/MEMORY.md`
+- Shared scope: all conversation threads
+- Storage model: section headers (`## Section`) with one-depth list items (`- item` or `* item`)
+- Default sections:
   - `## Facts`
   - `## Preferences`
   - `## Decisions`
   - `## Tasks`
-- Content is managed as list items (`- ...`) under sections.
-- Missing sections may be created automatically.
 
-## Command Workflow
+## Script And Commands
 
-Always execute commands in this order:
+Use `scripts/shared-memory.mjs`.
+All command responses must be parsed as JSON.
 
-1. Ensure memory file and default sections exist.
-2. Search existing items for overlap.
-3. Upsert to update an existing item when similar enough; otherwise append.
-
-Use the script at `scripts/shared-memory.mjs`.
-
-### 1) Ensure
+### Ensure Memory File
 
 ```bash
 node scripts/shared-memory.mjs ensure --memory-file "${CODEX_HOME}/MEMORY.md"
 ```
 
-### 2) Search
+### Search Memory
 
 ```bash
 node scripts/shared-memory.mjs search \
@@ -47,7 +40,7 @@ node scripts/shared-memory.mjs search \
   --limit 5
 ```
 
-### 3) Upsert
+### Upsert Memory
 
 ```bash
 node scripts/shared-memory.mjs upsert \
@@ -57,22 +50,27 @@ node scripts/shared-memory.mjs upsert \
   --threshold 0.72
 ```
 
+## Required Workflow
+
+1. Run `ensure` before any read/write.
+2. Run `search` before writing when you need explicit evidence of potential duplicates.
+3. Run `upsert` for writes. Do not append directly.
+4. Prefer updating an existing near-duplicate memory over adding a new item.
+5. Create a missing section only when necessary for the new memory.
+
 ## Write Policy
 
-- Prefer updates over new entries.
-- Before writing, ensure and search first.
-- Keep entries factual and concise.
-- Do not duplicate near-identical items.
-- Do not store secrets.
+- Keep entries short, factual, and reusable.
+- Never store secrets, credentials, tokens, or private keys.
+- Avoid conversational noise; store stable memory only.
+- If memory is uncertain, write a qualified statement (for example: "User likely prefers...").
 
 ## Output Contract
 
-All commands return JSON.
-
-- Success: `{ "ok": true, ... }`
-- Failure: `{ "ok": false, "error": "..." }`
+- Success shape: `{ "ok": true, ... }`
+- Error shape: `{ "ok": false, "error": "..." }`
 
 ## Scope Boundary
 
-- This skill implements only markdown memory management.
-- Embedding/index providers are out of scope for now.
+- This skill is markdown memory only.
+- Embedding providers and vector retrieval are not implemented in this skill.
