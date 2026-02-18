@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CodexItemData } from '@@/types/codex-ui'
+import type { CodexItemData } from '@@/types/chat-ui'
 
 type ErrorItem = Extract<CodexItemData, { kind: 'error' }>['item']
 

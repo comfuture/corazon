@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CodexItemData } from '@@/types/codex-ui'
+import type { CodexItemData } from '@@/types/chat-ui'
 
 type CommandExecutionItem = Extract<CodexItemData, { kind: 'command_execution' }>['item']
 

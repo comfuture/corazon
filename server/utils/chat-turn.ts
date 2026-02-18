@@ -6,10 +6,10 @@ import {
   type CodexChatWorkflowInput,
   type CodexThreadEventData,
   type CodexUIMessage
-} from '../../types/codex-ui.ts'
+} from '../../types/chat-ui.ts'
 import type { InferUIMessageChunk } from 'ai'
 import { createUIMessageStream } from 'ai'
-import { createCodexAssistantBuilder } from './codex-message-builder.ts'
+import { createCodexAssistantBuilder } from './message-builder.ts'
 import {
   clearThreadActiveRun,
   ensureThread,
@@ -24,9 +24,9 @@ import {
   setThreadActiveRun,
   setThreadModel,
   setThreadTitle
-} from './codex-db.ts'
-import { getRuntimeThread, hasRuntimeThread, setRuntimeThread } from './codex-runtime.ts'
-import { buildCodexInput, createThreadEventHandler } from './codex-stream.ts'
+} from './db.ts'
+import { getRuntimeThread, hasRuntimeThread, setRuntimeThread } from './runtime.ts'
+import { buildCodexInput, createThreadEventHandler } from './stream.ts'
 
 const TITLE_MODEL = 'gpt-5.1-codex-mini'
 const TITLE_REASONING_EFFORT = 'low'

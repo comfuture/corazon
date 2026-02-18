@@ -1,5 +1,5 @@
 import type { H3Event } from 'h3'
-import type { CodexChatHistoryResponse } from '@@/types/codex-ui'
+import type { CodexChatHistoryResponse } from '@@/types/chat-ui'
 
 export default defineEventHandler((event: H3Event) => {
   const threadId = getRouterParam(event, 'threadId')

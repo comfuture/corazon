@@ -1,7 +1,7 @@
 import type { UIMessageChunk } from 'ai'
-import type { CodexChatWorkflowInput } from '../../types/codex-ui.ts'
+import type { CodexChatWorkflowInput } from '../../types/chat-ui.ts'
 import { getWorkflowMetadata, getWritable } from 'workflow'
-import { createCodexChatTurnStream } from '../utils/codex-chat-turn.ts'
+import { createCodexChatTurnStream } from '../utils/chat-turn.ts'
 
 export async function codexChatTurnWorkflow(input: CodexChatWorkflowInput) {
   'use workflow'

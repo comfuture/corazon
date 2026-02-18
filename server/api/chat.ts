@@ -1,8 +1,8 @@
 import type { H3Event } from 'h3'
 import { createUIMessageStreamResponse } from 'ai'
 import { start } from 'workflow/api'
-import type { CodexChatWorkflowInput, CodexUIMessage } from '@@/types/codex-ui'
-import { codexChatTurnWorkflow } from '../workflows/codex-chat-turn'
+import type { CodexChatWorkflowInput, CodexUIMessage } from '@@/types/chat-ui'
+import { codexChatTurnWorkflow } from '../workflows/chat-turn'
 
 export default defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event)

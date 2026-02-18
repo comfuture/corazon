@@ -4,7 +4,7 @@ import {
   CODEX_EVENT_PART,
   type CodexThreadEventData,
   type CodexUIDataTypes
-} from '@@/types/codex-ui'
+} from '@@/types/chat-ui'
 
 const props = defineProps<{
   part?: {
