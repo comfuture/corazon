@@ -297,12 +297,6 @@ export const useCodexChat = () => {
             applyTurnUsage(threadId.value, part.data.usage)
           }
 
-          const durations = part.data.reasoningDurations
-          if (!durations || Object.keys(durations).length === 0) {
-            queueScrollChatToBottom()
-            return
-          }
-
           const chatInstance = chat.value
           if (!chatInstance) {
             return
@@ -313,24 +307,48 @@ export const useCodexChat = () => {
             return
           }
 
+          const durations = part.data.reasoningDurations
+          const hasDurations = !!durations && Object.keys(durations).length > 0
+          const fallbackDurationMs = typeof part.data.durationMs === 'number' && part.data.durationMs > 0
+            ? part.data.durationMs
+            : null
+          const reasoningPartCount = (lastAssistant.parts ?? []).filter(partItem => partItem.type === 'reasoning').length
+
           for (const partItem of lastAssistant.parts ?? []) {
             if (partItem.type !== 'reasoning') {
               continue
             }
+
+            let durationMs: number | null = null
             const metadata = partItem.providerMetadata as { reasoningId?: unknown } | undefined
-            const rawReasoningId = metadata?.reasoningId
-            const reasoningId = typeof rawReasoningId === 'string'
-              ? rawReasoningId
-              : rawReasoningId && typeof rawReasoningId === 'object' && 'value' in rawReasoningId
-                ? (rawReasoningId as { value?: unknown }).value
-                : null
-            if (typeof reasoningId !== 'string') {
+            if (hasDurations) {
+              const rawReasoningId = metadata?.reasoningId
+              const reasoningId = typeof rawReasoningId === 'string'
+                ? rawReasoningId
+                : rawReasoningId && typeof rawReasoningId === 'object' && 'value' in rawReasoningId
+                  ? (rawReasoningId as { value?: unknown }).value
+                  : null
+              if (typeof reasoningId === 'string') {
+                const candidate = durations?.[reasoningId]
+                if (typeof candidate === 'number') {
+                  durationMs = candidate
+                }
+              }
+            }
+
+            if (
+              durationMs == null
+              && fallbackDurationMs != null
+              && partItem.state === 'done'
+              && reasoningPartCount === 1
+            ) {
+              durationMs = fallbackDurationMs
+            }
+
+            if (durationMs == null) {
               continue
             }
-            const durationMs = durations[reasoningId]
-            if (typeof durationMs !== 'number') {
-              continue
-            }
+
             partItem.providerMetadata = {
               ...(partItem.providerMetadata ?? {}),
               thinkingDurationMs: { value: durationMs }
