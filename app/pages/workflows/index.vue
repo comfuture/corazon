@@ -27,17 +27,6 @@ const isParsingTrigger = ref(false)
 const deletingWorkflowSlug = ref<string | null>(null)
 const runningWorkflowSlug = ref<string | null>(null)
 
-const stepItems = [
-  {
-    title: '내용 입력',
-    description: '워크플로 지시문'
-  },
-  {
-    title: '실행 조건',
-    description: '트리거와 스킬'
-  }
-]
-
 const triggerItems: RadioGroupItem[] = [
   {
     value: 'schedule',
@@ -436,18 +425,13 @@ const triggerSummary = (workflow: WorkflowDefinition) => {
         :ui="{ body: 'space-y-4', footer: 'justify-between' }"
       >
         <template #body>
-          <UStepper
-            :items="stepItems"
-            :model-value="currentStep"
-            class="w-full"
-          />
-
           <div
             v-if="currentStep === 1"
-            class="space-y-3"
+            class="w-full space-y-3"
           >
             <UTextarea
               v-model="form.requestText"
+              class="w-full"
               :rows="8"
               autoresize
               :maxrows="14"
