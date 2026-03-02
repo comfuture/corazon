@@ -25,6 +25,7 @@ const isCreating = ref(false)
 const isEnhancing = ref(false)
 const isParsingTrigger = ref(false)
 const deletingWorkflowSlug = ref<string | null>(null)
+const runningWorkflowSlug = ref<string | null>(null)
 
 const stepItems = [
   {
@@ -194,14 +195,6 @@ const saveWorkflow = async () => {
     return
   }
 
-  if (payload.skills.length === 0) {
-    toast.add({
-      title: '스킬을 선택해 주세요.',
-      color: 'warning'
-    })
-    return
-  }
-
   try {
     isCreating.value = true
     await $fetch('/api/workflows', {
@@ -256,6 +249,33 @@ const deleteWorkflow = async (workflow: WorkflowDefinition) => {
     })
   } finally {
     deletingWorkflowSlug.value = null
+  }
+}
+
+const runWorkflowNow = async (workflow: WorkflowDefinition) => {
+  if (!workflow.frontmatter.on['workflow-dispatch']) {
+    return
+  }
+
+  try {
+    runningWorkflowSlug.value = workflow.fileSlug
+    await $fetch(`/api/workflows/${encodeURIComponent(workflow.fileSlug)}/run`, {
+      method: 'POST'
+    })
+    await refresh()
+    toast.add({
+      title: '실행 완료',
+      color: 'success'
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to run workflow.'
+    toast.add({
+      title: '실행 실패',
+      description: message,
+      color: 'error'
+    })
+  } finally {
+    runningWorkflowSlug.value = null
   }
 }
 
@@ -334,6 +354,25 @@ const triggerSummary = (workflow: WorkflowDefinition) => {
                 </p>
               </div>
               <div class="flex items-center gap-2">
+                <UButton
+                  :to="`/workflows/${workflow.fileSlug}/runs`"
+                  color="neutral"
+                  variant="outline"
+                  icon="i-lucide-history"
+                >
+                  Runs
+                </UButton>
+                <UButton
+                  v-if="workflow.frontmatter.on['workflow-dispatch']"
+                  color="neutral"
+                  variant="outline"
+                  icon="i-lucide-play"
+                  :loading="runningWorkflowSlug === workflow.fileSlug"
+                  :disabled="!workflow.isValid"
+                  @click="runWorkflowNow(workflow)"
+                >
+                  Run
+                </UButton>
                 <UButton
                   :to="`/workflows/${workflow.fileSlug}`"
                   color="neutral"
