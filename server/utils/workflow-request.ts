@@ -72,9 +72,6 @@ export const parseWorkflowUpsertRequest = (body: unknown) => {
   if (!instruction) {
     throw new Error('Workflow instruction is required.')
   }
-  if (skills.length === 0) {
-    throw new Error('Select at least one skill.')
-  }
 
   const frontmatter: WorkflowFrontmatter = {
     name,

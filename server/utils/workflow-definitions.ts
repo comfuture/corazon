@@ -95,10 +95,6 @@ const validateWorkflowRules = (frontmatter: WorkflowFrontmatter, instruction: st
     return 'Frontmatter "description" is required.'
   }
 
-  if (frontmatter.skills.length === 0) {
-    return 'Frontmatter "skills" must contain at least one skill.'
-  }
-
   const schedule = frontmatter.on.schedule?.trim()
   const interval = frontmatter.on.interval?.trim()
   const dispatch = frontmatter.on['workflow-dispatch'] === true
