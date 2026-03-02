@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import type { NavigationMenuItem } from '@nuxt/ui'
+
+const route = useRoute()
 const sidebarCollapsed = ref(false)
 const threadScrollContainerRef = ref<HTMLElement | null>(null)
 
@@ -7,6 +10,15 @@ const sidebarUi = computed(() =>
     ? { body: 'flex flex-col gap-4 flex-1 overflow-y-auto px-1 py-2' }
     : undefined
 )
+
+const workflowMenuItems = computed<NavigationMenuItem[][]>(() => [[
+  {
+    label: 'Workflows',
+    icon: 'i-lucide-workflow',
+    to: '/workflows',
+    active: route.path.startsWith('/workflows')
+  }
+]])
 </script>
 
 <template>
@@ -43,16 +55,15 @@ const sidebarUi = computed(() =>
           class="mb-4 w-full justify-center"
           :block="!collapsed"
         />
-        <UButton
-          to="/workflows"
-          color="neutral"
-          variant="ghost"
-          icon="i-lucide-workflow"
-          :label="collapsed ? undefined : 'Workflows'"
-          :square="collapsed"
-          class="mb-3 w-full justify-center"
-          :block="!collapsed"
+        <UNavigationMenu
+          orientation="vertical"
+          :items="workflowMenuItems"
+          :collapsed="collapsed"
+          highlight
+          :tooltip="false"
+          :popover="false"
         />
+        <USeparator class="my-3" />
         <div
           ref="threadScrollContainerRef"
           class="min-h-0 flex-1 overflow-y-auto"
