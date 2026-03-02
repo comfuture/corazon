@@ -44,4 +44,3 @@ export default defineEventHandler((event): WorkflowRunHistoryResponse => {
     messages
   }
 })
-

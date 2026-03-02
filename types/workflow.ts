@@ -1,8 +1,8 @@
 export type WorkflowTriggerType = 'schedule' | 'interval' | 'workflow-dispatch'
 
 export type WorkflowTriggerConfig = {
-  schedule?: string
-  interval?: string
+  'schedule'?: string
+  'interval'?: string
   'workflow-dispatch'?: boolean
 }
 

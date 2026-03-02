@@ -152,4 +152,3 @@ export const ensureWorkflowSchedulerInitialized = () => {
 export const stopWorkflowScheduler = () => {
   getScheduler().stop()
 }
-

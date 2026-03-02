@@ -183,4 +183,3 @@ export const initializeWorkflowRunner = () => {
     await executeWorkflowRun(definition, triggerType, triggerValue)
   })
 }
-

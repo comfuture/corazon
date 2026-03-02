@@ -132,4 +132,3 @@ export default defineEventHandler(async (event): Promise<WorkflowTriggerGuessRes
     confidence: 'none'
   }
 })
-

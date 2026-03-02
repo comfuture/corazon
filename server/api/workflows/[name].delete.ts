@@ -21,4 +21,3 @@ export default defineEventHandler((event) => {
     deleted: true
   }
 })
-

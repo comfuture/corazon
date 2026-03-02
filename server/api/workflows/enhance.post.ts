@@ -14,4 +14,3 @@ export default defineEventHandler(async (event): Promise<WorkflowEnhanceResponse
   const enhanced = await enhanceWorkflowInstruction(text)
   return { text: enhanced }
 })
-
