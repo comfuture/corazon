@@ -6,6 +6,10 @@ type TriggerAiResult = {
   confidence: 'high' | 'low'
 }
 
+type WorkflowNameAiResult = {
+  name: string
+}
+
 let codexInstance: Codex | null = null
 
 const getCodexEnv = () => {
@@ -107,6 +111,55 @@ export const inferWorkflowTriggerWithAI = async (text: string) => {
       && (parsed.confidence === 'high' || parsed.confidence === 'low')
     ) {
       return parsed
+    }
+  } catch {
+    return null
+  }
+
+  return null
+}
+
+const WORKFLOW_NAME_AI_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name'],
+  properties: {
+    name: {
+      type: 'string'
+    }
+  }
+} as const
+
+export const inferWorkflowNameWithAI = async (text: string) => {
+  const prompt = [
+    'Generate a concise workflow name from the instruction.',
+    '- Use English only.',
+    '- Use exactly 2 or 3 words.',
+    '- Use letters (A-Z) and spaces only.',
+    '- Use Title Case.',
+    '- Return only JSON that matches the schema.',
+    '',
+    text.trim()
+  ].join('\n')
+
+  const thread = getCodex().startThread({
+    model: 'gpt-5.1-codex-mini',
+    workingDirectory: process.cwd()
+  })
+
+  const result = await thread.run(prompt, {
+    outputSchema: WORKFLOW_NAME_AI_SCHEMA
+  })
+
+  const response = result.finalResponse?.trim() ?? ''
+  if (!response) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(response) as WorkflowNameAiResult
+    if (typeof parsed.name === 'string') {
+      return parsed.name
     }
   } catch {
     return null
