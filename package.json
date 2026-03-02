@@ -25,6 +25,7 @@
     "@workflow/ai": "4.0.1-beta.52",
     "ai": "^6.0.67",
     "better-sqlite3": "^12.6.2",
+    "croner": "^10.0.1",
     "katex": "^0.16.28",
     "markstream-vue": "0.0.7-beta.3",
     "mime-types": "^3.0.2",
@@ -34,7 +35,9 @@
     "stream-markdown": "^0.0.13",
     "stream-monaco": "^0.0.18",
     "tailwindcss": "^4.1.18",
+    "toad-scheduler": "^3.1.0",
     "workflow": "4.1.0-beta.57",
+    "yaml": "^2.8.2",
     "zod": "^4.3.6"
   },
   "devDependencies": {
