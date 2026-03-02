@@ -114,4 +114,3 @@ export const inferWorkflowTriggerWithAI = async (text: string) => {
 
   return null
 }
-

@@ -284,7 +284,7 @@ const triggerSummary = (workflow: WorkflowDefinition) => {
               variant="outline"
               icon="i-lucide-refresh-cw"
               :loading="pending"
-              @click="refresh"
+              @click="() => refresh()"
             >
               Refresh
             </UButton>
@@ -502,4 +502,3 @@ const triggerSummary = (workflow: WorkflowDefinition) => {
     </template>
   </UDashboardPanel>
 </template>
-

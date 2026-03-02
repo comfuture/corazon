@@ -110,13 +110,6 @@ watch(runs, (nextRuns) => {
   }
 }, { immediate: true })
 
-const selectedRun = computed<WorkflowRunSummary | null>(() => {
-  if (!selectedRunId.value) {
-    return null
-  }
-  return runs.value.find(item => item.id === selectedRunId.value) ?? null
-})
-
 const loadRunHistory = async (runId: string | null) => {
   if (!runId) {
     historyResponse.value = null
@@ -382,7 +375,7 @@ const formatDateTime = (timestamp: number | null) => {
                 variant="outline"
                 icon="i-lucide-refresh-cw"
                 :loading="pending"
-                @click="refresh"
+                @click="() => refresh()"
               >
                 Refresh
               </UButton>

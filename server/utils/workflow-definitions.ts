@@ -66,8 +66,8 @@ const normalizeTriggerConfig = (value: unknown): WorkflowTriggerConfig | null =>
   const workflowDispatch = record['workflow-dispatch'] === true
 
   return {
-    schedule,
-    interval,
+    'schedule': schedule,
+    'interval': interval,
     'workflow-dispatch': workflowDispatch
   }
 }
@@ -193,8 +193,8 @@ export const serializeWorkflowSource = (
     name: frontmatterInput.name.trim(),
     description: frontmatterInput.description.trim(),
     on: {
-      schedule: frontmatterInput.on.schedule?.trim() || undefined,
-      interval: frontmatterInput.on.interval?.trim() || undefined,
+      'schedule': frontmatterInput.on.schedule?.trim() || undefined,
+      'interval': frontmatterInput.on.interval?.trim() || undefined,
       'workflow-dispatch': frontmatterInput.on['workflow-dispatch'] === true
     },
     skills: [...new Set(frontmatterInput.skills.map(item => item.trim()).filter(Boolean))]
@@ -342,4 +342,3 @@ export const deleteWorkflowDefinitionBySlug = (fileSlug: string) => {
   rmSync(filePath, { force: true })
   return true
 }
-

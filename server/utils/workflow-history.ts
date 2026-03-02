@@ -67,4 +67,3 @@ export const loadWorkflowRunMessagesFromSessionFile = (sessionFilePath: string) 
 
   return messages
 }
-
