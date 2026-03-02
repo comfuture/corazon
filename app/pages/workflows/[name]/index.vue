@@ -196,106 +196,136 @@ const deleteWorkflow = async () => {
 </script>
 
 <template>
-  <UContainer class="py-6 sm:py-8">
-    <div class="mx-auto flex w-full max-w-6xl flex-col gap-5">
-      <UAlert
-        v-if="workflow && !workflow.isValid && workflow.parseError"
-        color="error"
-        variant="soft"
-        :title="workflow.parseError"
+  <div class="flex h-full w-full flex-col gap-6 p-4 sm:p-6">
+    <UAlert
+      v-if="workflow && !workflow.isValid && workflow.parseError"
+      color="error"
+      variant="soft"
+      :title="workflow.parseError"
+    />
+
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <h2 class="text-base font-semibold">
+        Workflow Definition
+      </h2>
+      <div class="flex flex-wrap items-center gap-2">
+        <UButton
+          v-if="canRunNow"
+          color="neutral"
+          variant="outline"
+          icon="i-lucide-play"
+          :loading="isRunning"
+          @click="runNow"
+        >
+          Run now
+        </UButton>
+        <UButton
+          icon="i-lucide-save"
+          :loading="isSaving || pending"
+          @click="saveWorkflow"
+        >
+          Save
+        </UButton>
+        <UButton
+          color="error"
+          variant="ghost"
+          icon="i-lucide-trash-2"
+          :loading="isDeleting"
+          @click="deleteWorkflow"
+        >
+          Delete
+        </UButton>
+      </div>
+    </div>
+
+    <UForm
+      :state="form"
+      class="w-full space-y-4"
+    >
+      <div class="grid gap-4 md:grid-cols-2">
+        <UFormField
+          name="name"
+          label="Name"
+          required
+        >
+          <UInput
+            v-model="form.name"
+            class="w-full"
+            placeholder="workflow name"
+          />
+        </UFormField>
+
+        <UFormField
+          name="description"
+          label="Description"
+          required
+        >
+          <UInput
+            v-model="form.description"
+            class="w-full"
+            placeholder="workflow description"
+          />
+        </UFormField>
+      </div>
+
+      <UFormField
+        name="instruction"
+        label="Instruction"
+        required
+      >
+        <UTextarea
+          v-model="form.instruction"
+          class="w-full"
+          :rows="16"
+          autoresize
+          :maxrows="28"
+          placeholder="워크플로 지시문"
+        />
+      </UFormField>
+    </UForm>
+
+    <USeparator />
+
+    <section class="space-y-4">
+      <div class="space-y-1">
+        <h3 class="text-sm font-semibold">
+          Execution Options
+        </h3>
+        <p class="text-xs text-muted-foreground">
+          실행 트리거와 허용 스킬을 설정합니다.
+        </p>
+      </div>
+
+      <URadioGroup
+        v-model="form.triggerType"
+        legend="trigger type"
+        :items="triggerItems"
+        variant="card"
       />
 
-      <UCard :ui="{ body: 'space-y-4' }">
-        <template #header>
-          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <h2 class="text-base font-semibold">
-              Workflow Definition
-            </h2>
-            <div class="flex flex-wrap items-center gap-2">
-              <UButton
-                v-if="canRunNow"
-                color="neutral"
-                variant="outline"
-                icon="i-lucide-play"
-                :loading="isRunning"
-                @click="runNow"
-              >
-                Run now
-              </UButton>
-              <UButton
-                icon="i-lucide-save"
-                :loading="isSaving || pending"
-                @click="saveWorkflow"
-              >
-                Save
-              </UButton>
-              <UButton
-                color="error"
-                variant="ghost"
-                icon="i-lucide-trash-2"
-                :loading="isDeleting"
-                @click="deleteWorkflow"
-              >
-                Delete
-              </UButton>
-            </div>
-          </div>
-        </template>
-
-        <div class="grid gap-4 md:grid-cols-2">
-          <div class="space-y-1">
-            <p class="text-xs font-medium text-muted-foreground">
-              name
-            </p>
-            <UInput
-              v-model="form.name"
-              placeholder="workflow name"
-            />
-          </div>
-          <div class="space-y-1">
-            <p class="text-xs font-medium text-muted-foreground">
-              description
-            </p>
-            <UInput
-              v-model="form.description"
-              placeholder="workflow description"
-            />
-          </div>
-        </div>
-
-        <URadioGroup
-          v-model="form.triggerType"
-          legend="trigger type"
-          :items="triggerItems"
-          variant="card"
-        />
-
+      <UFormField
+        name="triggerValue"
+        :label="form.triggerType === 'schedule' ? 'Cron Expression' : 'Interval'"
+      >
         <UInput
           v-model="form.triggerValue"
+          class="w-full"
           :placeholder="form.triggerType === 'schedule' ? '0 18 * * *' : '2h'"
           :icon="form.triggerType === 'schedule' ? 'i-lucide-calendar-clock' : 'i-lucide-repeat'"
         />
+      </UFormField>
 
-        <USwitch
-          v-model="form.workflowDispatch"
-          label="workflow-dispatch 허용"
-        />
+      <USwitch
+        v-model="form.workflowDispatch"
+        label="workflow-dispatch 허용"
+      />
 
-        <UCheckboxGroup
-          v-model="form.skills"
-          legend="skills"
-          :items="availableSkills"
-          variant="list"
-        />
-
-        <UTextarea
-          v-model="form.instruction"
-          :rows="12"
-          autoresize
-          :maxrows="20"
-          placeholder="워크플로 지시문"
-        />
-      </UCard>
-    </div>
-  </UContainer>
+      <UCheckboxGroup
+        v-model="form.skills"
+        legend="skills"
+        :items="availableSkills"
+        variant="list"
+      />
+    </section>
+  </div>
 </template>
