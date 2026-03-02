@@ -38,6 +38,9 @@ importers:
       better-sqlite3:
         specifier: ^12.6.2
         version: 12.6.2
+      croner:
+        specifier: ^10.0.1
+        version: 10.0.1
       katex:
         specifier: ^0.16.28
         version: 0.16.28
@@ -65,9 +68,15 @@ importers:
       tailwindcss:
         specifier: ^4.1.18
         version: 4.1.18
+      toad-scheduler:
+        specifier: ^3.1.0
+        version: 3.1.0
       workflow:
         specifier: 4.1.0-beta.57
         version: 4.1.0-beta.57(@aws-sdk/client-sts@3.990.0)(@nestjs/common@11.1.13(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.13(@nestjs/common@11.1.13(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.0)(@swc/cli@0.8.0(@swc/core@1.15.3(@swc/helpers@0.5.18))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.18))(@swc/helpers@0.5.18)(magicast@0.5.2)(react-router@7.13.0(react@19.2.4))(typescript@5.9.3)
+      yaml:
+        specifier: ^2.8.2
+        version: 2.8.2
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -3810,6 +3819,14 @@ packages:
   crelt@1.0.6:
     resolution: {integrity: sha512-VQ2MBenTq1fWZUH9DJNGti7kKv6EeAuYr3cLwxUWhIu1baTaXh4Ib5W2CqHVqib4/MqbYGJqiL3Zb8GJZr3l4g==}
 
+  croner@10.0.1:
+    resolution: {integrity: sha512-ixNtAJndqh173VQ4KodSdJEI6nuioBWI0V1ITNKhZZsO0pEMoDxz539T4FTTbSZ/xIOSuDnzxLVRqBVSvPNE2g==}
+    engines: {node: '>=18.0'}
+
+  croner@8.1.2:
+    resolution: {integrity: sha512-ypfPFcAXHuAZRCzo3vJL6ltENzniTjwe/qsLleH1V2/7SRDjgvRQyrLmumFTLmjFax4IuSxfGXEn79fozXcJog==}
+    engines: {node: '>=18.0'}
+
   croner@9.1.0:
     resolution: {integrity: sha512-p9nwwR4qyT5W996vBZhdvBCnMhicY5ytZkR4D1Xj0wuTDEiMnjwR57Q3RXYY/s0EpX6Ay3vgIcfaR+ewGHsi+g==}
     engines: {node: '>=18.0'}
@@ -6699,6 +6716,9 @@ packages:
   to-valid-identifier@1.0.0:
     resolution: {integrity: sha512-41wJyvKep3yT2tyPqX/4blcfybknGB4D+oETKLs7Q76UiPqRpUJK3hr1nxelyYO0PHKVzJwlu0aCeEAsGI6rpw==}
     engines: {node: '>=20'}
+
+  toad-scheduler@3.1.0:
+    resolution: {integrity: sha512-ZTwsGMWyKTOokgTmIvjPIvkT3ZiPFgkAi8L0OLONOcSc/BUDPRzNMOfVWZzugIAxyntvY0Nzy1etNk+31Q4FXQ==}
 
   toidentifier@1.0.1:
     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
@@ -11696,6 +11716,10 @@ snapshots:
 
   crelt@1.0.6: {}
 
+  croner@10.0.1: {}
+
+  croner@8.1.2: {}
+
   croner@9.1.0: {}
 
   cross-spawn@7.0.6:
@@ -14941,6 +14965,10 @@ snapshots:
     dependencies:
       '@sindresorhus/base62': 1.0.0
       reserved-identifiers: 1.2.0
+
+  toad-scheduler@3.1.0:
+    dependencies:
+      croner: 8.1.2
 
   toidentifier@1.0.1: {}
 
