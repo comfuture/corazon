@@ -80,11 +80,11 @@ const TRIGGER_AI_SCHEMA = {
 
 export const inferWorkflowTriggerWithAI = async (text: string) => {
   const prompt = [
-    '아래 문장에서 실행 트리거를 추출하세요.',
-    '- schedule이면 5-field cron(분 시 일 월 요일)으로 반환하세요.',
-    '- interval이면 120s, 60m, 2h 형식으로 반환하세요.',
-    '- 트리거를 추론할 수 없으면 triggerType=none 으로 반환하세요.',
-    '- 매일 오후 6시 -> 0 18 * * * 규칙을 따르세요.',
+    'Extract the execution trigger from the text below.',
+    '- If the trigger type is schedule, return a 5-field cron expression (minute hour day month weekday).',
+    '- If the trigger type is interval, return it in the format 120s, 60m, or 2h.',
+    '- If a trigger cannot be inferred, return triggerType=none.',
+    '- Follow this normalization rule: "every day at 6 PM" -> 0 18 * * *.',
     '',
     text.trim()
   ].join('\n')
