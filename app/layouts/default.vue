@@ -43,6 +43,16 @@ const sidebarUi = computed(() =>
           class="mb-4 w-full justify-center"
           :block="!collapsed"
         />
+        <UButton
+          to="/workflows"
+          color="neutral"
+          variant="ghost"
+          icon="i-lucide-workflow"
+          :label="collapsed ? undefined : 'Workflows'"
+          :square="collapsed"
+          class="mb-3 w-full justify-center"
+          :block="!collapsed"
+        />
         <div
           ref="threadScrollContainerRef"
           class="min-h-0 flex-1 overflow-y-auto"
