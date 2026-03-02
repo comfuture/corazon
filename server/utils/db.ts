@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Usage } from '@openai/codex-sdk'
+import type { WorkflowRunStatus, WorkflowRunSummary, WorkflowTriggerType } from '@@/types/workflow'
 import { CODEX_ITEM_PART, type CodexUIMessage } from '../../types/chat-ui.ts'
 import { resolveCorazonRootDir } from './agent-home.ts'
 
@@ -39,6 +40,23 @@ type ThreadRow = {
   total_cached_input_tokens: number
   total_output_tokens: number
   turn_count: number
+}
+
+type WorkflowRunRow = {
+  id: string
+  workflow_name: string
+  workflow_file_slug: string
+  trigger_type: WorkflowTriggerType
+  trigger_value: string | null
+  status: WorkflowRunStatus
+  started_at: number
+  completed_at: number | null
+  total_input_tokens: number
+  total_cached_input_tokens: number
+  total_output_tokens: number
+  session_thread_id: string | null
+  session_file_path: string | null
+  error_message: string | null
 }
 
 type CodexPart = CodexUIMessage['parts'][number]
@@ -127,8 +145,27 @@ const getDb = () => {
       UNIQUE (thread_id, seq)
     );
 
+    CREATE TABLE IF NOT EXISTS runs (
+      id TEXT PRIMARY KEY,
+      workflow_name TEXT NOT NULL,
+      workflow_file_slug TEXT NOT NULL,
+      trigger_type TEXT NOT NULL,
+      trigger_value TEXT,
+      status TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      completed_at INTEGER,
+      total_input_tokens INTEGER NOT NULL DEFAULT 0,
+      total_cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+      total_output_tokens INTEGER NOT NULL DEFAULT 0,
+      session_thread_id TEXT,
+      session_file_path TEXT,
+      error_message TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS threads_updated_at_idx ON threads(updated_at DESC);
     CREATE INDEX IF NOT EXISTS messages_thread_seq_idx ON messages(thread_id, seq);
+    CREATE INDEX IF NOT EXISTS runs_workflow_started_idx ON runs(workflow_file_slug, started_at DESC);
+    CREATE INDEX IF NOT EXISTS runs_started_idx ON runs(started_at DESC);
   `)
 
   const columns = db.prepare('PRAGMA table_info(threads)').all() as { name: string }[]
@@ -484,4 +521,182 @@ export const loadThreadSummaries = (
         }
       : null
   }
+}
+
+const toWorkflowRunSummary = (row: WorkflowRunRow): WorkflowRunSummary => ({
+  id: row.id,
+  workflowName: row.workflow_name,
+  workflowFileSlug: row.workflow_file_slug,
+  triggerType: row.trigger_type,
+  triggerValue: row.trigger_value,
+  status: row.status,
+  startedAt: row.started_at,
+  completedAt: row.completed_at,
+  totalInputTokens: row.total_input_tokens,
+  totalCachedInputTokens: row.total_cached_input_tokens,
+  totalOutputTokens: row.total_output_tokens,
+  sessionThreadId: row.session_thread_id,
+  sessionFilePath: row.session_file_path,
+  errorMessage: row.error_message
+})
+
+export const createWorkflowRun = (input: {
+  id: string
+  workflowName: string
+  workflowFileSlug: string
+  triggerType: WorkflowTriggerType
+  triggerValue?: string | null
+  startedAt?: number
+}) => {
+  const database = getDb()
+  const startedAt = input.startedAt ?? Date.now()
+
+  database
+    .prepare(
+      `
+      INSERT INTO runs (
+        id,
+        workflow_name,
+        workflow_file_slug,
+        trigger_type,
+        trigger_value,
+        status,
+        started_at
+      )
+      VALUES (?, ?, ?, ?, ?, 'running', ?)
+    `
+    )
+    .run(
+      input.id,
+      input.workflowName,
+      input.workflowFileSlug,
+      input.triggerType,
+      input.triggerValue ?? null,
+      startedAt
+    )
+}
+
+export const setWorkflowRunSessionReference = (
+  runId: string,
+  sessionThreadId: string | null,
+  sessionFilePath: string | null
+) => {
+  const database = getDb()
+  database
+    .prepare(
+      `
+      UPDATE runs
+      SET session_thread_id = ?, session_file_path = ?
+      WHERE id = ?
+    `
+    )
+    .run(sessionThreadId, sessionFilePath, runId)
+}
+
+export const completeWorkflowRun = (input: {
+  runId: string
+  status: Exclude<WorkflowRunStatus, 'running'>
+  totalInputTokens?: number
+  totalCachedInputTokens?: number
+  totalOutputTokens?: number
+  completedAt?: number
+  sessionThreadId?: string | null
+  sessionFilePath?: string | null
+  errorMessage?: string | null
+}) => {
+  const database = getDb()
+  const completedAt = input.completedAt ?? Date.now()
+
+  database
+    .prepare(
+      `
+      UPDATE runs
+      SET
+        status = ?,
+        completed_at = ?,
+        total_input_tokens = ?,
+        total_cached_input_tokens = ?,
+        total_output_tokens = ?,
+        session_thread_id = COALESCE(?, session_thread_id),
+        session_file_path = COALESCE(?, session_file_path),
+        error_message = ?
+      WHERE id = ?
+    `
+    )
+    .run(
+      input.status,
+      completedAt,
+      input.totalInputTokens ?? 0,
+      input.totalCachedInputTokens ?? 0,
+      input.totalOutputTokens ?? 0,
+      input.sessionThreadId ?? null,
+      input.sessionFilePath ?? null,
+      input.errorMessage ?? null,
+      input.runId
+    )
+}
+
+export const getWorkflowRunById = (runId: string): WorkflowRunSummary | null => {
+  const database = getDb()
+  const row = database
+    .prepare(
+      `
+      SELECT
+        id,
+        workflow_name,
+        workflow_file_slug,
+        trigger_type,
+        trigger_value,
+        status,
+        started_at,
+        completed_at,
+        total_input_tokens,
+        total_cached_input_tokens,
+        total_output_tokens,
+        session_thread_id,
+        session_file_path,
+        error_message
+      FROM runs
+      WHERE id = ?
+    `
+    )
+    .get(runId) as WorkflowRunRow | undefined
+
+  if (!row) {
+    return null
+  }
+
+  return toWorkflowRunSummary(row)
+}
+
+export const loadWorkflowRunsBySlug = (workflowFileSlug: string, limit = 50): WorkflowRunSummary[] => {
+  const safeLimit = Math.max(1, Math.min(limit, 200))
+  const database = getDb()
+  const rows = database
+    .prepare(
+      `
+      SELECT
+        id,
+        workflow_name,
+        workflow_file_slug,
+        trigger_type,
+        trigger_value,
+        status,
+        started_at,
+        completed_at,
+        total_input_tokens,
+        total_cached_input_tokens,
+        total_output_tokens,
+        session_thread_id,
+        session_file_path,
+        error_message
+      FROM runs
+      WHERE workflow_file_slug = ?
+      ORDER BY started_at DESC, id DESC
+      LIMIT ?
+    `
+    )
+    .all(workflowFileSlug, safeLimit) as WorkflowRunRow[]
+
+  return rows.map(toWorkflowRunSummary)
 }
