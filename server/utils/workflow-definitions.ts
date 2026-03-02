@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { Cron } from 'croner'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import type { WorkflowDefinition, WorkflowFrontmatter, WorkflowTriggerConfig } from '@@/types/workflow'
+import { resolveCorazonRootDir } from './agent-home'
 
 const WORKFLOWS_DIRECTORY = 'workflows'
 const WORKFLOW_FILE_EXTENSION = '.md'
@@ -145,7 +146,7 @@ export const normalizeWorkflowFrontmatter = (value: unknown): WorkflowFrontmatte
   }
 }
 
-export const getWorkflowsDirectory = () => join(process.cwd(), WORKFLOWS_DIRECTORY)
+export const getWorkflowsDirectory = () => join(resolveCorazonRootDir(), WORKFLOWS_DIRECTORY)
 
 export const ensureWorkflowsDirectory = () => {
   const directory = getWorkflowsDirectory()
