@@ -42,6 +42,7 @@ const triggerItems: RadioGroupItem[] = [
 
 const form = reactive({
   requestText: '',
+  workflowName: '',
   triggerType: 'schedule' as TriggerType,
   triggerValue: '',
   workflowDispatch: false,
@@ -50,6 +51,7 @@ const form = reactive({
 
 const resetCreateForm = () => {
   form.requestText = ''
+  form.workflowName = ''
   form.triggerType = 'schedule'
   form.triggerValue = ''
   form.workflowDispatch = false
@@ -70,14 +72,25 @@ const closeCreateModal = () => {
 }
 
 const deriveWorkflowName = (value: string) => {
-  const singleLine = value
-    .replace(/\s+/g, ' ')
-    .replace(/[.?!]$/, '')
-    .trim()
-  if (!singleLine) {
-    return 'New Workflow'
+  const words = value
+    .replace(/[^A-Za-z\s]/g, ' ')
+    .split(/\s+/)
+    .map(item => item.trim())
+    .filter(Boolean)
+    .slice(0, 3)
+
+  if (words.length === 0) {
+    return 'Task Workflow'
   }
-  return singleLine.length > 64 ? singleLine.slice(0, 64).trim() : singleLine
+
+  if (words.length === 1) {
+    words.push('Workflow')
+  }
+
+  return words
+    .slice(0, 3)
+    .map(word => `${word.charAt(0).toUpperCase()}${word.slice(1).toLowerCase()}`)
+    .join(' ')
 }
 
 const deriveWorkflowDescription = (value: string) => {
@@ -99,12 +112,18 @@ const requestTriggerSuggestion = async () => {
     return
   }
 
+  form.workflowName = deriveWorkflowName(source)
+
   try {
     isParsingTrigger.value = true
     const guessed = await $fetch<WorkflowTriggerGuessResponse>('/api/workflows/parse-trigger', {
       method: 'POST',
       body: { text: source }
     })
+
+    if (guessed.suggestedName) {
+      form.workflowName = guessed.suggestedName
+    }
 
     if (guessed.triggerType) {
       form.triggerType = guessed.triggerType
@@ -166,7 +185,7 @@ const saveWorkflow = async () => {
   const hasTrigger = triggerValue.length > 0
 
   const payload: WorkflowUpsertRequest = {
-    name: deriveWorkflowName(instruction),
+    name: form.workflowName || deriveWorkflowName(instruction),
     description: deriveWorkflowDescription(instruction),
     instruction,
     skills: [...new Set(form.skills)],

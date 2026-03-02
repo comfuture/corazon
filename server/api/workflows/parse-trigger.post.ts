@@ -1,6 +1,33 @@
 import type { WorkflowTriggerGuessResponse } from '@@/types/workflow'
 
 const toDailyCron = (hour: number, minute: number) => `${minute} ${hour} * * *`
+const WORKFLOW_NAME_WORD_PATTERN = /^[A-Za-z]+$/
+const DEFAULT_WORKFLOW_NAME = 'Task Workflow'
+
+const toTitleCase = (value: string) => {
+  if (!value) {
+    return value
+  }
+  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase()
+}
+
+const normalizeWorkflowName = (value: string | null | undefined) => {
+  const words = (value ?? '')
+    .replace(/[^A-Za-z\s]/g, ' ')
+    .split(/\s+/)
+    .map(item => item.trim())
+    .filter(item => item.length > 0 && WORKFLOW_NAME_WORD_PATTERN.test(item))
+
+  if (words.length === 0) {
+    return DEFAULT_WORKFLOW_NAME
+  }
+
+  if (words.length === 1) {
+    return `${toTitleCase(words[0] ?? 'Task')} Workflow`
+  }
+
+  return words.slice(0, 3).map(toTitleCase).join(' ')
+}
 
 const to24Hour = (hour: number, meridiem: 'am' | 'pm' | null) => {
   if (meridiem === 'am') {
@@ -12,7 +39,7 @@ const to24Hour = (hour: number, meridiem: 'am' | 'pm' | null) => {
   return hour
 }
 
-const parseKnownTrigger = (text: string): WorkflowTriggerGuessResponse | null => {
+const parseKnownTrigger = (text: string): Omit<WorkflowTriggerGuessResponse, 'suggestedName'> | null => {
   const normalized = text.trim()
   if (!normalized) {
     return {
@@ -88,13 +115,31 @@ const parseKnownTrigger = (text: string): WorkflowTriggerGuessResponse | null =>
   return null
 }
 
+const suggestWorkflowName = async (text: string) => {
+  const fallback = normalizeWorkflowName(text)
+  if (!text.trim()) {
+    return fallback
+  }
+
+  try {
+    const aiName = await inferWorkflowNameWithAI(text)
+    return normalizeWorkflowName(aiName)
+  } catch {
+    return fallback
+  }
+}
+
 export default defineEventHandler(async (event): Promise<WorkflowTriggerGuessResponse> => {
   const body = await readBody(event)
   const text = typeof body?.text === 'string' ? body.text.trim() : ''
+  const suggestedName = await suggestWorkflowName(text)
 
   const known = parseKnownTrigger(text)
   if (known) {
-    return known
+    return {
+      ...known,
+      suggestedName
+    }
   }
 
   try {
@@ -103,7 +148,8 @@ export default defineEventHandler(async (event): Promise<WorkflowTriggerGuessRes
       return {
         triggerType: null,
         triggerValue: null,
-        confidence: 'none'
+        confidence: 'none',
+        suggestedName
       }
     }
 
@@ -111,7 +157,8 @@ export default defineEventHandler(async (event): Promise<WorkflowTriggerGuessRes
       return {
         triggerType: 'schedule',
         triggerValue: inferred.triggerValue,
-        confidence: inferred.confidence
+        confidence: inferred.confidence,
+        suggestedName
       }
     }
 
@@ -119,7 +166,8 @@ export default defineEventHandler(async (event): Promise<WorkflowTriggerGuessRes
       return {
         triggerType: 'interval',
         triggerValue: inferred.triggerValue,
-        confidence: inferred.confidence
+        confidence: inferred.confidence,
+        suggestedName
       }
     }
   } catch {
@@ -129,6 +177,7 @@ export default defineEventHandler(async (event): Promise<WorkflowTriggerGuessRes
   return {
     triggerType: null,
     triggerValue: null,
-    confidence: 'none'
+    confidence: 'none',
+    suggestedName
   }
 })

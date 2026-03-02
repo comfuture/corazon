@@ -70,6 +70,7 @@ export type WorkflowTriggerGuessResponse = {
   triggerType: 'schedule' | 'interval' | null
   triggerValue: string | null
   confidence: 'high' | 'low' | 'none'
+  suggestedName: string | null
 }
 
 export type WorkflowUpsertRequest = {

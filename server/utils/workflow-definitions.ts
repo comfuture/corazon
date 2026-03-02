@@ -8,6 +8,7 @@ import { resolveCorazonRootDir } from './agent-home'
 const WORKFLOWS_DIRECTORY = 'workflows'
 const WORKFLOW_FILE_EXTENSION = '.md'
 const INTERVAL_PATTERN = /^([1-9][0-9]*)(s|m|h)$/
+const WORKFLOW_NAME_PATTERN = /^[A-Za-z]+(?: [A-Za-z]+){1,2}$/
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/
 
 const createInvalidWorkflow = (input: {
@@ -89,6 +90,9 @@ const validateWorkflowRules = (frontmatter: WorkflowFrontmatter, instruction: st
   const name = frontmatter.name.trim()
   if (!name) {
     return 'Frontmatter "name" is required.'
+  }
+  if (!WORKFLOW_NAME_PATTERN.test(name)) {
+    return 'Frontmatter "name" must be 2-3 English words.'
   }
 
   const description = frontmatter.description.trim()

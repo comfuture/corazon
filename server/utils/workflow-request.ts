@@ -1,5 +1,7 @@
 import type { WorkflowFrontmatter, WorkflowTriggerConfig, WorkflowUpsertRequest } from '@@/types/workflow'
 
+const WORKFLOW_NAME_PATTERN = /^[A-Za-z]+(?: [A-Za-z]+){1,2}$/
+
 const asString = (value: unknown) => typeof value === 'string' ? value.trim() : ''
 
 const asStringArray = (value: unknown) => {
@@ -65,6 +67,9 @@ export const parseWorkflowUpsertRequest = (body: unknown) => {
 
   if (!name) {
     throw new Error('Workflow name is required.')
+  }
+  if (!WORKFLOW_NAME_PATTERN.test(name)) {
+    throw new Error('Workflow name must be 2-3 English words.')
   }
   if (!description) {
     throw new Error('Workflow description is required.')
