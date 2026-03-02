@@ -67,7 +67,25 @@ export type WorkflowDetailResponse = {
 }
 
 export type WorkflowTriggerGuessResponse = {
-  triggerType: 'schedule' | 'interval'
-  triggerValue: string
+  triggerType: 'schedule' | 'interval' | null
+  triggerValue: string | null
+  confidence: 'high' | 'low' | 'none'
 }
 
+export type WorkflowUpsertRequest = {
+  name: string
+  description: string
+  instruction: string
+  skills: string[]
+  triggerType: 'schedule' | 'interval' | null
+  triggerValue: string | null
+  workflowDispatch: boolean
+}
+
+export type WorkflowEnhanceRequest = {
+  text: string
+}
+
+export type WorkflowEnhanceResponse = {
+  text: string
+}
