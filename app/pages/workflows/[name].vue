@@ -15,7 +15,7 @@ const workflowSlug = computed(() => {
 const definitionPath = computed(() => `/workflows/${workflowSlug.value}`)
 const runsPath = computed(() => `/workflows/${workflowSlug.value}/runs`)
 
-const { data, pending, refresh } = await useFetch<WorkflowDetailResponse>(
+const { data, refresh } = await useFetch<WorkflowDetailResponse>(
   () => `/api/workflows/${encodeURIComponent(workflowSlug.value)}`,
   {
     cache: 'no-store'
@@ -24,6 +24,24 @@ const { data, pending, refresh } = await useFetch<WorkflowDetailResponse>(
 
 const workflow = computed(() => data.value?.workflow ?? null)
 const panelTitle = computed(() => workflow.value?.frontmatter.name ?? workflowSlug.value)
+const runsRefreshSignal = useState<{ slug: string, at: number }>('workflow-runs-refresh-signal', () => ({
+  slug: '',
+  at: 0
+}))
+const isRunsRoute = computed(() => route.path === runsPath.value || route.path.startsWith(`${runsPath.value}/`))
+const panelUi = computed(() => (isRunsRoute.value ? { body: '!p-0' } : undefined))
+
+const onToolbarRefresh = () => {
+  if (isRunsRoute.value) {
+    runsRefreshSignal.value = {
+      slug: workflowSlug.value,
+      at: Date.now()
+    }
+    return
+  }
+
+  void refresh()
+}
 
 const toolbarItems = computed<NavigationMenuItem[][]>(() => [[
   {
@@ -42,7 +60,10 @@ const toolbarItems = computed<NavigationMenuItem[][]>(() => [[
 </script>
 
 <template>
-  <UDashboardPanel id="workflow-detail-panel">
+  <UDashboardPanel
+    id="workflow-detail-panel"
+    :ui="panelUi"
+  >
     <template #header>
       <UDashboardNavbar :title="panelTitle">
         <template #leading>
@@ -58,25 +79,27 @@ const toolbarItems = computed<NavigationMenuItem[][]>(() => [[
             >
               Back
             </UButton>
-            <UButton
-              color="neutral"
-              variant="outline"
-              icon="i-lucide-refresh-cw"
-              :loading="pending"
-              @click="() => refresh()"
-            >
-              Refresh
-            </UButton>
           </div>
         </template>
       </UDashboardNavbar>
 
       <UDashboardToolbar>
-        <UNavigationMenu
-          :items="toolbarItems"
-          highlight
-          class="flex-1"
-        />
+        <div class="flex w-full items-center gap-2">
+          <UNavigationMenu
+            :items="toolbarItems"
+            highlight
+            class="min-w-0 flex-1"
+          />
+          <UButton
+            v-if="isRunsRoute"
+            color="neutral"
+            variant="outline"
+            icon="i-lucide-refresh-cw"
+            @click="onToolbarRefresh"
+          >
+            Refresh
+          </UButton>
+        </div>
       </UDashboardToolbar>
     </template>
 

@@ -15,7 +15,7 @@ const workflowSlug = computed(() => {
   return typeof raw === 'string' ? raw : ''
 })
 
-const { data, pending, refresh } = await useFetch<WorkflowDetailResponse>(
+const { data, refresh } = await useFetch<WorkflowDetailResponse>(
   () => `/api/workflows/${encodeURIComponent(workflowSlug.value)}`,
   {
     cache: 'no-store'
@@ -24,10 +24,22 @@ const { data, pending, refresh } = await useFetch<WorkflowDetailResponse>(
 
 const workflow = computed(() => data.value?.workflow ?? null)
 const runs = computed(() => data.value?.runs ?? [])
+const runsRefreshSignal = useState<{ slug: string, at: number }>('workflow-runs-refresh-signal', () => ({
+  slug: '',
+  at: 0
+}))
 
 const selectedRunId = ref<string | null>(null)
 const historyResponse = ref<WorkflowRunHistoryResponse | null>(null)
 const historyPending = ref(false)
+const listPanelId = computed(() => `workflow-runs-list-${workflowSlug.value || 'default'}`)
+const detailPanelId = computed(() => `workflow-runs-detail-${workflowSlug.value || 'default'}`)
+const selectedRun = computed(() => runs.value.find(item => item.id === selectedRunId.value) ?? null)
+const hasSelectedRun = computed(() => selectedRunId.value !== null)
+const listPanelClass = computed(() => (hasSelectedRun.value ? '!min-h-0' : '!min-h-0 !w-full'))
+const listPanelUi = {
+  body: '!p-0 !overflow-hidden !gap-0'
+}
 
 watch(runs, (nextRuns) => {
   if (!nextRuns.length) {
@@ -36,8 +48,9 @@ watch(runs, (nextRuns) => {
     return
   }
 
-  if (!selectedRunId.value || !nextRuns.some(item => item.id === selectedRunId.value)) {
-    selectedRunId.value = nextRuns[0]?.id ?? null
+  if (selectedRunId.value && !nextRuns.some(item => item.id === selectedRunId.value)) {
+    selectedRunId.value = null
+    historyResponse.value = null
   }
 }, { immediate: true })
 
@@ -61,9 +74,25 @@ const loadRunHistory = async (runId: string | null) => {
   }
 }
 
+const refreshRunsView = async () => {
+  await refresh()
+
+  if (selectedRunId.value) {
+    await loadRunHistory(selectedRunId.value)
+  }
+}
+
 watch(selectedRunId, (next) => {
   void loadRunHistory(next)
 }, { immediate: true })
+
+watch(() => runsRefreshSignal.value.at, (next, prev) => {
+  if (next === prev || next === 0 || runsRefreshSignal.value.slug !== workflowSlug.value) {
+    return
+  }
+
+  void refreshRunsView()
+})
 
 const runStatusColor = (status: WorkflowRunSummary['status']) => {
   if (status === 'completed') {
@@ -84,74 +113,108 @@ const formatDateTime = (timestamp: number | null) => {
 </script>
 
 <template>
-  <div class="flex h-full w-full flex-col gap-6 p-4 sm:p-6">
-    <UAlert
-      v-if="workflow && !workflow.isValid && workflow.parseError"
-      color="error"
-      variant="soft"
-      :title="workflow.parseError"
-    />
-
-    <div class="flex items-center justify-between">
-      <h2 class="text-base font-semibold">
-        Run History
-      </h2>
-      <UButton
-        color="neutral"
-        variant="outline"
-        icon="i-lucide-refresh-cw"
-        :loading="pending"
-        @click="() => refresh()"
-      >
-        Refresh
-      </UButton>
-    </div>
-
-    <UAlert
-      v-if="runs.length === 0"
-      color="neutral"
-      variant="soft"
-      title="실행 이력이 없습니다."
-    />
-
-    <div
-      v-else
-      class="grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)]"
+  <div class="flex h-full min-h-0 w-full">
+    <UDashboardPanel
+      :id="listPanelId"
+      :resizable="hasSelectedRun"
+      :min-size="40"
+      :default-size="46"
+      :max-size="72"
+      :class="listPanelClass"
+      :ui="listPanelUi"
     >
-      <div class="space-y-2">
-        <UButton
-          v-for="run in runs"
-          :key="run.id"
-          type="button"
-          class="w-full"
-          :color="selectedRunId === run.id ? 'primary' : 'neutral'"
-          :variant="selectedRunId === run.id ? 'soft' : 'outline'"
-          :ui="{ base: 'h-auto w-full justify-start px-3 py-3' }"
-          @click="selectedRunId = run.id"
-        >
-          <div class="w-full text-left">
-            <div class="flex items-center justify-between gap-2">
-              <UBadge
-                :color="runStatusColor(run.status)"
-                variant="soft"
-              >
-                {{ run.status }}
-              </UBadge>
-              <span class="text-xs text-muted-foreground">
-                {{ formatDateTime(run.startedAt) }}
-              </span>
-            </div>
-            <p class="mt-2 text-xs text-muted-foreground">
-              {{ run.triggerType }}: {{ run.triggerValue || '-' }}
-            </p>
-            <p class="mt-1 text-xs text-muted-foreground">
-              in {{ run.totalInputTokens }} (cached {{ run.totalCachedInputTokens }}) · out {{ run.totalOutputTokens }}
-            </p>
-          </div>
-        </UButton>
-      </div>
+      <template #body>
+        <UAlert
+          v-if="workflow && !workflow.isValid && workflow.parseError"
+          color="error"
+          variant="soft"
+          class="m-4"
+          :title="workflow.parseError"
+        />
 
-      <div class="space-y-3 rounded-lg border border-default p-3 sm:p-4">
+        <UAlert
+          v-if="runs.length === 0"
+          color="neutral"
+          variant="soft"
+          class="m-4"
+          title="실행 이력이 없습니다."
+        />
+
+        <div
+          v-else
+          class="h-full overflow-y-auto"
+        >
+          <UPageList
+            divide
+          >
+            <ULink
+              v-for="run in runs"
+              :key="run.id"
+              raw
+              as="button"
+              type="button"
+              :active="selectedRunId === run.id"
+              class="block w-full px-3 py-3 text-left text-foreground transition-colors"
+              active-class="bg-primary/10"
+              inactive-class="hover:bg-muted/60"
+              @click="selectedRunId = run.id"
+            >
+              <div>
+                <div class="flex items-center justify-between gap-2">
+                  <UBadge
+                    :color="runStatusColor(run.status)"
+                    variant="soft"
+                  >
+                    {{ run.status }}
+                  </UBadge>
+                  <span class="text-xs text-muted-foreground">
+                    {{ formatDateTime(run.startedAt) }}
+                  </span>
+                </div>
+                <p class="mt-2 text-xs text-muted-foreground">
+                  {{ run.triggerType }}: {{ run.triggerValue || '-' }}
+                </p>
+                <p class="mt-1 text-xs text-muted-foreground">
+                  in {{ run.totalInputTokens }} (cached {{ run.totalCachedInputTokens }}) · out {{ run.totalOutputTokens }}
+                </p>
+              </div>
+            </ULink>
+          </UPageList>
+        </div>
+      </template>
+    </UDashboardPanel>
+
+    <UDashboardPanel
+      v-if="hasSelectedRun"
+      :id="detailPanelId"
+      class="!min-h-0"
+    >
+      <template #header>
+        <div class="flex items-center justify-between px-4 py-3 sm:px-6">
+          <h3 class="text-base font-semibold">
+            Run Detail
+          </h3>
+          <UBadge
+            v-if="selectedRun"
+            :color="runStatusColor(selectedRun.status)"
+            variant="soft"
+          >
+            {{ selectedRun.status }}
+          </UBadge>
+        </div>
+      </template>
+
+      <template #body>
+        <div
+          v-if="selectedRun"
+          class="grid gap-2 rounded-lg border border-default p-3 text-xs text-muted-foreground sm:grid-cols-2"
+        >
+          <p><span class="font-medium text-foreground">Started</span>: {{ formatDateTime(selectedRun.startedAt) }}</p>
+          <p><span class="font-medium text-foreground">Completed</span>: {{ formatDateTime(selectedRun.completedAt) }}</p>
+          <p><span class="font-medium text-foreground">Trigger</span>: {{ selectedRun.triggerType }} ({{ selectedRun.triggerValue || '-' }})</p>
+          <p><span class="font-medium text-foreground">Tokens</span>: in {{ selectedRun.totalInputTokens }} / out {{ selectedRun.totalOutputTokens }}</p>
+        </div>
+
         <div v-if="historyPending">
           <USkeleton class="h-6 w-full" />
           <USkeleton class="mt-2 h-6 w-full" />
@@ -202,9 +265,9 @@ const formatDateTime = (timestamp: number | null) => {
           v-else
           color="neutral"
           variant="soft"
-          title="실행 이력을 선택해 주세요."
+          title="이력을 불러오지 못했습니다."
         />
-      </div>
-    </div>
+      </template>
+    </UDashboardPanel>
   </div>
 </template>
