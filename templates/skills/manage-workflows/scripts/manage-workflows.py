@@ -26,6 +26,41 @@ CRON_MONTH_NAMES = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP
 CRON_WEEKDAY_NAMES = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
 RRULE_FREQ_VALUES = {"SECONDLY", "MINUTELY", "HOURLY", "DAILY", "WEEKLY", "MONTHLY", "YEARLY"}
 RRULE_WEEKDAY_VALUES = {"MO", "TU", "WE", "TH", "FR", "SA", "SU"}
+GENERIC_WORKFLOW_SLUGS = {"workflow", "task-workflow", "workflow-task", "new-workflow"}
+SLUG_STOPWORDS = {
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "for",
+    "with",
+    "without",
+    "to",
+    "of",
+    "in",
+    "on",
+    "at",
+    "by",
+    "from",
+    "run",
+    "runs",
+    "running",
+    "workflow",
+    "workflows",
+    "task",
+    "tasks",
+    "assistant",
+    "message",
+    "messages",
+    "output",
+    "execute",
+    "execution",
+    "create",
+    "update",
+    "delete",
+    "save",
+}
 
 
 @dataclass
@@ -147,6 +182,69 @@ def derive_description(value: str) -> str:
 def to_file_slug(value: str) -> str:
     normalized = re.sub(r"[^a-z0-9]+", "-", (value or "").lower()).strip("-")
     return normalized or "workflow"
+
+
+def tokenize_slug_source(value: str) -> list[str]:
+    normalized = re.sub(r"[^a-z0-9\s]+", " ", (value or "").lower())
+    return [
+        token
+        for token in normalized.split()
+        if len(token) >= 2 and token not in SLUG_STOPWORDS
+    ]
+
+
+def derive_instruction_based_slug(instruction: str) -> str | None:
+    source = as_string(instruction)
+    if not source:
+        return None
+
+    quoted = re.search(r"[\"'“”‘’]([A-Za-z0-9\s-]{2,80})[\"'“”‘’]", source)
+    quoted_tokens = tokenize_slug_source(quoted.group(1) if quoted else "")
+    if quoted_tokens and re.search(r"(say|print|output|message|말하|출력|메시지|인사)", source, flags=re.IGNORECASE):
+        return f"say-{'-'.join(quoted_tokens[:2])}"
+
+    normalized = re.sub(
+        r"(워크플로우\s*(생성|등록|수정|저장|작성)|create\s+(a\s+)?workflow|generate\s+(a\s+)?workflow)",
+        " ",
+        source,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        r"\b(cron|rrule|interval|daily|weekly|monthly|hourly)\b|\bevery\s+\d+\s*(seconds?|minutes?|hours?|days?|weeks?|months?)\b",
+        " ",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+
+    tokens = tokenize_slug_source(normalized)
+    if tokens:
+        return "-".join(tokens[:4])
+
+    if re.search(r"(say|print|output|message|말하|출력|메시지|인사)", source, flags=re.IGNORECASE):
+        return "say-message"
+    if re.search(r"(summary|summarize|report|digest|요약|리포트)", source, flags=re.IGNORECASE):
+        return "summary-report"
+    return None
+
+
+def derive_file_slug(requested_file_slug: str | None, workflow_name: str, instruction: str) -> str:
+    requested_slug = to_file_slug(requested_file_slug or "")
+    if requested_slug and requested_slug not in GENERIC_WORKFLOW_SLUGS:
+        return requested_slug
+
+    name_slug = to_file_slug(workflow_name)
+    if name_slug and name_slug not in GENERIC_WORKFLOW_SLUGS:
+        return name_slug
+
+    instruction_slug = to_file_slug(derive_instruction_based_slug(instruction) or "")
+    if instruction_slug and instruction_slug not in GENERIC_WORKFLOW_SLUGS:
+        return instruction_slug
+
+    if instruction_slug and instruction_slug != "workflow":
+        return instruction_slug
+
+    return name_slug or requested_slug or "workflow"
 
 
 def parse_cron_atom(value: str, min_value: int, max_value: int, aliases: list[str] | None = None) -> int | None:
@@ -481,31 +579,54 @@ def parse_workflow_source(file_slug: str, file_path: Path, source: str, updated_
     )
 
 
+def normalize_corazon_root_candidate(value: Path) -> Path:
+    resolved = value.expanduser().resolve()
+    parts = list(resolved.parts)
+    if not parts:
+        return resolved
+
+    start_index = 1 if resolved.anchor and parts[0] == resolved.anchor else 0
+    for index in range(start_index + 1, len(parts)):
+        current = parts[index].lower()
+        previous = parts[index - 1].lower()
+        if current != "threads":
+            continue
+        if previous not in {"corazon", ".corazon"}:
+            continue
+        return Path(*parts[:index])
+
+    return resolved
+
+
 def corazon_root_default() -> Path:
     configured = as_string(os.getenv("CORAZON_ROOT_DIR")) or as_string(os.getenv("CORAZON_ROOT"))
     if configured:
-        return Path(configured).expanduser().resolve()
+        return normalize_corazon_root_candidate(Path(configured))
 
     home = Path.home()
     legacy = home / ".corazon"
 
     if sys.platform == "darwin":
-        return legacy
+        return normalize_corazon_root_candidate(legacy)
 
     if legacy.exists():
-        return legacy
+        return normalize_corazon_root_candidate(legacy)
 
     if sys.platform == "win32":
         appdata = as_string(os.getenv("APPDATA"))
-        return Path(appdata) / "Corazon" if appdata else home / "AppData" / "Roaming" / "Corazon"
+        candidate = Path(appdata) / "Corazon" if appdata else home / "AppData" / "Roaming" / "Corazon"
+        return normalize_corazon_root_candidate(candidate)
 
     xdg = as_string(os.getenv("XDG_CONFIG_HOME"))
-    return (Path(xdg) / "corazon") if xdg else (home / ".config" / "corazon")
+    candidate = (Path(xdg) / "corazon") if xdg else (home / ".config" / "corazon")
+    return normalize_corazon_root_candidate(candidate)
 
 
 def resolve_root(args: argparse.Namespace) -> Path:
     explicit = as_string(getattr(args, "root", ""))
-    return Path(explicit).expanduser().resolve() if explicit else corazon_root_default()
+    if explicit:
+        return normalize_corazon_root_candidate(Path(explicit))
+    return corazon_root_default()
 
 
 def workflows_dir(root: Path) -> Path:
@@ -584,8 +705,9 @@ def workflow_summary(item: WorkflowDefinition) -> dict[str, Any]:
 
 
 def pick_selector(workflows: list[WorkflowDefinition], slug: str | None, query: str | None) -> WorkflowDefinition:
-    normalized_slug = to_file_slug(as_string(slug))
-    if normalized_slug:
+    raw_slug = as_string(slug)
+    if raw_slug:
+        normalized_slug = to_file_slug(raw_slug)
         matched = [item for item in workflows if item.file_slug == normalized_slug]
         if not matched:
             raise ValueError(f"Workflow not found: {normalized_slug}")
@@ -870,7 +992,14 @@ def handle_create(root: Path, args: argparse.Namespace) -> dict[str, Any]:
         skills=parse_csv(args.skills),
     )
 
-    file_slug = resolve_unique_slug(root, as_string(args.file_slug) or frontmatter.name)
+    file_slug = resolve_unique_slug(
+        root,
+        derive_file_slug(
+            as_string(args.file_slug) or None,
+            frontmatter.name,
+            instruction,
+        ),
+    )
     created = save_workflow(root, file_slug, frontmatter, instruction)
 
     return {

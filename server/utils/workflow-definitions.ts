@@ -11,6 +11,46 @@ const WORKFLOW_FILE_EXTENSION = '.md'
 const INTERVAL_PATTERN = /^([1-9][0-9]*)(s|m|h)$/
 const WORKFLOW_NAME_PATTERN = /^[A-Za-z]+(?: [A-Za-z]+){1,2}$/
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/
+const GENERIC_WORKFLOW_SLUGS = new Set([
+  'workflow',
+  'task-workflow',
+  'workflow-task',
+  'new-workflow'
+])
+const SLUG_STOPWORDS = new Set([
+  'a',
+  'an',
+  'the',
+  'and',
+  'or',
+  'for',
+  'with',
+  'without',
+  'to',
+  'of',
+  'in',
+  'on',
+  'at',
+  'by',
+  'from',
+  'run',
+  'runs',
+  'running',
+  'workflow',
+  'workflows',
+  'task',
+  'tasks',
+  'assistant',
+  'message',
+  'messages',
+  'output',
+  'execute',
+  'execution',
+  'create',
+  'update',
+  'delete',
+  'save'
+])
 
 const createInvalidWorkflow = (input: {
   fileSlug: string
@@ -187,6 +227,74 @@ export const toWorkflowFileSlug = (value: string) => {
     .replace(/^-+|-+$/g, '')
 
   return normalized || 'workflow'
+}
+
+const tokenizeSlugSource = (value: string) => (value ?? '')
+  .toLowerCase()
+  .replace(/[^a-z0-9\s]+/g, ' ')
+  .split(/\s+/)
+  .map(item => item.trim())
+  .filter(item => item.length >= 2 && !SLUG_STOPWORDS.has(item))
+
+const deriveInstructionBasedSlug = (instruction: string) => {
+  const source = instruction.trim()
+  if (!source) {
+    return null
+  }
+
+  const quotedTextMatch = source.match(/["'“”‘’]([A-Za-z0-9\s-]{2,80})["'“”‘’]/)
+  const quotedTokens = tokenizeSlugSource(quotedTextMatch?.[1] ?? '')
+  if (quotedTokens.length > 0 && /(say|print|output|message|말하|출력|메시지|인사)/i.test(source)) {
+    return `say-${quotedTokens.slice(0, 2).join('-')}`
+  }
+
+  const normalized = source
+    .replace(/(워크플로우\s*(생성|등록|수정|저장|작성)|create\s+(a\s+)?workflow|generate\s+(a\s+)?workflow)/gi, ' ')
+    .replace(/\b(cron|rrule|interval|daily|weekly|monthly|hourly)\b/gi, ' ')
+    .replace(/\bevery\s+\d+\s*(seconds?|minutes?|hours?|days?|weeks?|months?)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const tokens = tokenizeSlugSource(normalized)
+  if (tokens.length > 0) {
+    return tokens.slice(0, 4).join('-')
+  }
+
+  if (/(say|print|output|message|말하|출력|메시지|인사)/i.test(source)) {
+    return 'say-message'
+  }
+  if (/(summary|summarize|report|digest|요약|리포트)/i.test(source)) {
+    return 'summary-report'
+  }
+
+  return null
+}
+
+export const deriveWorkflowFileSlugFromInput = (input: {
+  requestedFileSlug?: string | null
+  workflowName: string
+  instruction: string
+}) => {
+  const requestedSlug = toWorkflowFileSlug(input.requestedFileSlug ?? '')
+  if (requestedSlug && !GENERIC_WORKFLOW_SLUGS.has(requestedSlug)) {
+    return requestedSlug
+  }
+
+  const nameSlug = toWorkflowFileSlug(input.workflowName)
+  if (nameSlug && !GENERIC_WORKFLOW_SLUGS.has(nameSlug)) {
+    return nameSlug
+  }
+
+  const instructionSlug = toWorkflowFileSlug(deriveInstructionBasedSlug(input.instruction) ?? '')
+  if (instructionSlug && !GENERIC_WORKFLOW_SLUGS.has(instructionSlug)) {
+    return instructionSlug
+  }
+
+  if (instructionSlug && instructionSlug !== 'workflow') {
+    return instructionSlug
+  }
+
+  return nameSlug || requestedSlug || 'workflow'
 }
 
 export const getWorkflowFilePath = (fileSlug: string) =>
