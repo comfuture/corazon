@@ -232,11 +232,19 @@ const normalizeWorkflowName = (value) => {
 }
 
 const deriveWorkflowDescription = (value) => {
-  const trimmed = asString(value)
-  if (!trimmed) {
-    return 'Workflow created from manage-workflows skill'
+  const schedulePattern = /\b(cron|rrule|interval|daily|weekly|monthly|every\s+\d+\s*(seconds?|minutes?|hours?|days?|weeks?|months?))\b|매(일|주|월|년|시간|분)|[0-9]+\s*(초|분|시간|일|주|개월)\s*마다/gi
+  const metaPattern = /(워크플로우\s*(생성|등록|수정|저장|작성)|create\s+(a\s+)?workflow|generate\s+(a\s+)?workflow)/gi
+  const normalized = asString(value)
+    .replace(metaPattern, '')
+    .replace(schedulePattern, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!normalized) {
+    return '요청된 자동 작업을 수행합니다.'
   }
-  return trimmed.length > 280 ? `${trimmed.slice(0, 280).trim()}...` : trimmed
+
+  return normalized.length > 180 ? `${normalized.slice(0, 180).trim()}...` : normalized
 }
 
 const toWorkflowFileSlug = (value) => {
@@ -775,14 +783,21 @@ const inferActionFromText = async ({ text, workflows, availableSkills }) => {
     '- For update/delete, prefer selector.slug when a target workflow is identifiable.',
     '- For create/update draft fields, follow workflow syntax:',
     '  name: 2-3 English words (letters and spaces only).',
-    '  description: concise summary.',
-    '  instruction: runnable instruction body.',
+    '  description: concise summary of what the workflow actually does (no schedule mention).',
+    '  instruction: runnable per-execution instruction body.',
     '  triggerType: schedule | interval | rrule | null.',
     '  triggerValue: cron for schedule, duration for interval, RFC5545 RRULE for rrule.',
     '  workflowDispatch: boolean.',
     '  skills: subset of available skills.',
     '- Prefer rrule for weekly/monthly natural-language recurrence (for example "매주 금요일", "every friday").',
+    '- Never write meta tasks like "create/register/update/save a workflow".',
+    '- Instruction/description must describe the real task outcome to perform.',
+    '- Schedule expressions belong only to triggerType/triggerValue, not instruction/description.',
     '- If listing running workflows is requested, set listOptions.runningOnly=true.',
+    '',
+    'Example user request: 2분에 한번 "안녕하세요" 라고 말하는 워크플로우',
+    'Good draft.instruction: 각 실행에서 assistant 메시지로 정확히 "안녕하세요" 한 줄만 출력한다.',
+    'Good draft.description: 실행 시마다 지정된 인사 메시지를 한 줄로 출력합니다.',
     '',
     `User request: ${requestText}`,
     '',
