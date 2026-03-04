@@ -10,6 +10,7 @@ const RUNS_PAGE_SIZE = 50
 const RUNS_SCROLL_THRESHOLD_PX = 180
 const AUTO_REFRESH_INTERVAL_MS = 10000
 const RUNNING_DETAIL_REFRESH_INTERVAL_MS = 5000
+const MAX_REFRESH_PRESERVE_COUNT = RUNS_PAGE_SIZE * 2
 
 const route = useRoute()
 
@@ -257,7 +258,10 @@ const loadRunHistory = async (runId: string | null) => {
 }
 
 const refreshRunsView = async (options: { refreshHistory?: boolean } = {}) => {
-  const preserveCount = runs.value.length > 0 ? runs.value.length : RUNS_PAGE_SIZE
+  const preserveCount = Math.min(
+    runs.value.length > 0 ? runs.value.length : RUNS_PAGE_SIZE,
+    MAX_REFRESH_PRESERVE_COUNT
+  )
 
   await Promise.all([
     refreshWorkflow(),
