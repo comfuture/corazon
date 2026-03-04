@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manage Workflows"
+  short_description: "Manage Corazon workflows from chat and CLI"
+  default_prompt: "List, create, update, and delete Corazon workflows in the current workspace"

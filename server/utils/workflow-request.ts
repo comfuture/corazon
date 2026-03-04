@@ -45,8 +45,19 @@ const normalizeTriggerConfig = (input: {
     return on
   }
 
+  if (input.triggerType === 'rrule') {
+    if (!input.triggerValue) {
+      throw new Error('RRULE value is required.')
+    }
+    if (!validateRRuleExpression(input.triggerValue)) {
+      throw new Error('Invalid RRULE expression.')
+    }
+    on.rrule = input.triggerValue
+    return on
+  }
+
   if (!input.workflowDispatch) {
-    throw new Error('Enable direct execution when no schedule/interval is configured.')
+    throw new Error('Enable direct execution when no schedule/interval/rrule is configured.')
   }
 
   return on
@@ -59,7 +70,7 @@ export const parseWorkflowUpsertRequest = (body: unknown) => {
   const description = asString(raw.description)
   const instruction = asString(raw.instruction)
   const skills = asStringArray(raw.skills)
-  const triggerType = raw.triggerType === 'schedule' || raw.triggerType === 'interval'
+  const triggerType = raw.triggerType === 'schedule' || raw.triggerType === 'interval' || raw.triggerType === 'rrule'
     ? raw.triggerType
     : null
   const triggerValue = raw.triggerValue == null ? null : asString(raw.triggerValue)

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Cron } from 'croner'
+import { rrulestr } from 'rrule'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import type { WorkflowDefinition, WorkflowFrontmatter, WorkflowTriggerConfig } from '@@/types/workflow'
 import { resolveCorazonRootDir } from './agent-home'
@@ -65,11 +66,15 @@ const normalizeTriggerConfig = (value: unknown): WorkflowTriggerConfig | null =>
   const interval = typeof record.interval === 'string' && record.interval.trim()
     ? record.interval.trim()
     : undefined
+  const rrule = typeof record.rrule === 'string' && record.rrule.trim()
+    ? record.rrule.trim()
+    : undefined
   const workflowDispatch = record['workflow-dispatch'] === true
 
   return {
     'schedule': schedule,
     'interval': interval,
+    'rrule': rrule,
     'workflow-dispatch': workflowDispatch
   }
 }
@@ -85,6 +90,16 @@ export const validateCronExpression = (value: string) => {
 }
 
 export const validateIntervalExpression = (value: string) => INTERVAL_PATTERN.test(value)
+
+export const validateRRuleExpression = (value: string) => {
+  try {
+    const parsed = rrulestr(value)
+    const next = parsed.after(new Date())
+    return next instanceof Date
+  } catch {
+    return false
+  }
+}
 
 const validateWorkflowRules = (frontmatter: WorkflowFrontmatter, instruction: string) => {
   const name = frontmatter.name.trim()
@@ -102,10 +117,12 @@ const validateWorkflowRules = (frontmatter: WorkflowFrontmatter, instruction: st
 
   const schedule = frontmatter.on.schedule?.trim()
   const interval = frontmatter.on.interval?.trim()
+  const rrule = frontmatter.on.rrule?.trim()
   const dispatch = frontmatter.on['workflow-dispatch'] === true
 
-  if (schedule && interval) {
-    return 'Only one time trigger is allowed: either "schedule" or "interval".'
+  const timeTriggerCount = [schedule, interval, rrule].filter(Boolean).length
+  if (timeTriggerCount > 1) {
+    return 'Only one time trigger is allowed: "schedule", "interval", or "rrule".'
   }
 
   if (schedule && !validateCronExpression(schedule)) {
@@ -116,8 +133,12 @@ const validateWorkflowRules = (frontmatter: WorkflowFrontmatter, instruction: st
     return 'Invalid interval expression in "on.interval".'
   }
 
-  if (!schedule && !interval && !dispatch) {
-    return 'At least one trigger must be configured. Enable "workflow-dispatch" when no schedule exists.'
+  if (rrule && !validateRRuleExpression(rrule)) {
+    return 'Invalid RRULE expression in "on.rrule".'
+  }
+
+  if (!schedule && !interval && !rrule && !dispatch) {
+    return 'At least one trigger must be configured. Enable "workflow-dispatch" when no time trigger exists.'
   }
 
   if (!instruction.trim()) {
@@ -196,6 +217,7 @@ export const serializeWorkflowSource = (
     on: {
       'schedule': frontmatterInput.on.schedule?.trim() || undefined,
       'interval': frontmatterInput.on.interval?.trim() || undefined,
+      'rrule': frontmatterInput.on.rrule?.trim() || undefined,
       'workflow-dispatch': frontmatterInput.on['workflow-dispatch'] === true
     },
     skills: [...new Set(frontmatterInput.skills.map(item => item.trim()).filter(Boolean))]

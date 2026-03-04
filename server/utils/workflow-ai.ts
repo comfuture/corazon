@@ -1,7 +1,7 @@
 import { Codex } from '@openai/codex-sdk'
 
 type TriggerAiResult = {
-  triggerType: 'schedule' | 'interval' | 'none'
+  triggerType: 'schedule' | 'interval' | 'rrule' | 'none'
   triggerValue: string
   confidence: 'high' | 'low'
 }
@@ -70,7 +70,7 @@ const TRIGGER_AI_SCHEMA = {
   properties: {
     triggerType: {
       type: 'string',
-      enum: ['schedule', 'interval', 'none']
+      enum: ['schedule', 'interval', 'rrule', 'none']
     },
     triggerValue: {
       type: 'string'
@@ -87,8 +87,10 @@ export const inferWorkflowTriggerWithAI = async (text: string) => {
     'Extract the execution trigger from the text below.',
     '- If the trigger type is schedule, return a 5-field cron expression (minute hour day month weekday).',
     '- If the trigger type is interval, return it in the format 120s, 60m, or 2h.',
+    '- If the trigger type is rrule, return an RFC 5545 RRULE string without DTSTART.',
+    '- Prefer rrule when the request describes weekly/monthly recurrence in natural language.',
     '- If a trigger cannot be inferred, return triggerType=none.',
-    '- Follow this normalization rule: "every day at 6 PM" -> 0 18 * * *.',
+    '- Follow this normalization rule: "every day at 6 PM" -> FREQ=DAILY;BYHOUR=18;BYMINUTE=0.',
     '',
     text.trim()
   ].join('\n')
@@ -110,7 +112,7 @@ export const inferWorkflowTriggerWithAI = async (text: string) => {
   try {
     const parsed = JSON.parse(response) as TriggerAiResult
     if (
-      (parsed.triggerType === 'schedule' || parsed.triggerType === 'interval' || parsed.triggerType === 'none')
+      (parsed.triggerType === 'schedule' || parsed.triggerType === 'interval' || parsed.triggerType === 'rrule' || parsed.triggerType === 'none')
       && typeof parsed.triggerValue === 'string'
       && (parsed.confidence === 'high' || parsed.confidence === 'low')
     ) {
@@ -205,59 +207,9 @@ const normalizeSuggestedSkills = (skills: string[], availableSkills: string[]) =
   return normalized
 }
 
-const inferWorkflowSkillsByKeyword = (text: string, availableSkills: string[]) => {
-  const normalizedText = text.toLowerCase()
-  const scoreBySkill = new Map<string, number>()
-
-  for (const skill of availableSkills) {
-    if (skill.startsWith('.')) {
-      continue
-    }
-
-    const normalizedSkill = skill.toLowerCase()
-    const tokens = normalizedSkill
-      .split(/[^a-z0-9]+/)
-      .map(token => token.trim())
-      .filter(token => token.length >= 3)
-
-    let score = 0
-    if (normalizedText.includes(normalizedSkill)) {
-      score += 3
-    }
-    for (const token of tokens) {
-      if (normalizedText.includes(token)) {
-        score += 1
-      }
-    }
-    if (score > 0) {
-      scoreBySkill.set(skill, score)
-    }
-  }
-
-  const pushMatchedSkills = (pattern: RegExp, match: (skill: string) => boolean, score = 3) => {
-    if (!pattern.test(normalizedText)) {
-      return
-    }
-    for (const skill of availableSkills) {
-      if (!match(skill)) {
-        continue
-      }
-      scoreBySkill.set(skill, Math.max(scoreBySkill.get(skill) ?? 0, score))
-    }
-  }
-
-  pushMatchedSkills(/(?:\bfigma\b|디자인|시안|\bui\b)/i, skill => skill.toLowerCase().includes('figma'))
-  pushMatchedSkills(/(?:\bgithub\b|\bgh\b|\bpr\b|pull request|review|댓글)/i, skill => skill.toLowerCase().startsWith('gh-'))
-  pushMatchedSkills(/(?:\bci\b|actions|workflow run|테스트 실패)/i, skill => skill.toLowerCase().includes('ci'))
-  pushMatchedSkills(/(?:cloudflare|worker|pages)/i, skill => skill.toLowerCase().includes('cloudflare'))
-  pushMatchedSkills(/(?:infographic|차트|도표|인포그래픽)/i, skill => skill.toLowerCase().includes('infogroove'))
-  pushMatchedSkills(/(?:\bimage\b|이미지|illustration|썸네일)/i, skill => skill.toLowerCase().includes('banana'))
-  pushMatchedSkills(/(?:\bnuxt\b|nuxt ui|컴포넌트)/i, skill => skill.toLowerCase().includes('nuxt-ui'))
-
-  return [...scoreBySkill.entries()]
-    .sort((left, right) => right[1] - left[1])
-    .map(([skill]) => skill)
-    .slice(0, 5)
+const inferSkillsFromDirectMentions = (text: string, availableSkills: string[]) => {
+  const normalized = text.toLowerCase()
+  return availableSkills.filter(skill => normalized.includes(skill.toLowerCase())).slice(0, 5)
 }
 
 export const inferWorkflowSkillsWithAI = async (text: string, availableSkills: string[]) => {
@@ -266,10 +218,7 @@ export const inferWorkflowSkillsWithAI = async (text: string, availableSkills: s
     return []
   }
 
-  const keywordSuggestedSkills = inferWorkflowSkillsByKeyword(source, availableSkills)
-  if (source.length < 12) {
-    return keywordSuggestedSkills
-  }
+  const directlyMentionedSkills = inferSkillsFromDirectMentions(source, availableSkills)
 
   const prompt = [
     'Choose helpful Codex skills for the workflow instruction.',
@@ -295,17 +244,17 @@ export const inferWorkflowSkillsWithAI = async (text: string, availableSkills: s
 
   const response = result.finalResponse?.trim() ?? ''
   if (!response) {
-    return keywordSuggestedSkills
+    return directlyMentionedSkills
   }
 
   try {
     const parsed = JSON.parse(response) as WorkflowSkillAiResult
     if (!Array.isArray(parsed.skills)) {
-      return keywordSuggestedSkills
+      return directlyMentionedSkills
     }
     const aiSkills = normalizeSuggestedSkills(parsed.skills, availableSkills)
-    return normalizeSuggestedSkills([...keywordSuggestedSkills, ...aiSkills], availableSkills).slice(0, 5)
+    return normalizeSuggestedSkills([...directlyMentionedSkills, ...aiSkills], availableSkills).slice(0, 5)
   } catch {
-    return keywordSuggestedSkills
+    return directlyMentionedSkills
   }
 }
