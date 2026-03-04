@@ -40,11 +40,12 @@ const listPanelClass = computed(() => (hasSelectedRun.value ? '!min-h-0' : '!min
 const listPanelUi = {
   body: '!p-0 !overflow-hidden !gap-0'
 }
-const AUTO_REFRESH_INTERVAL_MS = 3000
-const RUNNING_DETAIL_REFRESH_INTERVAL_MS = 1500
+const AUTO_REFRESH_INTERVAL_MS = 10000
+const RUNNING_DETAIL_REFRESH_INTERVAL_MS = 5000
 const refreshInFlight = ref(false)
 const queuedHistoryRefresh = ref(false)
 const autoRefreshTimer = ref<ReturnType<typeof setInterval> | null>(null)
+const historyBottomRef = ref<HTMLElement | null>(null)
 const shouldRefreshSelectedHistory = computed(() =>
   !!selectedRunId.value
   && (
@@ -55,6 +56,22 @@ const shouldRefreshSelectedHistory = computed(() =>
 const refreshIntervalMs = computed(() =>
   shouldRefreshSelectedHistory.value ? RUNNING_DETAIL_REFRESH_INTERVAL_MS : AUTO_REFRESH_INTERVAL_MS
 )
+
+const scrollDetailToBottom = async () => {
+  if (!import.meta.client) {
+    return
+  }
+
+  await nextTick()
+
+  const detailRoot = document.getElementById(detailPanelId.value)
+  const detailBody = detailRoot?.querySelector<HTMLElement>('[data-slot="body"]') ?? null
+  if (detailBody) {
+    detailBody.scrollTop = detailBody.scrollHeight
+  }
+
+  historyBottomRef.value?.scrollIntoView({ block: 'end' })
+}
 
 watch(runs, (nextRuns) => {
   if (!nextRuns.length) {
@@ -81,6 +98,7 @@ const loadRunHistory = async (runId: string | null) => {
       `/api/workflows/runs/${encodeURIComponent(runId)}/history`,
       { cache: 'no-store' }
     )
+    await scrollDetailToBottom()
   } catch (error) {
     console.error(error)
     historyResponse.value = null
@@ -336,6 +354,7 @@ const formatDateTime = (timestamp: number | null) => {
           variant="soft"
           title="이력을 불러오지 못했습니다."
         />
+        <div ref="historyBottomRef" />
       </template>
     </UDashboardPanel>
   </div>

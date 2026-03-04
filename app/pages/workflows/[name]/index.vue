@@ -224,7 +224,7 @@ const deleteWorkflow = async () => {
 </script>
 
 <template>
-  <div class="flex h-full w-full flex-col gap-6 p-4 sm:p-6">
+  <div class="flex h-full w-full flex-col gap-6">
     <UAlert
       v-if="workflow && !workflow.isValid && workflow.parseError"
       color="error"
@@ -270,7 +270,7 @@ const deleteWorkflow = async () => {
       :state="form"
       class="w-full space-y-4"
     >
-      <div class="grid gap-4 md:grid-cols-2">
+      <div class="flex flex-col gap-4">
         <UFormField
           name="name"
           label="Name"
@@ -288,9 +288,12 @@ const deleteWorkflow = async () => {
           label="Description"
           required
         >
-          <UInput
+          <UTextarea
             v-model="form.description"
             class="w-full"
+            :rows="3"
+            autoresize
+            :maxrows="10"
             placeholder="workflow description"
           />
         </UFormField>
