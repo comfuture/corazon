@@ -1,4 +1,4 @@
-import { Codex } from '@openai/codex-sdk'
+import { Codex, type Input } from '@openai/codex-sdk'
 import { existsSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import {
@@ -40,6 +40,15 @@ const MODEL_OPTIONS = new Set([
   'gpt-5.2',
   'gpt-5.1-codex-mini'
 ])
+const WORKFLOW_ROUTING_INTENT_PATTERN = /(?:\bworkflow\b|워크플로우|workflow[-\s]?dispatch|스케줄|schedule|cron|rrule|interval|자동화|자동 실행|정기 실행|run every|every\s+\d+\s*(?:sec|min|hour|day|week|month))/i
+const WORKFLOW_MANAGEMENT_ACTION_PATTERN = /(?:생성|만들|작성|추가|등록|수정|업데이트|편집|삭제|지워|목록|리스트|조회|보여줘|create|add|update|edit|delete|remove|list|show|inspect|write)/i
+const WORKFLOW_ROUTING_PREAMBLE = [
+  '[Corazon workflow routing policy]',
+  '- If this request is about Corazon workflow management, use the `manage-workflows` skill.',
+  '- For natural-language workflow requests, prefer `manage-workflows` -> `apply-text` (or `from-text` first when uncertain).',
+  '- Never use OS-level schedulers or external scheduler files (`crontab`, `systemd`, `launchd`) for Corazon workflow requests.',
+  '- Apply workflow changes through Corazon workflow definitions (`workflows/*.md`) via the skill tooling.'
+].join('\n')
 
 let codexInstance: Codex | null = null
 
@@ -94,8 +103,46 @@ const getFirstUserText = (messages: CodexUIMessage[]) => {
   return extractTextFromMessage(firstUser)
 }
 
+const getLatestUserText = (messages: CodexUIMessage[]) => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message?.role === 'user') {
+      return extractTextFromMessage(message)
+    }
+  }
+  return ''
+}
+
 const hasAssistantMessages = (messages: CodexUIMessage[]) =>
   messages.some(message => message?.role === 'assistant')
+
+const isWorkflowManagementIntent = (text: string) => {
+  const source = text.trim()
+  if (!source) {
+    return false
+  }
+  return WORKFLOW_ROUTING_INTENT_PATTERN.test(source) && WORKFLOW_MANAGEMENT_ACTION_PATTERN.test(source)
+}
+
+const prependWorkflowRoutingHint = (input: Input, userText: string): Input => {
+  if (!isWorkflowManagementIntent(userText)) {
+    return input
+  }
+
+  const prefixedText = `${WORKFLOW_ROUTING_PREAMBLE}\n\nUser request:\n${userText.trim()}`
+  if (typeof input === 'string') {
+    return prefixedText
+  }
+
+  if (Array.isArray(input)) {
+    return [
+      { type: 'text', text: `${WORKFLOW_ROUTING_PREAMBLE}\n\nUser request follows:` },
+      ...input
+    ]
+  }
+
+  return input
+}
 
 const isFileUrl = (value: string) => value.startsWith('file://')
 
@@ -281,7 +328,10 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
           })
         })()
 
-        const inputMessage = buildCodexInput(messages)
+        const inputMessage = prependWorkflowRoutingHint(
+          buildCodexInput(messages),
+          getLatestUserText(messages)
+        )
 
         if (!inputMessage || (Array.isArray(inputMessage) && inputMessage.length === 0)) {
           writer.write({

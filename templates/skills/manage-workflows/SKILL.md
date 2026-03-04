@@ -7,6 +7,7 @@ description: Manage Corazon workflow definitions in the current workspace with d
 
 Use this skill to manage `workflows/*.md` directly from the Corazon workspace root.
 For natural-language requests, delegate intent/trigger/skill selection to the LLM via `from-text` or `apply-text` instead of ad-hoc regex parsing.
+Do not use OS-level schedulers (`crontab`, `systemd`, `launchd`) for Corazon workflow management; this skill is the source of truth.
 
 ## Script
 
