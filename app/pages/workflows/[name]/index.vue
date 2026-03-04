@@ -2,6 +2,7 @@
 import type {
   WorkflowDetailResponse,
   WorkflowListResponse,
+  WorkflowRunSummary,
   WorkflowUpsertRequest
 } from '@@/types/workflow'
 import type { RadioGroupItem } from '@nuxt/ui'
@@ -150,10 +151,29 @@ const runNow = async () => {
 
   try {
     isRunning.value = true
-    await $fetch(`/api/workflows/${encodeURIComponent(workflowSlug.value)}/run`, {
+    const response = await $fetch<{ run: WorkflowRunSummary }>(`/api/workflows/${encodeURIComponent(workflowSlug.value)}/run`, {
       method: 'POST'
     })
     await refresh()
+
+    if (response.run.status === 'failed') {
+      toast.add({
+        title: '실행 실패',
+        description: response.run.errorMessage ?? 'Workflow run failed.',
+        color: 'error'
+      })
+      return
+    }
+
+    if (response.run.status === 'running') {
+      toast.add({
+        title: '실행 시작',
+        description: '워크플로 실행이 진행 중입니다.',
+        color: 'warning'
+      })
+      return
+    }
+
     toast.add({
       title: '실행 완료',
       color: 'success'
