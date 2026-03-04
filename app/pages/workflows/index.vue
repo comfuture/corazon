@@ -8,7 +8,7 @@ import type {
 } from '@@/types/workflow'
 import type { RadioGroupItem } from '@nuxt/ui'
 
-type TriggerType = 'schedule' | 'interval'
+type TriggerType = 'schedule' | 'interval' | 'rrule'
 
 const toast = useToast()
 
@@ -37,6 +37,11 @@ const triggerItems: RadioGroupItem[] = [
     value: 'interval',
     label: '주기적',
     description: '120s, 60m, 2h 형식으로 실행 간격을 지정합니다.'
+  },
+  {
+    value: 'rrule',
+    label: 'RRULE',
+    description: 'RFC 5545 RRULE 문법으로 반복 규칙을 지정합니다.'
   }
 ]
 
@@ -103,7 +108,11 @@ const deriveWorkflowDescription = (value: string) => {
 
 const canProceedFromStepOne = computed(() => form.requestText.trim().length > 0)
 const triggerValuePlaceholder = computed(() =>
-  form.triggerType === 'schedule' ? '0 18 * * *' : '2h'
+  form.triggerType === 'schedule'
+    ? '0 18 * * *'
+    : form.triggerType === 'interval'
+      ? '2h'
+      : 'FREQ=WEEKLY;BYDAY=FR;BYHOUR=17;BYMINUTE=0'
 )
 
 const normalizeSuggestedSkills = (skills: string[] | null | undefined) => {
@@ -304,6 +313,9 @@ const triggerSummary = (workflow: WorkflowDefinition) => {
   if (workflow.frontmatter.on.interval) {
     return `interval: ${workflow.frontmatter.on.interval}`
   }
+  if (workflow.frontmatter.on.rrule) {
+    return `rrule: ${workflow.frontmatter.on.rrule}`
+  }
   return 'no schedule'
 }
 </script>
@@ -493,7 +505,7 @@ const triggerSummary = (workflow: WorkflowDefinition) => {
             <UInput
               v-model="form.triggerValue"
               :placeholder="triggerValuePlaceholder"
-              :icon="form.triggerType === 'schedule' ? 'i-lucide-calendar-clock' : 'i-lucide-repeat'"
+              :icon="form.triggerType === 'schedule' ? 'i-lucide-calendar-clock' : form.triggerType === 'interval' ? 'i-lucide-repeat' : 'i-lucide-calendar-range'"
             />
 
             <USwitch

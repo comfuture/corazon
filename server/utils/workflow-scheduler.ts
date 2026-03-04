@@ -1,4 +1,5 @@
 import { AsyncTask, CronJob, SimpleIntervalJob, ToadScheduler } from 'toad-scheduler'
+import { rrulestr } from 'rrule'
 import type { WorkflowDefinition, WorkflowTriggerType } from '@@/types/workflow'
 
 type WorkflowScheduledExecutor = (
@@ -10,6 +11,8 @@ type WorkflowScheduledExecutor = (
 let scheduler: ToadScheduler | null = null
 let schedulerInitialized = false
 let workflowScheduledExecutor: WorkflowScheduledExecutor = async () => {}
+const rruleTimerByJobId = new Map<string, ReturnType<typeof setTimeout>>()
+const MAX_TIMEOUT_MS = 2_147_483_647
 
 const createScheduler = () => {
   scheduler = new ToadScheduler()
@@ -17,6 +20,13 @@ const createScheduler = () => {
 }
 
 const getScheduler = () => scheduler ?? createScheduler()
+
+const clearRegisteredRRuleTimers = () => {
+  for (const timer of rruleTimerByJobId.values()) {
+    clearTimeout(timer)
+  }
+  rruleTimerByJobId.clear()
+}
 
 const toIntervalSchedule = (value: string) => {
   const matched = value.match(/^([1-9][0-9]*)(s|m|h)$/)
@@ -105,6 +115,58 @@ const registerIntervalSchedule = (
   targetScheduler.addSimpleIntervalJob(job)
 }
 
+const registerRRuleSchedule = (
+  definition: WorkflowDefinition,
+  rruleExpression: string
+) => {
+  const triggerType: WorkflowTriggerType = 'rrule'
+  const jobId = buildWorkflowJobId(definition.fileSlug, triggerType)
+  const existingTimer = rruleTimerByJobId.get(jobId)
+  if (existingTimer) {
+    clearTimeout(existingTimer)
+    rruleTimerByJobId.delete(jobId)
+  }
+
+  let parsedRule: ReturnType<typeof rrulestr>
+  try {
+    parsedRule = rrulestr(rruleExpression)
+  } catch (error) {
+    console.error(error)
+    return
+  }
+
+  const scheduleNext = () => {
+    const nextRunAt = parsedRule.after(new Date(), false)
+    if (!nextRunAt) {
+      rruleTimerByJobId.delete(jobId)
+      return
+    }
+
+    const delay = Math.max(0, nextRunAt.getTime() - Date.now())
+    const effectiveDelay = delay > MAX_TIMEOUT_MS ? MAX_TIMEOUT_MS : delay
+
+    const timer = setTimeout(async () => {
+      if (!rruleTimerByJobId.has(jobId)) {
+        return
+      }
+
+      if (delay <= MAX_TIMEOUT_MS) {
+        try {
+          await workflowScheduledExecutor(definition, triggerType, rruleExpression)
+        } catch (error) {
+          console.error(error)
+        }
+      }
+
+      scheduleNext()
+    }, effectiveDelay)
+
+    rruleTimerByJobId.set(jobId, timer)
+  }
+
+  scheduleNext()
+}
+
 const scheduleWorkflowDefinition = (targetScheduler: ToadScheduler, definition: WorkflowDefinition) => {
   if (!definition.isValid) {
     return
@@ -112,12 +174,16 @@ const scheduleWorkflowDefinition = (targetScheduler: ToadScheduler, definition: 
 
   const schedule = definition.frontmatter.on.schedule?.trim()
   const interval = definition.frontmatter.on.interval?.trim()
+  const rrule = definition.frontmatter.on.rrule?.trim()
 
   if (schedule) {
     registerCronSchedule(targetScheduler, definition, schedule)
   }
   if (interval) {
     registerIntervalSchedule(targetScheduler, definition, interval)
+  }
+  if (rrule) {
+    registerRRuleSchedule(definition, rrule)
   }
 }
 
@@ -129,6 +195,7 @@ export const reloadWorkflowScheduler = () => {
   if (scheduler) {
     scheduler.stop()
   }
+  clearRegisteredRRuleTimers()
 
   const targetScheduler = createScheduler()
   const definitions = loadWorkflowDefinitions()
@@ -151,4 +218,5 @@ export const ensureWorkflowSchedulerInitialized = () => {
 
 export const stopWorkflowScheduler = () => {
   getScheduler().stop()
+  clearRegisteredRRuleTimers()
 }

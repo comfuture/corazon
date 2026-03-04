@@ -6,7 +6,7 @@ import type {
 } from '@@/types/workflow'
 import type { RadioGroupItem } from '@nuxt/ui'
 
-type TriggerType = 'schedule' | 'interval'
+type TriggerType = 'schedule' | 'interval' | 'rrule'
 
 const toast = useToast()
 const route = useRoute()
@@ -44,6 +44,11 @@ const triggerItems: RadioGroupItem[] = [
     value: 'interval',
     label: '주기적',
     description: '120s, 60m, 2h 형식의 실행 주기입니다.'
+  },
+  {
+    value: 'rrule',
+    label: 'RRULE',
+    description: 'RFC 5545 RRULE 문법으로 반복 규칙을 지정합니다.'
   }
 ]
 
@@ -80,6 +85,9 @@ const syncFormFromWorkflow = () => {
   } else if (workflow.value.frontmatter.on.interval) {
     form.triggerType = 'interval'
     form.triggerValue = workflow.value.frontmatter.on.interval
+  } else if (workflow.value.frontmatter.on.rrule) {
+    form.triggerType = 'rrule'
+    form.triggerValue = workflow.value.frontmatter.on.rrule
   } else {
     form.triggerType = 'schedule'
     form.triggerValue = ''
@@ -305,13 +313,13 @@ const deleteWorkflow = async () => {
 
       <UFormField
         name="triggerValue"
-        :label="form.triggerType === 'schedule' ? 'Cron Expression' : 'Interval'"
+        :label="form.triggerType === 'schedule' ? 'Cron Expression' : form.triggerType === 'interval' ? 'Interval' : 'RRULE'"
       >
         <UInput
           v-model="form.triggerValue"
           class="w-full"
-          :placeholder="form.triggerType === 'schedule' ? '0 18 * * *' : '2h'"
-          :icon="form.triggerType === 'schedule' ? 'i-lucide-calendar-clock' : 'i-lucide-repeat'"
+          :placeholder="form.triggerType === 'schedule' ? '0 18 * * *' : form.triggerType === 'interval' ? '2h' : 'FREQ=WEEKLY;BYDAY=FR;BYHOUR=17;BYMINUTE=0'"
+          :icon="form.triggerType === 'schedule' ? 'i-lucide-calendar-clock' : form.triggerType === 'interval' ? 'i-lucide-repeat' : 'i-lucide-calendar-range'"
         />
       </UFormField>
 

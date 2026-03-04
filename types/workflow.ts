@@ -1,8 +1,9 @@
-export type WorkflowTriggerType = 'schedule' | 'interval' | 'workflow-dispatch'
+export type WorkflowTriggerType = 'schedule' | 'interval' | 'rrule' | 'workflow-dispatch'
 
 export type WorkflowTriggerConfig = {
   'schedule'?: string
   'interval'?: string
+  'rrule'?: string
   'workflow-dispatch'?: boolean
 }
 
@@ -67,7 +68,7 @@ export type WorkflowDetailResponse = {
 }
 
 export type WorkflowTriggerGuessResponse = {
-  triggerType: 'schedule' | 'interval' | null
+  triggerType: 'schedule' | 'interval' | 'rrule' | null
   triggerValue: string | null
   confidence: 'high' | 'low' | 'none'
   suggestedName: string | null
@@ -79,7 +80,7 @@ export type WorkflowUpsertRequest = {
   description: string
   instruction: string
   skills: string[]
-  triggerType: 'schedule' | 'interval' | null
+  triggerType: 'schedule' | 'interval' | 'rrule' | null
   triggerValue: string | null
   workflowDispatch: boolean
 }

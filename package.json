@@ -31,6 +31,7 @@
     "mime-types": "^3.0.2",
     "monaco-editor": "^0.52.2",
     "nuxt": "^4.3.0",
+    "rrule": "^2.8.1",
     "shiki": "^3.22.0",
     "stream-markdown": "^0.0.13",
     "stream-monaco": "^0.0.18",
