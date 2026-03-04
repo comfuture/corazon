@@ -3,6 +3,7 @@ import type { WorkflowTriggerGuessResponse } from '@@/types/workflow'
 const toDailyCron = (hour: number, minute: number) => `${minute} ${hour} * * *`
 const WORKFLOW_NAME_WORD_PATTERN = /^[A-Za-z]+$/
 const DEFAULT_WORKFLOW_NAME = 'Task Workflow'
+type TriggerGuessCore = Pick<WorkflowTriggerGuessResponse, 'triggerType' | 'triggerValue' | 'confidence'>
 
 const toTitleCase = (value: string) => {
   if (!value) {
@@ -39,7 +40,7 @@ const to24Hour = (hour: number, meridiem: 'am' | 'pm' | null) => {
   return hour
 }
 
-const parseKnownTrigger = (text: string): Omit<WorkflowTriggerGuessResponse, 'suggestedName'> | null => {
+const parseKnownTrigger = (text: string): TriggerGuessCore | null => {
   const normalized = text.trim()
   if (!normalized) {
     return {
@@ -132,13 +133,18 @@ const suggestWorkflowName = async (text: string) => {
 export default defineEventHandler(async (event): Promise<WorkflowTriggerGuessResponse> => {
   const body = await readBody(event)
   const text = typeof body?.text === 'string' ? body.text.trim() : ''
-  const suggestedName = await suggestWorkflowName(text)
+  const availableSkills = listInstalledSkills().map(skill => skill.name)
+  const [suggestedName, suggestedSkills] = await Promise.all([
+    suggestWorkflowName(text),
+    inferWorkflowSkillsWithAI(text, availableSkills).catch(() => [])
+  ])
 
   const known = parseKnownTrigger(text)
   if (known) {
     return {
       ...known,
-      suggestedName
+      suggestedName,
+      suggestedSkills
     }
   }
 
@@ -149,7 +155,8 @@ export default defineEventHandler(async (event): Promise<WorkflowTriggerGuessRes
         triggerType: null,
         triggerValue: null,
         confidence: 'none',
-        suggestedName
+        suggestedName,
+        suggestedSkills
       }
     }
 
@@ -158,7 +165,8 @@ export default defineEventHandler(async (event): Promise<WorkflowTriggerGuessRes
         triggerType: 'schedule',
         triggerValue: inferred.triggerValue,
         confidence: inferred.confidence,
-        suggestedName
+        suggestedName,
+        suggestedSkills
       }
     }
 
@@ -167,7 +175,8 @@ export default defineEventHandler(async (event): Promise<WorkflowTriggerGuessRes
         triggerType: 'interval',
         triggerValue: inferred.triggerValue,
         confidence: inferred.confidence,
-        suggestedName
+        suggestedName,
+        suggestedSkills
       }
     }
   } catch {
@@ -178,6 +187,7 @@ export default defineEventHandler(async (event): Promise<WorkflowTriggerGuessRes
     triggerType: null,
     triggerValue: null,
     confidence: 'none',
-    suggestedName
+    suggestedName,
+    suggestedSkills
   }
 })

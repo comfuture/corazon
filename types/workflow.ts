@@ -71,6 +71,7 @@ export type WorkflowTriggerGuessResponse = {
   triggerValue: string | null
   confidence: 'high' | 'low' | 'none'
   suggestedName: string | null
+  suggestedSkills: string[]
 }
 
 export type WorkflowUpsertRequest = {
