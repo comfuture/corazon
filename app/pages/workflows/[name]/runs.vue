@@ -39,6 +39,7 @@ const runsErrorMessage = ref<string | null>(null)
 const runsHasMore = ref(false)
 const runsNextOffset = ref(0)
 const runsListRef = ref<HTMLElement | null>(null)
+const runsListRequestToken = ref(0)
 
 const runsRefreshSignal = useState<{ slug: string, at: number }>('workflow-runs-refresh-signal', () => ({
   slug: '',
@@ -78,8 +79,8 @@ const toErrorMessage = (error: unknown, fallback: string) => {
   return fallback
 }
 
-const fetchRunsPage = async (offset: number) => {
-  if (!workflowSlug.value) {
+const fetchRunsPage = async (slug: string, offset: number) => {
+  if (!slug) {
     return {
       runs: [],
       hasMore: false,
@@ -88,7 +89,7 @@ const fetchRunsPage = async (offset: number) => {
   }
 
   return await $fetch<WorkflowRunsPageResponse>(
-    `/api/workflows/${encodeURIComponent(workflowSlug.value)}/runs`,
+    `/api/workflows/${encodeURIComponent(slug)}/runs`,
     {
       query: {
         limit: RUNS_PAGE_SIZE,
@@ -116,6 +117,9 @@ const scrollDetailToBottom = async () => {
 }
 
 const loadRunsList = async (options: { preserveCount?: number } = {}) => {
+  const slug = workflowSlug.value
+  const requestToken = runsListRequestToken.value + 1
+  runsListRequestToken.value = requestToken
   const minimumCount = Math.max(RUNS_PAGE_SIZE, options.preserveCount ?? RUNS_PAGE_SIZE)
 
   runsPending.value = true
@@ -126,7 +130,11 @@ const loadRunsList = async (options: { preserveCount?: number } = {}) => {
     const loaded: WorkflowRunSummary[] = []
 
     while (hasMore && loaded.length < minimumCount) {
-      const page = await fetchRunsPage(nextOffset)
+      const page = await fetchRunsPage(slug, nextOffset)
+      if (workflowSlug.value !== slug || runsListRequestToken.value !== requestToken) {
+        return
+      }
+
       loaded.push(...page.runs)
       hasMore = page.hasMore
       nextOffset = page.nextOffset ?? loaded.length
@@ -136,17 +144,27 @@ const loadRunsList = async (options: { preserveCount?: number } = {}) => {
       }
     }
 
+    if (workflowSlug.value !== slug || runsListRequestToken.value !== requestToken) {
+      return
+    }
+
     runs.value = loaded
     runsHasMore.value = hasMore
     runsNextOffset.value = nextOffset
     runsErrorMessage.value = null
   } catch (error) {
+    if (workflowSlug.value !== slug || runsListRequestToken.value !== requestToken) {
+      return
+    }
+
     runs.value = []
     runsHasMore.value = false
     runsNextOffset.value = 0
     runsErrorMessage.value = toErrorMessage(error, '실행 이력을 불러오지 못했습니다.')
   } finally {
-    runsPending.value = false
+    if (runsListRequestToken.value === requestToken) {
+      runsPending.value = false
+    }
   }
 }
 
@@ -155,9 +173,15 @@ const loadMoreRuns = async () => {
     return
   }
 
+  const slug = workflowSlug.value
+  const requestToken = runsListRequestToken.value
+
   try {
     runsLoadingMore.value = true
-    const page = await fetchRunsPage(runsNextOffset.value)
+    const page = await fetchRunsPage(slug, runsNextOffset.value)
+    if (workflowSlug.value !== slug || runsListRequestToken.value !== requestToken) {
+      return
+    }
 
     if (page.runs.length > 0) {
       runs.value = [...runs.value, ...page.runs]
@@ -199,6 +223,8 @@ watch(runs, (nextRuns) => {
 }, { immediate: true })
 
 watch(workflowSlug, () => {
+  runsListRequestToken.value += 1
+
   selectedRunId.value = null
   historyResponse.value = null
   runs.value = []
