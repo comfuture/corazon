@@ -142,6 +142,66 @@ def quote_yaml_scalar(value: str) -> str:
     return f'"{escaped}"'
 
 
+def parse_inline_yaml_list(value: str) -> list[str] | None:
+    source = as_string(value)
+    if not source:
+        return []
+
+    lowered = source.lower()
+    if lowered in {"null", "~"}:
+        return []
+
+    if source.startswith("[") and source.endswith("]"):
+        inner = source[1:-1].strip()
+        if not inner:
+            return []
+
+        items: list[str] = []
+        token: list[str] = []
+        quote: str | None = None
+        escape = False
+
+        for char in inner:
+            if escape:
+                token.append(char)
+                escape = False
+                continue
+
+            if quote:
+                if quote == '"' and char == "\\":
+                    escape = True
+                    continue
+                if char == quote:
+                    quote = None
+                    continue
+                token.append(char)
+                continue
+
+            if char in {'"', "'"}:
+                quote = char
+                continue
+
+            if char == ",":
+                piece = as_string("".join(token))
+                if piece:
+                    items.append(unquote_yaml_scalar(piece))
+                token = []
+                continue
+
+            token.append(char)
+
+        if quote:
+            return None
+
+        piece = as_string("".join(token))
+        if piece:
+            items.append(unquote_yaml_scalar(piece))
+
+        return [item for item in items if item]
+
+    return [unquote_yaml_scalar(source)]
+
+
 def normalize_workflow_name(value: str) -> str:
     words = [
         token.strip()
@@ -448,7 +508,14 @@ def parse_frontmatter_yaml(source: str) -> WorkflowFrontmatter:
                 section = "on"
                 continue
             if key == "skills":
-                section = "skills"
+                inline_skills = parse_inline_yaml_list(raw)
+                if inline_skills is None:
+                    raise ValueError("Invalid inline skills list syntax.")
+                if as_string(raw):
+                    skills.extend(inline_skills)
+                    section = "root"
+                else:
+                    section = "skills"
                 continue
 
             section = "root"
