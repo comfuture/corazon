@@ -142,8 +142,69 @@ const splitCommandAndOptions = (argv) => {
   return { command, options }
 }
 
-const resolveRootDirectory = options =>
-  resolve(asString(options.root) || process.env.CORAZON_ROOT || process.cwd())
+let cachedCorazonRootDir = null
+
+const getLegacyCorazonRootDir = () => join(homedir(), '.corazon')
+
+const getLinuxCorazonRootDir = () => {
+  const xdgConfigHome = asString(process.env.XDG_CONFIG_HOME)
+  if (xdgConfigHome) {
+    return join(xdgConfigHome, 'corazon')
+  }
+  return join(homedir(), '.config', 'corazon')
+}
+
+const getWindowsCorazonRootDir = () => {
+  const appData = asString(process.env.APPDATA)
+  if (appData) {
+    return join(appData, 'Corazon')
+  }
+  return join(homedir(), 'AppData', 'Roaming', 'Corazon')
+}
+
+const getPlatformDefaultCorazonRootDir = () => {
+  if (process.platform === 'darwin') {
+    return join(homedir(), 'Library', 'Application Support', 'Corazon')
+  }
+  if (process.platform === 'win32') {
+    return getWindowsCorazonRootDir()
+  }
+  return getLinuxCorazonRootDir()
+}
+
+const resolveDefaultCorazonRootDir = () => {
+  if (cachedCorazonRootDir) {
+    return cachedCorazonRootDir
+  }
+
+  const configuredRoot = asString(process.env.CORAZON_ROOT_DIR) || asString(process.env.CORAZON_ROOT)
+  if (configuredRoot) {
+    cachedCorazonRootDir = configuredRoot
+    return cachedCorazonRootDir
+  }
+
+  const legacyRoot = getLegacyCorazonRootDir()
+  if (process.platform === 'darwin') {
+    cachedCorazonRootDir = legacyRoot
+    return cachedCorazonRootDir
+  }
+
+  if (existsSync(legacyRoot)) {
+    cachedCorazonRootDir = legacyRoot
+    return cachedCorazonRootDir
+  }
+
+  cachedCorazonRootDir = getPlatformDefaultCorazonRootDir()
+  return cachedCorazonRootDir
+}
+
+const resolveRootDirectory = (options) => {
+  const explicitRoot = asString(options.root)
+  if (explicitRoot) {
+    return resolve(explicitRoot)
+  }
+  return resolveDefaultCorazonRootDir()
+}
 
 const toTitleCase = (value) => {
   if (!value) {
