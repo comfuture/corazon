@@ -2,6 +2,7 @@
 import type {
   WorkflowDefinition,
   WorkflowListResponse,
+  WorkflowRunSummary,
   WorkflowTriggerGuessResponse,
   WorkflowUpsertRequest
 } from '@@/types/workflow'
@@ -262,10 +263,29 @@ const runWorkflowNow = async (workflow: WorkflowDefinition) => {
 
   try {
     runningWorkflowSlug.value = workflow.fileSlug
-    await $fetch(`/api/workflows/${encodeURIComponent(workflow.fileSlug)}/run`, {
+    const response = await $fetch<{ run: WorkflowRunSummary }>(`/api/workflows/${encodeURIComponent(workflow.fileSlug)}/run`, {
       method: 'POST'
     })
     await refresh()
+
+    if (response.run.status === 'failed') {
+      toast.add({
+        title: '실행 실패',
+        description: response.run.errorMessage ?? 'Workflow run failed.',
+        color: 'error'
+      })
+      return
+    }
+
+    if (response.run.status === 'running') {
+      toast.add({
+        title: '실행 시작',
+        description: '워크플로 실행이 진행 중입니다.',
+        color: 'warning'
+      })
+      return
+    }
+
     toast.add({
       title: '실행 완료',
       color: 'success'

@@ -119,32 +119,36 @@ const formatDateTime = (timestamp: number | null) => {
       class="grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)]"
     >
       <div class="space-y-2">
-        <button
+        <UButton
           v-for="run in runs"
           :key="run.id"
           type="button"
-          class="w-full rounded-md border border-default p-3 text-left transition hover:border-primary/50"
-          :class="selectedRunId === run.id ? 'border-primary/70 bg-primary/5' : ''"
+          class="w-full"
+          :color="selectedRunId === run.id ? 'primary' : 'neutral'"
+          :variant="selectedRunId === run.id ? 'soft' : 'outline'"
+          :ui="{ base: 'h-auto w-full justify-start px-3 py-3' }"
           @click="selectedRunId = run.id"
         >
-          <div class="flex items-center justify-between gap-2">
-            <UBadge
-              :color="runStatusColor(run.status)"
-              variant="soft"
-            >
-              {{ run.status }}
-            </UBadge>
-            <span class="text-xs text-muted-foreground">
-              {{ formatDateTime(run.startedAt) }}
-            </span>
+          <div class="w-full text-left">
+            <div class="flex items-center justify-between gap-2">
+              <UBadge
+                :color="runStatusColor(run.status)"
+                variant="soft"
+              >
+                {{ run.status }}
+              </UBadge>
+              <span class="text-xs text-muted-foreground">
+                {{ formatDateTime(run.startedAt) }}
+              </span>
+            </div>
+            <p class="mt-2 text-xs text-muted-foreground">
+              {{ run.triggerType }}: {{ run.triggerValue || '-' }}
+            </p>
+            <p class="mt-1 text-xs text-muted-foreground">
+              in {{ run.totalInputTokens }} (cached {{ run.totalCachedInputTokens }}) · out {{ run.totalOutputTokens }}
+            </p>
           </div>
-          <p class="mt-2 text-xs text-muted-foreground">
-            {{ run.triggerType }}: {{ run.triggerValue || '-' }}
-          </p>
-          <p class="mt-1 text-xs text-muted-foreground">
-            in {{ run.totalInputTokens }} (cached {{ run.totalCachedInputTokens }}) · out {{ run.totalOutputTokens }}
-          </p>
-        </button>
+        </UButton>
       </div>
 
       <div class="space-y-3 rounded-lg border border-default p-3 sm:p-4">
