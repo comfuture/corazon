@@ -50,6 +50,7 @@ const runsRefreshSignal = useState<{ slug: string, at: number }>('workflow-runs-
 const selectedRunId = ref<string | null>(null)
 const historyResponse = ref<WorkflowRunHistoryResponse | null>(null)
 const historyPending = ref(false)
+const historyRequestToken = ref(0)
 const listPanelId = computed(() => `workflow-runs-list-${workflowSlug.value || 'default'}`)
 const detailPanelId = computed(() => `workflow-runs-detail-${workflowSlug.value || 'default'}`)
 const selectedRun = computed(() => runs.value.find(item => item.id === selectedRunId.value) ?? null)
@@ -237,6 +238,9 @@ watch(workflowSlug, () => {
 }, { immediate: true })
 
 const loadRunHistory = async (runId: string | null) => {
+  const requestToken = historyRequestToken.value + 1
+  historyRequestToken.value = requestToken
+
   if (!runId) {
     historyResponse.value = null
     return
@@ -244,16 +248,28 @@ const loadRunHistory = async (runId: string | null) => {
 
   try {
     historyPending.value = true
-    historyResponse.value = await $fetch<WorkflowRunHistoryResponse>(
+    const response = await $fetch<WorkflowRunHistoryResponse>(
       `/api/workflows/runs/${encodeURIComponent(runId)}/history`,
       { cache: 'no-store' }
     )
+
+    if (historyRequestToken.value !== requestToken || selectedRunId.value !== runId) {
+      return
+    }
+
+    historyResponse.value = response
     await scrollDetailToBottom()
   } catch (error) {
+    if (historyRequestToken.value !== requestToken || selectedRunId.value !== runId) {
+      return
+    }
+
     console.error(error)
     historyResponse.value = null
   } finally {
-    historyPending.value = false
+    if (historyRequestToken.value === requestToken) {
+      historyPending.value = false
+    }
   }
 }
 
