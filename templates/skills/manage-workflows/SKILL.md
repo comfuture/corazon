@@ -1,6 +1,6 @@
 ---
 name: manage-workflows
-description: Manage Corazon workflow definitions in the current workspace with deterministic scripts for list/create/update/delete operations. Use when users ask to register scheduled automations, inspect active workflows, modify existing trigger/instruction/skills, or remove workflows by name/intent from chat requests in Korean or English.
+description: Manage Corazon workflow definitions in the current workspace with deterministic scripts for list/create/update/delete operations. Use for any workflow-management request in Korean or English, including listing or inspecting current workflows, checking running or active workflows, filtering by schedule frequency such as daily or weekly runs, creating new scheduled automations from natural language, updating trigger/instruction/skills, and deleting workflows by name or intent.
 ---
 
 # Manage Workflows

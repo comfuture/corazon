@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type {
   WorkflowDefinition,
-  WorkflowEnhanceResponse,
   WorkflowListResponse,
   WorkflowTriggerGuessResponse,
   WorkflowUpsertRequest
@@ -22,7 +21,6 @@ const availableSkills = computed(() => data.value?.availableSkills ?? [])
 const isCreateModalOpen = ref(false)
 const currentStep = ref(1)
 const isCreating = ref(false)
-const isEnhancing = ref(false)
 const isParsingTrigger = ref(false)
 const deletingWorkflowSlug = ref<string | null>(null)
 const runningWorkflowSlug = ref<string | null>(null)
@@ -70,7 +68,7 @@ const openCreateModal = () => {
 }
 
 const closeCreateModal = () => {
-  if (isCreating.value || isEnhancing.value || isParsingTrigger.value) {
+  if (isCreating.value || isParsingTrigger.value) {
     return
   }
   isCreateModalOpen.value = false
@@ -150,6 +148,9 @@ const requestTriggerSuggestion = async () => {
     }
 
     form.skills = normalizeSuggestedSkills(guessed.suggestedSkills)
+    if (guessed.enhancedText) {
+      form.requestText = guessed.enhancedText
+    }
   } catch (error) {
     console.error(error)
   } finally {
@@ -171,31 +172,6 @@ const goToStepTwo = async () => {
 
 const goToStepOne = () => {
   currentStep.value = 1
-}
-
-const enhanceInstruction = async () => {
-  const source = form.requestText.trim()
-  if (!source) {
-    return
-  }
-
-  try {
-    isEnhancing.value = true
-    const response = await $fetch<WorkflowEnhanceResponse>('/api/workflows/enhance', {
-      method: 'POST',
-      body: { text: source }
-    })
-    form.requestText = response.text
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Enhance failed.'
-    toast.add({
-      title: 'Enhance 실패',
-      description: message,
-      color: 'error'
-    })
-  } finally {
-    isEnhancing.value = false
-  }
 }
 
 const saveWorkflow = async () => {
@@ -478,17 +454,6 @@ const triggerSummary = (workflow: WorkflowDefinition) => {
               :maxrows="14"
               placeholder="예) 매일 오후 6시에 오늘 작업 내용을 정리해서 이메일로 보내줘."
             />
-            <div class="flex justify-end">
-              <UButton
-                icon="i-lucide-wand-sparkles"
-                color="neutral"
-                variant="outline"
-                :loading="isEnhancing"
-                @click="enhanceInstruction"
-              >
-                Enhance
-              </UButton>
-            </div>
           </div>
 
           <div
@@ -528,7 +493,7 @@ const triggerSummary = (workflow: WorkflowDefinition) => {
             <UButton
               color="neutral"
               variant="outline"
-              :disabled="isCreating || isEnhancing || isParsingTrigger"
+              :disabled="isCreating || isParsingTrigger"
               @click="closeCreateModal"
             >
               취소

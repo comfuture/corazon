@@ -14,6 +14,14 @@ type WorkflowSkillAiResult = {
   skills: string[]
 }
 
+type EnhanceWorkflowInstructionOptions = {
+  availableSkills?: string[]
+  suggestedSkills?: string[]
+  suggestedName?: string | null
+  triggerType?: 'schedule' | 'interval' | 'rrule' | null
+  triggerValue?: string | null
+}
+
 let codexInstance: Codex | null = null
 
 const getCodexEnv = () => {
@@ -44,12 +52,29 @@ const getCodex = () => {
   return codexInstance
 }
 
-export const enhanceWorkflowInstruction = async (text: string) => {
+export const enhanceWorkflowInstruction = async (
+  text: string,
+  options: EnhanceWorkflowInstructionOptions = {}
+) => {
+  const availableSkills = options.availableSkills ?? []
+  const suggestedSkills = options.suggestedSkills ?? []
   const prompt = [
     '다음 워크플로 요청 문장을 에이전트가 실행하기 좋은 지시문으로 개선하세요.',
     '- 원문 언어를 유지하세요.',
     '- 작업 대상/범위/결과물을 더 구체화하세요.',
+    '- 실행 조건(트리거)과 반복 규칙이 있으면 지시문에 명확히 반영하세요.',
+    '- 사용 가능한 스킬과 추천 스킬을 참고해 실행 가능한 절차를 구체화하세요.',
     '- 결과는 지시문 본문만 반환하고 설명은 제외하세요.',
+    '',
+    `<suggested-workflow-name>${options.suggestedName ?? ''}</suggested-workflow-name>`,
+    `<suggested-trigger-type>${options.triggerType ?? ''}</suggested-trigger-type>`,
+    `<suggested-trigger-value>${options.triggerValue ?? ''}</suggested-trigger-value>`,
+    '<available-skills>',
+    ...availableSkills.map(skill => `- ${skill}`),
+    '</available-skills>',
+    '<suggested-skills>',
+    ...suggestedSkills.map(skill => `- ${skill}`),
+    '</suggested-skills>',
     '',
     text.trim()
   ].join('\n')

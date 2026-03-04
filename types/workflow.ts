@@ -73,6 +73,7 @@ export type WorkflowTriggerGuessResponse = {
   confidence: 'high' | 'low' | 'none'
   suggestedName: string | null
   suggestedSkills: string[]
+  enhancedText: string
 }
 
 export type WorkflowUpsertRequest = {
@@ -83,12 +84,4 @@ export type WorkflowUpsertRequest = {
   triggerType: 'schedule' | 'interval' | 'rrule' | null
   triggerValue: string | null
   workflowDispatch: boolean
-}
-
-export type WorkflowEnhanceRequest = {
-  text: string
-}
-
-export type WorkflowEnhanceResponse = {
-  text: string
 }
