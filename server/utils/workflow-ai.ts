@@ -10,6 +10,10 @@ type WorkflowNameAiResult = {
   name: string
 }
 
+type WorkflowSkillAiResult = {
+  skills: string[]
+}
+
 let codexInstance: Codex | null = null
 
 const getCodexEnv = () => {
@@ -166,4 +170,142 @@ export const inferWorkflowNameWithAI = async (text: string) => {
   }
 
   return null
+}
+
+const WORKFLOW_SKILL_AI_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['skills'],
+  properties: {
+    skills: {
+      type: 'array',
+      items: {
+        type: 'string'
+      }
+    }
+  }
+} as const
+
+const normalizeSuggestedSkills = (skills: string[], availableSkills: string[]) => {
+  const availableMap = new Map(availableSkills.map(skill => [skill.toLowerCase(), skill]))
+  const normalized: string[] = []
+
+  for (const rawSkill of skills) {
+    const skill = rawSkill.trim()
+    if (!skill) {
+      continue
+    }
+    const matched = availableMap.get(skill.toLowerCase())
+    if (!matched || normalized.includes(matched)) {
+      continue
+    }
+    normalized.push(matched)
+  }
+
+  return normalized
+}
+
+const inferWorkflowSkillsByKeyword = (text: string, availableSkills: string[]) => {
+  const normalizedText = text.toLowerCase()
+  const scoreBySkill = new Map<string, number>()
+
+  for (const skill of availableSkills) {
+    if (skill.startsWith('.')) {
+      continue
+    }
+
+    const normalizedSkill = skill.toLowerCase()
+    const tokens = normalizedSkill
+      .split(/[^a-z0-9]+/)
+      .map(token => token.trim())
+      .filter(token => token.length >= 3)
+
+    let score = 0
+    if (normalizedText.includes(normalizedSkill)) {
+      score += 3
+    }
+    for (const token of tokens) {
+      if (normalizedText.includes(token)) {
+        score += 1
+      }
+    }
+    if (score > 0) {
+      scoreBySkill.set(skill, score)
+    }
+  }
+
+  const pushMatchedSkills = (pattern: RegExp, match: (skill: string) => boolean, score = 3) => {
+    if (!pattern.test(normalizedText)) {
+      return
+    }
+    for (const skill of availableSkills) {
+      if (!match(skill)) {
+        continue
+      }
+      scoreBySkill.set(skill, Math.max(scoreBySkill.get(skill) ?? 0, score))
+    }
+  }
+
+  pushMatchedSkills(/(?:\bfigma\b|디자인|시안|\bui\b)/i, skill => skill.toLowerCase().includes('figma'))
+  pushMatchedSkills(/(?:\bgithub\b|\bgh\b|\bpr\b|pull request|review|댓글)/i, skill => skill.toLowerCase().startsWith('gh-'))
+  pushMatchedSkills(/(?:\bci\b|actions|workflow run|테스트 실패)/i, skill => skill.toLowerCase().includes('ci'))
+  pushMatchedSkills(/(?:cloudflare|worker|pages)/i, skill => skill.toLowerCase().includes('cloudflare'))
+  pushMatchedSkills(/(?:infographic|차트|도표|인포그래픽)/i, skill => skill.toLowerCase().includes('infogroove'))
+  pushMatchedSkills(/(?:\bimage\b|이미지|illustration|썸네일)/i, skill => skill.toLowerCase().includes('banana'))
+  pushMatchedSkills(/(?:\bnuxt\b|nuxt ui|컴포넌트)/i, skill => skill.toLowerCase().includes('nuxt-ui'))
+
+  return [...scoreBySkill.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .map(([skill]) => skill)
+    .slice(0, 5)
+}
+
+export const inferWorkflowSkillsWithAI = async (text: string, availableSkills: string[]) => {
+  const source = text.trim()
+  if (!source || availableSkills.length === 0) {
+    return []
+  }
+
+  const keywordSuggestedSkills = inferWorkflowSkillsByKeyword(source, availableSkills)
+  if (source.length < 12) {
+    return keywordSuggestedSkills
+  }
+
+  const prompt = [
+    'Choose helpful Codex skills for the workflow instruction.',
+    '- Select zero to five skills from the available skills list.',
+    '- Use exact skill names only.',
+    '- Prefer precision over recall.',
+    '- Return only JSON matching the schema.',
+    '',
+    `Instruction: ${source}`,
+    '',
+    'Available skills:',
+    ...availableSkills.map(skill => `- ${skill}`)
+  ].join('\n')
+
+  const thread = getCodex().startThread({
+    model: 'gpt-5.1-codex-mini',
+    workingDirectory: process.cwd()
+  })
+
+  const result = await thread.run(prompt, {
+    outputSchema: WORKFLOW_SKILL_AI_SCHEMA
+  })
+
+  const response = result.finalResponse?.trim() ?? ''
+  if (!response) {
+    return keywordSuggestedSkills
+  }
+
+  try {
+    const parsed = JSON.parse(response) as WorkflowSkillAiResult
+    if (!Array.isArray(parsed.skills)) {
+      return keywordSuggestedSkills
+    }
+    const aiSkills = normalizeSuggestedSkills(parsed.skills, availableSkills)
+    return normalizeSuggestedSkills([...keywordSuggestedSkills, ...aiSkills], availableSkills).slice(0, 5)
+  } catch {
+    return keywordSuggestedSkills
+  }
 }

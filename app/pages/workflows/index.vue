@@ -106,6 +106,14 @@ const triggerValuePlaceholder = computed(() =>
   form.triggerType === 'schedule' ? '0 18 * * *' : '2h'
 )
 
+const normalizeSuggestedSkills = (skills: string[] | null | undefined) => {
+  if (!skills || skills.length === 0) {
+    return []
+  }
+  const availableSet = new Set(availableSkills.value)
+  return [...new Set(skills.filter(skill => availableSet.has(skill)))]
+}
+
 const requestTriggerSuggestion = async () => {
   const source = form.requestText.trim()
   if (!source) {
@@ -131,6 +139,8 @@ const requestTriggerSuggestion = async () => {
     if (guessed.triggerValue) {
       form.triggerValue = guessed.triggerValue
     }
+
+    form.skills = normalizeSuggestedSkills(guessed.suggestedSkills)
   } catch (error) {
     console.error(error)
   } finally {
