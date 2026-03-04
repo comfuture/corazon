@@ -1,103 +1,107 @@
 ---
 name: manage-workflows
-description: Manage Corazon workflow definitions in the current workspace with deterministic scripts for list/create/update/delete operations. Use for any workflow-management request in Korean or English, including listing or inspecting current workflows, checking running or active workflows, filtering by schedule frequency such as daily or weekly runs, creating new scheduled automations from natural language, updating trigger/instruction/skills, and deleting workflows by name or intent.
+description: Manage Corazon workflow definitions in the current workspace. Prefer direct file editing (workflows/*.md) with strict frontmatter/instruction rules; use the Python helper script only when deterministic bulk operations are needed.
 ---
 
 # Manage Workflows
 
-Use this skill to manage `workflows/*.md` directly from the Corazon workspace root.
-For natural-language requests, delegate intent/trigger/skill selection to the LLM via `from-text` or `apply-text` instead of ad-hoc regex parsing.
-Do not use OS-level schedulers (`crontab`, `systemd`, `launchd`) for Corazon workflow management; this skill is the source of truth.
+Use this skill to manage Corazon workflow files in `workflows/*.md`.
 
-## Script
+## Priority
+1. Default: edit workflow files directly (without scripts).
+2. Optional: run `scripts/manage-workflows.py` when deterministic CLI automation is necessary.
+3. Do not use OS-level schedulers (`crontab`, `systemd`, `launchd`) for Corazon workflows.
 
-Run `scripts/manage-workflows.mjs`.  
-All command outputs are JSON.
+## Workflow File Format
+Each workflow file must be Markdown with YAML frontmatter.
 
-```bash
-node scripts/manage-workflows.mjs help
+```md
+---
+name: Hello Workflow
+description: 실행 시마다 지정된 인사 메시지를 한 줄로 출력합니다.
+on:
+  interval: 2m
+  workflow-dispatch: true
+skills:
+  - shared-memory
+---
+각 실행에서 assistant 메시지로 정확히 "안녕하세요" 한 줄만 출력한다.
 ```
 
-## Required Workflow
+## Frontmatter Rules
+- `name`: English 2~3 words only. Example: `Hello Workflow`, `Daily Report Sender`.
+- `description`: one-sentence summary of actual behavior.
+- `on`: trigger config
+  - `schedule`: 5-field cron
+  - `interval`: `{number}{s|m|h}` such as `120s`, `60m`, `2h`
+  - `rrule`: RFC5545 RRULE
+  - `workflow-dispatch`: boolean
+- `skills`: list of skill names.
+- Time trigger(`schedule/interval/rrule`)는 동시에 하나만 사용.
+- 시간 트리거가 없다면 `workflow-dispatch: true`가 필요.
 
-1. Resolve workspace root (default: current working directory, or pass `--root`).
-2. If user input is natural language, run `from-text` first to verify intent.
-3. Execute one of `list`, `create`, `update`, `delete`, or `apply-text`.
-4. If `--query` matches multiple workflows, refine query or switch to `--slug`.
-5. Use `rrule` for recurring schedules that are hard to represent or maintain with cron, and use cron when it is sufficient.
-6. Return command JSON results without rewriting fields manually.
+## Instruction Writing Principles
+- "워크플로우를 생성/수정" 같은 메타 지시를 쓰지 말고, **실행 시 실제 수행 작업**을 작성.
+- 스케줄/주기 정보는 `on`에 두고 instruction 본문에는 넣지 않음.
+- 출력 형식, 완료 조건, 금지사항을 명확히 작성.
 
-## Commands
+Good:
+- `각 실행에서 assistant 메시지로 정확히 "안녕하세요" 한 줄만 출력한다.`
 
-### List
+Bad:
+- `2분마다 안녕하세요를 말하는 워크플로우를 만들어라.`
+
+## Scriptless Recommended Flow
+1. `workflows/` 디렉토리에서 대상 파일을 찾음.
+2. 파일 frontmatter와 instruction을 규칙에 맞게 직접 수정.
+3. 저장 후 파일 유효성(이름/트리거/instruction) 점검.
+4. 필요 시 `/workflows` UI에서 실행/이력 확인.
+
+## Optional Python Script
+When CLI automation is needed, use:
 
 ```bash
-node scripts/manage-workflows.mjs list --root /path/to/corazon --running-only
+scripts/manage-workflows.py
 ```
 
-### Create
+This script is uv-compatible and self-contained via shebang + inline metadata:
+
+```python
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = []
+# ///
+```
+
+### Examples
 
 ```bash
-node scripts/manage-workflows.mjs create \
+scripts/manage-workflows.py list --root /path/to/corazon --running-only
+```
+
+```bash
+scripts/manage-workflows.py create \
   --root /path/to/corazon \
-  --instruction "Summarize top news and send to Telegram." \
-  --name "News Summary Telegram" \
-  --schedule "0 9 * * *" \
-  --workflow-dispatch true \
-  --skills "shared-memory"
-```
-
-Natural-language creation:
-
-```bash
-node scripts/manage-workflows.mjs apply-text \
-  --root /path/to/corazon \
-  --text "매일 아침 9시에 주요 뉴스 요약해서 텔레그램으로 보내줘"
-```
-
-### Update
-
-```bash
-node scripts/manage-workflows.mjs update \
-  --root /path/to/corazon \
-  --slug news-summary-telegram \
-  --schedule "0 10 * * *" \
+  --instruction "각 실행에서 assistant 메시지로 정확히 \"안녕하세요\" 한 줄만 출력한다." \
+  --name "Hello Workflow" \
+  --interval "2m" \
   --workflow-dispatch true
 ```
 
-### Delete
-
 ```bash
-node scripts/manage-workflows.mjs delete \
+scripts/manage-workflows.py update \
   --root /path/to/corazon \
-  --query "고양이 사진에 좋아요 표시"
+  --slug hello-workflow \
+  --rrule "FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
 ```
 
-Natural-language deletion:
-
 ```bash
-node scripts/manage-workflows.mjs apply-text \
+scripts/manage-workflows.py apply-text \
   --root /path/to/corazon \
-  --text "고양이 사진에 좋아요 표시하는 워크플로우 삭제해줘"
+  --text "매 1분마다 안녕하세요 한 줄 출력하는 워크플로우를 만들어줘"
 ```
 
-### Parse Only
-
-```bash
-node scripts/manage-workflows.mjs from-text --text "동작중인 워크플로우가 뭐뭐 있지?"
-```
-
-## Natural Language Coverage
-
-`apply-text` and `from-text` use structured LLM output for:
-
-- Schedule creation: `매일 아침 9시에 ...`
-- Weekly schedule creation: `매주 금요일 저녁 5시에 ...`
-- Interval creation: `1시간 마다 ...`
-- Deletion by intent query: `... 워크플로우 삭제해줘`
-- Active/running list query: `동작중인 워크플로우가 뭐뭐 있지?`
-
-## Output Contract
-
+## Output Contract (Script)
 - Success: `{ "ok": true, ... }`
 - Failure: `{ "ok": false, "error": "..." }`

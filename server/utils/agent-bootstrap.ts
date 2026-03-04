@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   lstatSync,
@@ -104,7 +105,74 @@ const ensureBundledSkills = (agentHomeDir: string) => {
     }
     const sourcePath = join(bundledSkillsRoot, entry.name)
     const destinationPath = join(agentHomeDir, 'skills', entry.name)
-    ensureSeededDirectory(sourcePath, destinationPath)
+    if (!existsSync(destinationPath)) {
+      ensureSeededDirectory(sourcePath, destinationPath)
+      continue
+    }
+
+    const destinationStats = lstatSync(destinationPath)
+    if (!destinationStats.isDirectory()) {
+      continue
+    }
+
+    // Keep bundled skills synchronized so script fixes are applied on restart.
+    copyDirectoryRecursive(sourcePath, destinationPath)
+  }
+}
+
+const ensureSkillScriptPermissions = (agentHomeDir: string) => {
+  if (process.platform === 'win32') {
+    return
+  }
+
+  const skillsDir = join(agentHomeDir, 'skills')
+  if (!existsSync(skillsDir)) {
+    return
+  }
+
+  const skillEntries = readdirSync(skillsDir, { withFileTypes: true })
+  for (const skillEntry of skillEntries) {
+    if (!skillEntry.isDirectory()) {
+      continue
+    }
+
+    const scriptsDir = join(skillsDir, skillEntry.name, 'scripts')
+    if (!existsSync(scriptsDir)) {
+      continue
+    }
+
+    try {
+      chmodSync(scriptsDir, 0o755)
+    } catch {
+      continue
+    }
+
+    const scriptEntries = readdirSync(scriptsDir, { withFileTypes: true })
+    for (const scriptEntry of scriptEntries) {
+      const path = join(scriptsDir, scriptEntry.name)
+      if (scriptEntry.isDirectory()) {
+        try {
+          chmodSync(path, 0o755)
+        } catch {
+          // Ignore per-entry permission failures and continue.
+        }
+        continue
+      }
+
+      if (!scriptEntry.isFile()) {
+        continue
+      }
+
+      if (!/\.(mjs|cjs|js|sh|bash|zsh|py|rb|pl)$/i.test(scriptEntry.name)) {
+        continue
+      }
+
+      try {
+        chmodSync(path, 0o755)
+      } catch {
+        // Ignore per-entry permission failures and continue.
+      }
+    }
   }
 }
 
@@ -139,6 +207,7 @@ export const ensureAgentBootstrap = () => {
   }
 
   ensureBundledSkills(agentHomeDir)
+  ensureSkillScriptPermissions(agentHomeDir)
   ensureDefaultAgentsFile(agentHomeDir)
   ensureDefaultMemoryFile(agentHomeDir)
   bootstrapDone = true
