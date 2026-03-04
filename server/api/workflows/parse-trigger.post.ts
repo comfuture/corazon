@@ -51,56 +51,45 @@ export default defineEventHandler(async (event): Promise<WorkflowTriggerGuessRes
     inferWorkflowSkillsWithAI(text, availableSkills).catch(() => [])
   ])
 
+  let triggerType: WorkflowTriggerGuessResponse['triggerType'] = null
+  let triggerValue: string | null = null
+  let confidence: WorkflowTriggerGuessResponse['confidence'] = 'none'
+
   try {
     const inferred = await inferWorkflowTriggerWithAI(text)
-    if (!inferred || inferred.triggerType === 'none') {
-      return {
-        triggerType: null,
-        triggerValue: null,
-        confidence: 'none',
-        suggestedName,
-        suggestedSkills
-      }
-    }
-
-    if (inferred.triggerType === 'schedule' && validateCronExpression(inferred.triggerValue)) {
-      return {
-        triggerType: 'schedule',
-        triggerValue: inferred.triggerValue,
-        confidence: inferred.confidence,
-        suggestedName,
-        suggestedSkills
-      }
-    }
-
-    if (inferred.triggerType === 'interval' && validateIntervalExpression(inferred.triggerValue)) {
-      return {
-        triggerType: 'interval',
-        triggerValue: inferred.triggerValue,
-        confidence: inferred.confidence,
-        suggestedName,
-        suggestedSkills
-      }
-    }
-
-    if (inferred.triggerType === 'rrule' && validateRRuleExpression(inferred.triggerValue)) {
-      return {
-        triggerType: 'rrule',
-        triggerValue: inferred.triggerValue,
-        confidence: inferred.confidence,
-        suggestedName,
-        suggestedSkills
+    if (inferred && inferred.triggerType !== 'none') {
+      if (inferred.triggerType === 'schedule' && validateCronExpression(inferred.triggerValue)) {
+        triggerType = 'schedule'
+        triggerValue = inferred.triggerValue
+        confidence = inferred.confidence
+      } else if (inferred.triggerType === 'interval' && validateIntervalExpression(inferred.triggerValue)) {
+        triggerType = 'interval'
+        triggerValue = inferred.triggerValue
+        confidence = inferred.confidence
+      } else if (inferred.triggerType === 'rrule' && validateRRuleExpression(inferred.triggerValue)) {
+        triggerType = 'rrule'
+        triggerValue = inferred.triggerValue
+        confidence = inferred.confidence
       }
     }
   } catch {
     // Ignore AI fallback failure and return no trigger.
   }
 
-  return {
-    triggerType: null,
-    triggerValue: null,
-    confidence: 'none',
+  const enhancedText = await enhanceWorkflowInstruction(text, {
+    availableSkills,
+    suggestedSkills,
     suggestedName,
-    suggestedSkills
+    triggerType,
+    triggerValue
+  }).catch(() => text)
+
+  return {
+    triggerType,
+    triggerValue,
+    confidence,
+    suggestedName,
+    suggestedSkills,
+    enhancedText: enhancedText.trim() || text
   }
 })
