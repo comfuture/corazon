@@ -505,9 +505,13 @@ def stringify_frontmatter_yaml(frontmatter: WorkflowFrontmatter) -> str:
         lines.append(f"  rrule: {quote_yaml_scalar(frontmatter.on.rrule or '')}")
 
     lines.append(f"  workflow-dispatch: {'true' if frontmatter.on.workflow_dispatch else 'false'}")
-    lines.append("skills:")
-    for skill in frontmatter.skills:
-        lines.append(f"  - {quote_yaml_scalar(skill)}")
+    normalized_skills = [as_string(skill) for skill in frontmatter.skills if as_string(skill)]
+    if normalized_skills:
+        lines.append("skills:")
+        for skill in normalized_skills:
+            lines.append(f"  - {quote_yaml_scalar(skill)}")
+    else:
+        lines.append("skills: []")
 
     return "\n".join(lines)
 

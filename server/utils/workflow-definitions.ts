@@ -82,6 +82,10 @@ const asRecord = (value: unknown): Record<string, unknown> | null => {
 }
 
 const normalizeSkills = (value: unknown) => {
+  if (value == null) {
+    return []
+  }
+
   if (!Array.isArray(value)) {
     return null
   }
