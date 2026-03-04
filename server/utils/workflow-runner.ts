@@ -88,12 +88,15 @@ const collectRunCompletionData = async (
 
   let usage: Usage | null = null
   let threadId: string | null = null
+  let sessionFilePath: string | null = null
 
   const { events } = await thread.runStreamed(prompt)
   for await (const event of events) {
     const typed = event as ThreadEvent
     if (typed.type === 'thread.started') {
       threadId = typed.thread_id
+      sessionFilePath = findSessionFileByThreadId(threadId)
+      setWorkflowRunSessionReference(runId, threadId, sessionFilePath)
       continue
     }
     if (typed.type === 'turn.completed') {
@@ -102,7 +105,9 @@ const collectRunCompletionData = async (
     }
   }
 
-  const sessionFilePath = threadId ? findSessionFileByThreadId(threadId) : null
+  if (threadId && !sessionFilePath) {
+    sessionFilePath = findSessionFileByThreadId(threadId)
+  }
   if (threadId || sessionFilePath) {
     setWorkflowRunSessionReference(runId, threadId, sessionFilePath)
   }

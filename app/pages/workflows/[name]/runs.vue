@@ -40,6 +40,21 @@ const listPanelClass = computed(() => (hasSelectedRun.value ? '!min-h-0' : '!min
 const listPanelUi = {
   body: '!p-0 !overflow-hidden !gap-0'
 }
+const AUTO_REFRESH_INTERVAL_MS = 3000
+const RUNNING_DETAIL_REFRESH_INTERVAL_MS = 1500
+const refreshInFlight = ref(false)
+const queuedHistoryRefresh = ref(false)
+const autoRefreshTimer = ref<ReturnType<typeof setInterval> | null>(null)
+const shouldRefreshSelectedHistory = computed(() =>
+  !!selectedRunId.value
+  && (
+    selectedRun.value?.status === 'running'
+    || historyResponse.value?.historyUnavailable === true
+  )
+)
+const refreshIntervalMs = computed(() =>
+  shouldRefreshSelectedHistory.value ? RUNNING_DETAIL_REFRESH_INTERVAL_MS : AUTO_REFRESH_INTERVAL_MS
+)
 
 watch(runs, (nextRuns) => {
   if (!nextRuns.length) {
@@ -74,12 +89,51 @@ const loadRunHistory = async (runId: string | null) => {
   }
 }
 
-const refreshRunsView = async () => {
+const refreshRunsView = async (options: { refreshHistory?: boolean } = {}) => {
   await refresh()
 
-  if (selectedRunId.value) {
+  if (options.refreshHistory && selectedRunId.value) {
     await loadRunHistory(selectedRunId.value)
   }
+}
+
+const requestRunsRefresh = async (refreshHistory: boolean) => {
+  if (refreshInFlight.value) {
+    queuedHistoryRefresh.value = queuedHistoryRefresh.value || refreshHistory
+    return
+  }
+
+  refreshInFlight.value = true
+  let nextRefreshHistory = refreshHistory
+
+  try {
+    do {
+      queuedHistoryRefresh.value = false
+      await refreshRunsView({ refreshHistory: nextRefreshHistory })
+      nextRefreshHistory = queuedHistoryRefresh.value
+    } while (nextRefreshHistory)
+  } finally {
+    refreshInFlight.value = false
+  }
+}
+
+const restartAutoRefresh = () => {
+  if (autoRefreshTimer.value) {
+    clearInterval(autoRefreshTimer.value)
+    autoRefreshTimer.value = null
+  }
+
+  if (!import.meta.client) {
+    return
+  }
+
+  autoRefreshTimer.value = setInterval(() => {
+    if (document.visibilityState !== 'visible') {
+      return
+    }
+
+    void requestRunsRefresh(shouldRefreshSelectedHistory.value)
+  }, refreshIntervalMs.value)
 }
 
 watch(selectedRunId, (next) => {
@@ -91,7 +145,22 @@ watch(() => runsRefreshSignal.value.at, (next, prev) => {
     return
   }
 
-  void refreshRunsView()
+  void requestRunsRefresh(selectedRunId.value !== null)
+})
+
+watch(refreshIntervalMs, () => {
+  restartAutoRefresh()
+})
+
+onMounted(() => {
+  restartAutoRefresh()
+})
+
+onBeforeUnmount(() => {
+  if (autoRefreshTimer.value) {
+    clearInterval(autoRefreshTimer.value)
+    autoRefreshTimer.value = null
+  }
 })
 
 const runStatusColor = (status: WorkflowRunSummary['status']) => {

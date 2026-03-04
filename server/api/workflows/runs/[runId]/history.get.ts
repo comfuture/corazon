@@ -18,27 +18,47 @@ export default defineEventHandler((event): WorkflowRunHistoryResponse => {
     })
   }
 
-  if (!run.sessionFilePath) {
+  let resolvedRun = run
+  let sessionFilePath = run.sessionFilePath
+
+  const sessionThreadId = run.sessionThreadId
+  const canResolveFromThread = typeof sessionThreadId === 'string' && sessionThreadId.length > 0
+  const shouldResolveFromThread = !sessionFilePath || !existsSync(sessionFilePath)
+  if (canResolveFromThread && shouldResolveFromThread) {
+    const discoveredSessionFilePath = findSessionFileByThreadId(sessionThreadId)
+    if (discoveredSessionFilePath) {
+      sessionFilePath = discoveredSessionFilePath
+      setWorkflowRunSessionReference(run.id, sessionThreadId, discoveredSessionFilePath)
+      resolvedRun = {
+        ...run,
+        sessionFilePath: discoveredSessionFilePath
+      }
+    }
+  }
+
+  if (!sessionFilePath) {
     return {
-      run,
+      run: resolvedRun,
       historyUnavailable: true,
-      unavailableReason: 'No session reference is available for this run.',
+      unavailableReason: run.status === 'running'
+        ? 'Session file is not ready yet. History will appear automatically.'
+        : 'No session reference is available for this run.',
       messages: []
     }
   }
 
-  if (!existsSync(run.sessionFilePath)) {
+  if (!existsSync(sessionFilePath)) {
     return {
-      run,
+      run: resolvedRun,
       historyUnavailable: true,
       unavailableReason: 'Session file has been deleted. History can no longer be displayed.',
       messages: []
     }
   }
 
-  const messages = loadWorkflowRunMessagesFromSessionFile(run.sessionFilePath) ?? []
+  const messages = loadWorkflowRunMessagesFromSessionFile(sessionFilePath) ?? []
   return {
-    run,
+    run: resolvedRun,
     historyUnavailable: false,
     unavailableReason: null,
     messages
