@@ -2,8 +2,14 @@
 import type {
   WorkflowDetailResponse,
   WorkflowRunHistoryResponse,
+  WorkflowRunsPageResponse,
   WorkflowRunSummary
 } from '@@/types/workflow'
+
+const RUNS_PAGE_SIZE = 50
+const RUNS_SCROLL_THRESHOLD_PX = 180
+const AUTO_REFRESH_INTERVAL_MS = 10000
+const RUNNING_DETAIL_REFRESH_INTERVAL_MS = 5000
 
 const route = useRoute()
 
@@ -15,15 +21,25 @@ const workflowSlug = computed(() => {
   return typeof raw === 'string' ? raw : ''
 })
 
-const { data, refresh } = await useFetch<WorkflowDetailResponse>(
+const { data, refresh: refreshWorkflow } = await useFetch<WorkflowDetailResponse>(
   () => `/api/workflows/${encodeURIComponent(workflowSlug.value)}`,
   {
+    query: {
+      runsLimit: 0
+    },
     cache: 'no-store'
   }
 )
 
 const workflow = computed(() => data.value?.workflow ?? null)
-const runs = computed(() => data.value?.runs ?? [])
+const runs = ref<WorkflowRunSummary[]>([])
+const runsPending = ref(false)
+const runsLoadingMore = ref(false)
+const runsErrorMessage = ref<string | null>(null)
+const runsHasMore = ref(false)
+const runsNextOffset = ref(0)
+const runsListRef = ref<HTMLElement | null>(null)
+
 const runsRefreshSignal = useState<{ slug: string, at: number }>('workflow-runs-refresh-signal', () => ({
   slug: '',
   at: 0
@@ -40,8 +56,6 @@ const listPanelClass = computed(() => (hasSelectedRun.value ? '!min-h-0' : '!min
 const listPanelUi = {
   body: '!p-0 !overflow-hidden !gap-0'
 }
-const AUTO_REFRESH_INTERVAL_MS = 10000
-const RUNNING_DETAIL_REFRESH_INTERVAL_MS = 5000
 const refreshInFlight = ref(false)
 const queuedHistoryRefresh = ref(false)
 const autoRefreshTimer = ref<ReturnType<typeof setInterval> | null>(null)
@@ -56,6 +70,34 @@ const shouldRefreshSelectedHistory = computed(() =>
 const refreshIntervalMs = computed(() =>
   shouldRefreshSelectedHistory.value ? RUNNING_DETAIL_REFRESH_INTERVAL_MS : AUTO_REFRESH_INTERVAL_MS
 )
+
+const toErrorMessage = (error: unknown, fallback: string) => {
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+  return fallback
+}
+
+const fetchRunsPage = async (offset: number) => {
+  if (!workflowSlug.value) {
+    return {
+      runs: [],
+      hasMore: false,
+      nextOffset: null
+    } satisfies WorkflowRunsPageResponse
+  }
+
+  return await $fetch<WorkflowRunsPageResponse>(
+    `/api/workflows/${encodeURIComponent(workflowSlug.value)}/runs`,
+    {
+      query: {
+        limit: RUNS_PAGE_SIZE,
+        offset
+      },
+      cache: 'no-store'
+    }
+  )
+}
 
 const scrollDetailToBottom = async () => {
   if (!import.meta.client) {
@@ -73,6 +115,76 @@ const scrollDetailToBottom = async () => {
   historyBottomRef.value?.scrollIntoView({ block: 'end' })
 }
 
+const loadRunsList = async (options: { preserveCount?: number } = {}) => {
+  const minimumCount = Math.max(RUNS_PAGE_SIZE, options.preserveCount ?? RUNS_PAGE_SIZE)
+
+  runsPending.value = true
+
+  try {
+    let nextOffset = 0
+    let hasMore = true
+    const loaded: WorkflowRunSummary[] = []
+
+    while (hasMore && loaded.length < minimumCount) {
+      const page = await fetchRunsPage(nextOffset)
+      loaded.push(...page.runs)
+      hasMore = page.hasMore
+      nextOffset = page.nextOffset ?? loaded.length
+
+      if (page.runs.length === 0) {
+        hasMore = false
+      }
+    }
+
+    runs.value = loaded
+    runsHasMore.value = hasMore
+    runsNextOffset.value = nextOffset
+    runsErrorMessage.value = null
+  } catch (error) {
+    runs.value = []
+    runsHasMore.value = false
+    runsNextOffset.value = 0
+    runsErrorMessage.value = toErrorMessage(error, '실행 이력을 불러오지 못했습니다.')
+  } finally {
+    runsPending.value = false
+  }
+}
+
+const loadMoreRuns = async () => {
+  if (runsPending.value || runsLoadingMore.value || !runsHasMore.value) {
+    return
+  }
+
+  try {
+    runsLoadingMore.value = true
+    const page = await fetchRunsPage(runsNextOffset.value)
+
+    if (page.runs.length > 0) {
+      runs.value = [...runs.value, ...page.runs]
+    }
+
+    runsHasMore.value = page.hasMore
+    runsNextOffset.value = page.nextOffset ?? runs.value.length
+    runsErrorMessage.value = null
+  } catch (error) {
+    runsErrorMessage.value = toErrorMessage(error, '추가 실행 이력을 불러오지 못했습니다.')
+  } finally {
+    runsLoadingMore.value = false
+  }
+}
+
+const onRunsListScroll = () => {
+  const container = runsListRef.value
+  if (!container || runsPending.value || runsLoadingMore.value || !runsHasMore.value) {
+    return
+  }
+
+  const remaining = container.scrollHeight - container.scrollTop - container.clientHeight
+  if (remaining <= RUNS_SCROLL_THRESHOLD_PX) {
+    void loadMoreRuns()
+  }
+}
+
 watch(runs, (nextRuns) => {
   if (!nextRuns.length) {
     selectedRunId.value = null
@@ -84,6 +196,17 @@ watch(runs, (nextRuns) => {
     selectedRunId.value = null
     historyResponse.value = null
   }
+}, { immediate: true })
+
+watch(workflowSlug, () => {
+  selectedRunId.value = null
+  historyResponse.value = null
+  runs.value = []
+  runsHasMore.value = false
+  runsNextOffset.value = 0
+  runsErrorMessage.value = null
+
+  void loadRunsList()
 }, { immediate: true })
 
 const loadRunHistory = async (runId: string | null) => {
@@ -108,7 +231,12 @@ const loadRunHistory = async (runId: string | null) => {
 }
 
 const refreshRunsView = async (options: { refreshHistory?: boolean } = {}) => {
-  await refresh()
+  const preserveCount = runs.value.length > 0 ? runs.value.length : RUNS_PAGE_SIZE
+
+  await Promise.all([
+    refreshWorkflow(),
+    loadRunsList({ preserveCount })
+  ])
 
   if (options.refreshHistory && selectedRunId.value) {
     await loadRunHistory(selectedRunId.value)
@@ -219,54 +347,96 @@ const formatDateTime = (timestamp: number | null) => {
           :title="workflow.parseError"
         />
 
-        <UAlert
-          v-if="runs.length === 0"
-          color="neutral"
-          variant="soft"
-          class="m-4"
-          title="실행 이력이 없습니다."
-        />
-
         <div
-          v-else
+          ref="runsListRef"
           class="h-full overflow-y-auto"
+          @scroll.passive="onRunsListScroll"
         >
-          <UPageList
-            divide
+          <div
+            v-if="runsPending"
+            class="space-y-2 p-3"
           >
-            <ULink
-              v-for="run in runs"
-              :key="run.id"
-              raw
-              as="button"
-              type="button"
-              :active="selectedRunId === run.id"
-              class="block w-full px-3 py-3 text-left text-foreground transition-colors"
-              active-class="bg-primary/10"
-              inactive-class="hover:bg-muted/60"
-              @click="selectedRunId = run.id"
-            >
-              <div>
-                <div class="flex items-center justify-between gap-2">
-                  <UBadge
-                    :color="runStatusColor(run.status)"
-                    variant="soft"
-                  >
-                    {{ run.status }}
-                  </UBadge>
-                  <span class="text-xs text-muted-foreground">
-                    {{ formatDateTime(run.startedAt) }}
-                  </span>
-                </div>
-                <p class="mt-2 text-xs text-muted-foreground">
-                  {{ run.triggerType }}: {{ run.triggerValue || '-' }}
-                </p>
-                <p class="mt-1 text-xs text-muted-foreground">
-                  in {{ run.totalInputTokens }} (cached {{ run.totalCachedInputTokens }}) · out {{ run.totalOutputTokens }}
-                </p>
+            <USkeleton class="h-14 w-full" />
+            <USkeleton class="h-14 w-full" />
+            <USkeleton class="h-14 w-full" />
+          </div>
+
+          <template v-else>
+            <UAlert
+              v-if="runsErrorMessage"
+              color="error"
+              variant="soft"
+              class="m-4"
+              :title="runsErrorMessage"
+            />
+
+            <UAlert
+              v-else-if="runs.length === 0"
+              color="neutral"
+              variant="soft"
+              class="m-4"
+              title="실행 이력이 없습니다."
+            />
+
+            <template v-else>
+              <UPageList divide>
+                <ULink
+                  v-for="run in runs"
+                  :key="run.id"
+                  raw
+                  as="button"
+                  type="button"
+                  :active="selectedRunId === run.id"
+                  class="block w-full px-3 py-3 text-left text-foreground transition-colors"
+                  active-class="bg-primary/10"
+                  inactive-class="hover:bg-muted/60"
+                  @click="selectedRunId = run.id"
+                >
+                  <div>
+                    <div class="flex items-center justify-between gap-2">
+                      <UBadge
+                        :color="runStatusColor(run.status)"
+                        variant="soft"
+                      >
+                        {{ run.status }}
+                      </UBadge>
+                      <span class="text-xs text-muted-foreground">
+                        {{ formatDateTime(run.startedAt) }}
+                      </span>
+                    </div>
+                    <p class="mt-2 text-xs text-muted-foreground">
+                      {{ run.triggerType }}: {{ run.triggerValue || '-' }}
+                    </p>
+                    <p class="mt-1 text-xs text-muted-foreground">
+                      in {{ run.totalInputTokens }} (cached {{ run.totalCachedInputTokens }}) · out {{ run.totalOutputTokens }}
+                    </p>
+                  </div>
+                </ULink>
+              </UPageList>
+
+              <div
+                v-if="runsLoadingMore"
+                class="px-3 py-2 text-xs text-muted-foreground"
+              >
+                실행 이력을 더 불러오는 중...
               </div>
-            </ULink>
-          </UPageList>
+
+              <div
+                v-else-if="runsHasMore"
+                class="px-3 py-2"
+              >
+                <UButton
+                  block
+                  color="neutral"
+                  variant="ghost"
+                  size="xs"
+                  @click="loadMoreRuns"
+                >
+                  더 불러오기
+                </UButton>
+              </div>
+            </template>
+          </template>
         </div>
       </template>
     </UDashboardPanel>

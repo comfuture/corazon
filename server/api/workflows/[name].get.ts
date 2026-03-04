@@ -17,7 +17,12 @@ export default defineEventHandler((event): WorkflowDetailResponse => {
     })
   }
 
-  const runs = loadWorkflowRunsBySlug(workflow.fileSlug, 200)
+  const query = getQuery(event)
+  const rawRunsLimit = Number.parseInt(String(query.runsLimit ?? ''), 10)
+  const runsLimit = Number.isFinite(rawRunsLimit) ? rawRunsLimit : 200
+  const runs = runsLimit > 0
+    ? loadWorkflowRunsBySlug(workflow.fileSlug, runsLimit)
+    : []
 
   return {
     workflow,

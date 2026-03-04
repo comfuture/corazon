@@ -24,6 +24,9 @@ const workflowSlug = computed(() => {
 const { data, pending, refresh } = await useFetch<WorkflowDetailResponse>(
   () => `/api/workflows/${encodeURIComponent(workflowSlug.value)}`,
   {
+    query: {
+      runsLimit: 0
+    },
     cache: 'no-store'
   }
 )

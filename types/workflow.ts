@@ -67,6 +67,12 @@ export type WorkflowDetailResponse = {
   runs: WorkflowRunSummary[]
 }
 
+export type WorkflowRunsPageResponse = {
+  runs: WorkflowRunSummary[]
+  hasMore: boolean
+  nextOffset: number | null
+}
+
 export type WorkflowTriggerGuessResponse = {
   triggerType: 'schedule' | 'interval' | 'rrule' | null
   triggerValue: string | null

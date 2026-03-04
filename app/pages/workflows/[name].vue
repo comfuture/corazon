@@ -18,6 +18,9 @@ const runsPath = computed(() => `/workflows/${workflowSlug.value}/runs`)
 const { data, refresh } = await useFetch<WorkflowDetailResponse>(
   () => `/api/workflows/${encodeURIComponent(workflowSlug.value)}`,
   {
+    query: {
+      runsLimit: 0
+    },
     cache: 'no-store'
   }
 )
