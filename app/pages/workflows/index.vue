@@ -25,6 +25,7 @@ const isCreating = ref(false)
 const isParsingTrigger = ref(false)
 const deletingWorkflowSlug = ref<string | null>(null)
 const runningWorkflowSlug = ref<string | null>(null)
+const generatedDescription = ref('')
 
 const triggerItems: RadioGroupItem[] = [
   {
@@ -60,6 +61,7 @@ const resetCreateForm = () => {
   form.triggerValue = ''
   form.workflowDispatch = false
   form.skills = []
+  generatedDescription.value = ''
   currentStep.value = 1
 }
 
@@ -98,11 +100,33 @@ const deriveWorkflowName = (value: string) => {
 }
 
 const deriveWorkflowDescription = (value: string) => {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    return 'Workflow created from UI'
+  const schedulePattern = /\b(cron|rrule|interval|daily|weekly|monthly|every\s+\d+\s*(seconds?|minutes?|hours?|days?|weeks?|months?))\b|매(일|주|월|년|시간|분)|[0-9]+\s*(초|분|시간|일|주|개월)\s*마다/gi
+  const metaPattern = /(워크플로우\s*(생성|등록|수정|저장|작성)|create\s+(a\s+)?workflow|generate\s+(a\s+)?workflow)/gi
+
+  const lines = value
+    .split('\n')
+    .map(line => line.replace(/^[-*]\s*/, '').trim())
+    .filter(Boolean)
+
+  const firstLine = lines[0] ?? ''
+  const cleanedFirstLine = firstLine
+    .replace(metaPattern, '')
+    .replace(schedulePattern, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const fallbackSource = cleanedFirstLine
+    || value
+      .replace(metaPattern, '')
+      .replace(schedulePattern, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+  if (!fallbackSource) {
+    return '요청된 자동 작업을 수행합니다.'
   }
-  return trimmed.length > 280 ? `${trimmed.slice(0, 280).trim()}...` : trimmed
+
+  return fallbackSource.length > 180 ? `${fallbackSource.slice(0, 180).trim()}...` : fallbackSource
 }
 
 const canProceedFromStepOne = computed(() => form.requestText.trim().length > 0)
@@ -149,11 +173,16 @@ const requestTriggerSuggestion = async () => {
     }
 
     form.skills = normalizeSuggestedSkills(guessed.suggestedSkills)
+    generatedDescription.value = guessed.suggestedDescription?.trim() || ''
     if (guessed.enhancedText) {
       form.requestText = guessed.enhancedText
     }
+    if (!generatedDescription.value) {
+      generatedDescription.value = deriveWorkflowDescription(guessed.enhancedText || source)
+    }
   } catch (error) {
     console.error(error)
+    generatedDescription.value = deriveWorkflowDescription(source)
   } finally {
     isParsingTrigger.value = false
   }
@@ -182,7 +211,7 @@ const saveWorkflow = async () => {
 
   const payload: WorkflowUpsertRequest = {
     name: form.workflowName || deriveWorkflowName(instruction),
-    description: deriveWorkflowDescription(instruction),
+    description: generatedDescription.value || deriveWorkflowDescription(instruction),
     instruction,
     skills: [...new Set(form.skills)],
     triggerType: hasTrigger ? form.triggerType : null,
