@@ -308,7 +308,7 @@ const deleteWorkflow = async () => {
         v-model="form.triggerType"
         legend="trigger type"
         :items="triggerItems"
-        variant="card"
+        variant="table"
       />
 
       <UFormField

@@ -499,7 +499,7 @@ const triggerSummary = (workflow: WorkflowDefinition) => {
               v-model="form.triggerType"
               legend="트리거"
               :items="triggerItems"
-              variant="card"
+              variant="table"
             />
 
             <UInput
