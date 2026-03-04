@@ -2,10 +2,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { Codex } from '@openai/codex-sdk'
-import { Cron } from 'croner'
-import { rrulestr } from 'rrule'
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
 const WORKFLOWS_DIRECTORY = 'workflows'
 const WORKFLOW_FILE_EXTENSION = '.md'
@@ -15,6 +11,11 @@ const WORKFLOW_NAME_WORD_PATTERN = /^[A-Za-z]+$/
 const DEFAULT_WORKFLOW_NAME = 'Task Workflow'
 const INTERVAL_PATTERN = /^([1-9][0-9]*)(s|m|h)$/
 const INFER_MODEL = 'gpt-5.1-codex-mini'
+const CRON_MONTH_NAMES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
+const CRON_WEEKDAY_NAMES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+const RRULE_FREQ_VALUES = new Set(['SECONDLY', 'MINUTELY', 'HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'])
+const RRULE_WEEKDAY_VALUES = new Set(['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'])
+const FALLBACK_AI_REASON = 'LLM unavailable, used deterministic local parser.'
 
 /** @typedef {'schedule' | 'interval' | 'rrule' | null} TriggerType */
 
@@ -100,6 +101,292 @@ const parseCsv = value => asString(value)
   .split(',')
   .map(item => item.trim())
   .filter(Boolean)
+
+const normalizeLineBreaks = value => asString(value).replace(/\r\n?/g, '\n')
+
+const unquoteYamlScalar = (value) => {
+  const raw = asString(value)
+  if (!raw) {
+    return ''
+  }
+
+  const isQuoted = (
+    (raw.startsWith('"') && raw.endsWith('"'))
+    || (raw.startsWith('\'') && raw.endsWith('\''))
+  )
+  if (!isQuoted) {
+    return raw
+  }
+
+  try {
+    if (raw.startsWith('"')) {
+      return JSON.parse(raw)
+    }
+  } catch {
+    // Fall through to simple unquote.
+  }
+
+  return raw.slice(1, -1).replace(/\\(["'\\])/g, '$1')
+}
+
+const parseYamlBoolean = (value, fallback = false) => {
+  const normalized = asString(value).toLowerCase()
+  if (normalized === 'true') {
+    return true
+  }
+  if (normalized === 'false') {
+    return false
+  }
+  return fallback
+}
+
+const toYamlScalar = (value) => {
+  const source = asString(value)
+  if (!source) {
+    return '""'
+  }
+
+  const plainSafePattern = /^[A-Za-z0-9 _./:+@-]+$/
+  const lower = source.toLowerCase()
+  if (
+    plainSafePattern.test(source)
+    && lower !== 'true'
+    && lower !== 'false'
+    && lower !== 'null'
+    && !/^\d+$/.test(source)
+  ) {
+    return source
+  }
+
+  return JSON.stringify(source)
+}
+
+const parseFrontmatterYaml = (source) => {
+  const lines = normalizeLineBreaks(source).split('\n')
+  const frontmatter = {
+    name: '',
+    description: '',
+    on: {
+      'schedule': undefined,
+      'interval': undefined,
+      'rrule': undefined,
+      'workflow-dispatch': false
+    },
+    skills: []
+  }
+
+  /** @type {'root' | 'on' | 'skills'} */
+  let section = 'root'
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue
+    }
+
+    const indent = (line.match(/^\s*/) ?? [''])[0].length
+    if (indent === 0) {
+      const keyMatch = trimmed.match(/^([A-Za-z][A-Za-z0-9-]*):(?:\s*(.*))?$/)
+      if (!keyMatch) {
+        continue
+      }
+
+      const key = keyMatch[1]
+      const rawValue = keyMatch[2] ?? ''
+
+      if (key === 'on') {
+        section = 'on'
+        continue
+      }
+      if (key === 'skills') {
+        section = 'skills'
+        continue
+      }
+
+      section = 'root'
+      if (key === 'name') {
+        frontmatter.name = unquoteYamlScalar(rawValue)
+      } else if (key === 'description') {
+        frontmatter.description = unquoteYamlScalar(rawValue)
+      }
+      continue
+    }
+
+    if (section === 'on' && indent >= 2) {
+      const itemMatch = trimmed.match(/^([A-Za-z][A-Za-z0-9-]*):(?:\s*(.*))?$/)
+      if (!itemMatch) {
+        continue
+      }
+      const key = itemMatch[1]
+      const rawValue = itemMatch[2] ?? ''
+
+      if (key === 'workflow-dispatch') {
+        frontmatter.on['workflow-dispatch'] = parseYamlBoolean(rawValue, false)
+        continue
+      }
+      if (key === 'schedule') {
+        const value = unquoteYamlScalar(rawValue)
+        frontmatter.on.schedule = value || undefined
+        continue
+      }
+      if (key === 'interval') {
+        const value = unquoteYamlScalar(rawValue)
+        frontmatter.on.interval = value || undefined
+        continue
+      }
+      if (key === 'rrule') {
+        const value = unquoteYamlScalar(rawValue)
+        frontmatter.on.rrule = value || undefined
+      }
+      continue
+    }
+
+    if (section === 'skills' && indent >= 2) {
+      const itemMatch = trimmed.match(/^-\s+(.*)$/)
+      if (!itemMatch) {
+        continue
+      }
+      const value = unquoteYamlScalar(itemMatch[1] ?? '')
+      if (value) {
+        frontmatter.skills.push(value)
+      }
+    }
+  }
+
+  return frontmatter
+}
+
+const stringifyFrontmatterYaml = (frontmatter) => {
+  const lines = [
+    `name: ${toYamlScalar(frontmatter.name)}`,
+    `description: ${toYamlScalar(frontmatter.description)}`,
+    'on:'
+  ]
+
+  if (frontmatter.on.schedule) {
+    lines.push(`  schedule: ${toYamlScalar(frontmatter.on.schedule)}`)
+  }
+  if (frontmatter.on.interval) {
+    lines.push(`  interval: ${toYamlScalar(frontmatter.on.interval)}`)
+  }
+  if (frontmatter.on.rrule) {
+    lines.push(`  rrule: ${toYamlScalar(frontmatter.on.rrule)}`)
+  }
+  lines.push(`  workflow-dispatch: ${frontmatter.on['workflow-dispatch'] === true ? 'true' : 'false'}`)
+
+  lines.push('skills:')
+  for (const skill of frontmatter.skills) {
+    lines.push(`  - ${toYamlScalar(skill)}`)
+  }
+
+  return lines.join('\n')
+}
+
+const parseCronAtom = (value, min, max, aliases = null) => {
+  const source = asString(value).toUpperCase()
+  if (!source) {
+    return null
+  }
+
+  if (/^-?\d+$/.test(source)) {
+    const parsed = Number.parseInt(source, 10)
+    if (!Number.isInteger(parsed)) {
+      return null
+    }
+    return parsed >= min && parsed <= max ? parsed : null
+  }
+
+  if (!aliases) {
+    return null
+  }
+
+  const index = aliases.indexOf(source)
+  return index >= 0 ? min + index : null
+}
+
+const validateCronFieldPart = (value, min, max, aliases = null) => {
+  const source = asString(value)
+  if (!source) {
+    return false
+  }
+
+  const stepMatch = source.match(/^(.+?)\/([1-9][0-9]*)$/)
+  if (stepMatch) {
+    return validateCronFieldPart(stepMatch[1], min, max, aliases)
+  }
+
+  if (source === '*') {
+    return true
+  }
+
+  const rangeMatch = source.match(/^([A-Za-z0-9-]+)-([A-Za-z0-9-]+)$/)
+  if (rangeMatch) {
+    const start = parseCronAtom(rangeMatch[1], min, max, aliases)
+    const end = parseCronAtom(rangeMatch[2], min, max, aliases)
+    return start != null && end != null && start <= end
+  }
+
+  return parseCronAtom(source, min, max, aliases) != null
+}
+
+const validateCronField = (value, min, max, aliases = null) => {
+  const source = asString(value)
+  if (!source) {
+    return false
+  }
+  return source
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean)
+    .every(part => validateCronFieldPart(part, min, max, aliases))
+}
+
+const splitRRuleKeyValues = (value) => {
+  const parts = asString(value).split(';').map(item => item.trim()).filter(Boolean)
+  if (parts.length === 0) {
+    return null
+  }
+
+  const map = new Map()
+  for (const part of parts) {
+    const index = part.indexOf('=')
+    if (index <= 0 || index >= part.length - 1) {
+      return null
+    }
+    const key = part.slice(0, index).trim().toUpperCase()
+    const raw = part.slice(index + 1).trim()
+    if (!/^[A-Z][A-Z0-9-]*$/.test(key) || !raw || map.has(key)) {
+      return null
+    }
+    map.set(key, raw.toUpperCase())
+  }
+
+  return map
+}
+
+const validateRRuleIntList = (value, min, max, allowNegative = false, disallowZero = false) => {
+  const values = asString(value).split(',').map(item => item.trim()).filter(Boolean)
+  if (values.length === 0) {
+    return false
+  }
+
+  return values.every((item) => {
+    if (!/^[-+]?[0-9]+$/.test(item)) {
+      return false
+    }
+    const parsed = Number.parseInt(item, 10)
+    if (!Number.isInteger(parsed)) {
+      return false
+    }
+    if (!allowNegative && parsed < 0) {
+      return false
+    }
+    if (disallowZero && parsed === 0) {
+      return false
+    }
+    return parsed >= min && parsed <= max
+  })
+}
 
 const parseBoolean = (value, fallback = null) => {
   if (typeof value === 'boolean') {
@@ -314,24 +601,102 @@ const normalizeWorkflowFrontmatter = (value) => {
 }
 
 const validateCronExpression = (value) => {
-  try {
-    const cron = new Cron(value, () => {})
-    cron.stop()
-    return true
-  } catch {
+  const source = asString(value)
+  if (!source) {
     return false
   }
+
+  const fields = source.split(/\s+/).filter(Boolean)
+  if (fields.length !== 5) {
+    return false
+  }
+
+  return (
+    validateCronField(fields[0], 0, 59)
+    && validateCronField(fields[1], 0, 23)
+    && validateCronField(fields[2], 1, 31)
+    && validateCronField(fields[3], 1, 12, CRON_MONTH_NAMES)
+    && validateCronField(fields[4], 0, 7, CRON_WEEKDAY_NAMES)
+  )
 }
 
 const validateIntervalExpression = value => INTERVAL_PATTERN.test(asString(value))
 
 const validateRRuleExpression = (value) => {
-  try {
-    rrulestr(value)
-    return true
-  } catch {
+  const values = splitRRuleKeyValues(value)
+  if (!values) {
     return false
   }
+
+  const freq = values.get('FREQ')
+  if (!freq || !RRULE_FREQ_VALUES.has(freq)) {
+    return false
+  }
+
+  if (values.has('INTERVAL') && !/^[1-9][0-9]*$/.test(values.get('INTERVAL') ?? '')) {
+    return false
+  }
+  if (values.has('COUNT') && !/^[1-9][0-9]*$/.test(values.get('COUNT') ?? '')) {
+    return false
+  }
+
+  const until = values.get('UNTIL')
+  if (until && !/^[0-9]{8}(T[0-9]{6}Z)?$/.test(until)) {
+    return false
+  }
+
+  const byDay = values.get('BYDAY')
+  if (byDay) {
+    const weekdays = byDay.split(',').map(item => item.trim()).filter(Boolean)
+    if (weekdays.length === 0) {
+      return false
+    }
+    const valid = weekdays.every((item) => {
+      const match = item.match(/^([+-]?[1-9][0-9]?)?(MO|TU|WE|TH|FR|SA|SU)$/)
+      if (!match) {
+        return false
+      }
+      const ordinal = match[1]
+      if (!ordinal) {
+        return true
+      }
+      const value = Number.parseInt(ordinal, 10)
+      return Number.isInteger(value) && value >= -53 && value <= 53 && value !== 0
+    })
+    if (!valid) {
+      return false
+    }
+  }
+
+  if (values.has('BYHOUR') && !validateRRuleIntList(values.get('BYHOUR'), 0, 23)) {
+    return false
+  }
+  if (values.has('BYMINUTE') && !validateRRuleIntList(values.get('BYMINUTE'), 0, 59)) {
+    return false
+  }
+  if (values.has('BYSECOND') && !validateRRuleIntList(values.get('BYSECOND'), 0, 59)) {
+    return false
+  }
+  if (values.has('BYMONTH') && !validateRRuleIntList(values.get('BYMONTH'), 1, 12)) {
+    return false
+  }
+  if (values.has('BYMONTHDAY') && !validateRRuleIntList(values.get('BYMONTHDAY'), -31, 31, true, true)) {
+    return false
+  }
+  if (values.has('BYYEARDAY') && !validateRRuleIntList(values.get('BYYEARDAY'), -366, 366, true, true)) {
+    return false
+  }
+  if (values.has('BYWEEKNO') && !validateRRuleIntList(values.get('BYWEEKNO'), -53, 53, true, true)) {
+    return false
+  }
+  if (values.has('WKST')) {
+    const wkst = values.get('WKST')
+    if (!wkst || !RRULE_WEEKDAY_VALUES.has(wkst)) {
+      return false
+    }
+  }
+
+  return true
 }
 
 const validateWorkflow = (frontmatter, instruction) => {
@@ -393,12 +758,12 @@ const serializeWorkflowSource = (frontmatterInput, instructionInput) => {
     throw new Error(validationError)
   }
 
-  const yamlValue = stringifyYaml({
+  const yamlValue = stringifyFrontmatterYaml({
     name: frontmatter.name,
     description: frontmatter.description,
     on: frontmatter.on,
     skills: frontmatter.skills
-  }).trimEnd()
+  })
 
   return `---\n${yamlValue}\n---\n${instruction}\n`
 }
@@ -430,7 +795,7 @@ const parseWorkflowSource = (input) => {
 
   let parsedFrontmatter
   try {
-    parsedFrontmatter = parseYaml(matched[1] ?? '')
+    parsedFrontmatter = parseFrontmatterYaml(matched[1] ?? '')
   } catch (error) {
     return createInvalidWorkflow({
       ...input,
@@ -684,6 +1049,8 @@ const buildManualDraft = ({ options, existing }) => {
 }
 
 let codexInstance = null
+let codexImportAttempted = false
+let codexUnavailableReason = ''
 
 const getCodexEnv = () => {
   const env = {}
@@ -698,19 +1065,41 @@ const getCodexEnv = () => {
   return env
 }
 
-const getCodex = () => {
-  if (codexInstance) {
+const getOptionalCodex = async () => {
+  if (codexImportAttempted) {
     return codexInstance
   }
+  codexImportAttempted = true
 
-  codexInstance = new Codex({
-    env: getCodexEnv(),
-    config: {
-      show_raw_agent_reasoning: false,
-      approval_policy: 'never',
-      sandbox_mode: 'danger-full-access'
-    }
-  })
+  let CodexClass
+  try {
+    const mod = await import('@openai/codex-sdk')
+    CodexClass = mod.Codex
+  } catch (error) {
+    codexUnavailableReason = error instanceof Error ? error.message : 'Codex SDK import failed.'
+    codexInstance = null
+    return null
+  }
+
+  if (typeof CodexClass !== 'function') {
+    codexUnavailableReason = 'Codex SDK export "Codex" is unavailable.'
+    codexInstance = null
+    return null
+  }
+
+  try {
+    codexInstance = new CodexClass({
+      env: getCodexEnv(),
+      config: {
+        show_raw_agent_reasoning: false,
+        approval_policy: 'never',
+        sandbox_mode: 'danger-full-access'
+      }
+    })
+  } catch (error) {
+    codexUnavailableReason = error instanceof Error ? error.message : 'Codex SDK initialization failed.'
+    codexInstance = null
+  }
 
   return codexInstance
 }
@@ -762,7 +1151,241 @@ const normalizeAIAction = (raw, availableSkills) => {
   }
 }
 
-const inferActionFromText = async ({ text, workflows, availableSkills }) => {
+const inferTriggerFromText = (text) => {
+  const source = asString(text)
+  if (!source) {
+    return { triggerType: null, triggerValue: null }
+  }
+
+  const explicitRRule = source.match(/FREQ=[A-Z]+(?:;[A-Z0-9-]+=[A-Z0-9,+:-]+)*/i)
+  if (explicitRRule) {
+    const value = explicitRRule[0].toUpperCase()
+    if (validateRRuleExpression(value)) {
+      return { triggerType: 'rrule', triggerValue: value }
+    }
+  }
+
+  const tokens = source.replace(/\n/g, ' ').split(/\s+/).filter(Boolean)
+  for (let index = 0; index <= tokens.length - 5; index += 1) {
+    const candidate = tokens.slice(index, index + 5).join(' ')
+    if (validateCronExpression(candidate)) {
+      return { triggerType: 'schedule', triggerValue: candidate }
+    }
+  }
+
+  const compactInterval = source.match(/\b([1-9][0-9]*)(s|m|h)\b/i)
+  if (compactInterval) {
+    const value = `${compactInterval[1]}${compactInterval[2].toLowerCase()}`
+    if (validateIntervalExpression(value)) {
+      return { triggerType: 'interval', triggerValue: value }
+    }
+  }
+
+  const intervalCandidates = [
+    { pattern: /([1-9][0-9]*)\s*(초|seconds?|secs?)\s*마다/i, unit: 's' },
+    { pattern: /(?:every|매)\s*([1-9][0-9]*)\s*(초|seconds?|secs?)\b/i, unit: 's' },
+    { pattern: /([1-9][0-9]*)\s*(분|minutes?|mins?)\s*마다/i, unit: 'm' },
+    { pattern: /(?:every|매)\s*([1-9][0-9]*)\s*(분|minutes?|mins?)\b/i, unit: 'm' },
+    { pattern: /([1-9][0-9]*)\s*(시간|hours?|hrs?)\s*마다/i, unit: 'h' },
+    { pattern: /(?:every|매)\s*([1-9][0-9]*)\s*(시간|hours?|hrs?)\b/i, unit: 'h' }
+  ]
+
+  for (const candidate of intervalCandidates) {
+    const matched = source.match(candidate.pattern)
+    if (!matched) {
+      continue
+    }
+    const value = `${matched[1]}${candidate.unit}`
+    if (validateIntervalExpression(value)) {
+      return { triggerType: 'interval', triggerValue: value }
+    }
+  }
+
+  return { triggerType: null, triggerValue: null }
+}
+
+const deriveInstructionFromText = (text) => {
+  const source = asString(text)
+  if (!source) {
+    return ''
+  }
+
+  const quoted = source.match(/["'“”‘’]([^"'“”‘’]+)["'“”‘’]/)
+  const quotedText = asString(quoted?.[1])
+  if (quotedText && /(말하|출력|send|say|print|메시지|인사)/i.test(source)) {
+    return `각 실행에서 assistant 메시지로 정확히 "${quotedText}" 한 줄만 출력한다.`
+  }
+
+  const schedulePattern = /\b(cron|rrule|interval|daily|weekly|monthly|every\s+\d+\s*(seconds?|minutes?|hours?|days?|weeks?|months?))\b|매(일|주|월|년|시간|분)|[0-9]+\s*(초|분|시간|일|주|개월)\s*마다/gi
+  const metaPattern = /(워크플로우\s*(생성|등록|수정|저장|작성|삭제|목록)|create\s+(a\s+)?workflow|generate\s+(a\s+)?workflow|update\s+(a\s+)?workflow|delete\s+(a\s+)?workflow)/gi
+
+  const normalized = source
+    .replace(metaPattern, '')
+    .replace(schedulePattern, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  return normalized || source
+}
+
+const inferSelectorFromText = (text, workflows) => {
+  const source = asString(text).toLowerCase()
+  if (!source || workflows.length === 0) {
+    return { slug: null, query: asString(text) || null }
+  }
+
+  const scored = workflows.map((workflow) => {
+    const slug = workflow.fileSlug.toLowerCase()
+    const name = workflow.frontmatter.name.toLowerCase()
+    const description = workflow.frontmatter.description.toLowerCase()
+    const instructionHead = workflow.instruction.toLowerCase().slice(0, 96)
+
+    let score = 0
+    if (source.includes(slug)) {
+      score += 5
+    }
+    if (source.includes(name)) {
+      score += 4
+    }
+    if (source.includes(description)) {
+      score += 2
+    }
+    if (instructionHead && source.includes(instructionHead)) {
+      score += 1
+    }
+
+    return { workflow, score }
+  })
+
+  scored.sort((left, right) => right.score - left.score)
+  const top = scored[0]
+  if (!top || top.score <= 0) {
+    return { slug: null, query: asString(text) || null }
+  }
+
+  return { slug: top.workflow.fileSlug, query: null }
+}
+
+const inferActionFromTextByRules = ({ text, workflows, availableSkills, reason }) => {
+  const source = asString(text)
+  const normalized = source.toLowerCase()
+  const fallbackReason = asString(reason) || FALLBACK_AI_REASON
+  const selector = inferSelectorFromText(source, workflows)
+  const trigger = inferTriggerFromText(source)
+  const instruction = deriveInstructionFromText(source)
+  const name = normalizeWorkflowName(instruction || source)
+  const description = deriveWorkflowDescription(instruction || source)
+  const skills = availableSkills
+    .filter(skill => normalized.includes(skill.toLowerCase()))
+    .slice(0, 5)
+
+  const isDelete = /(삭제|지워|remove|delete)/i.test(source)
+  const isList = /(목록|리스트|조회|보여|what|which|list|show)/i.test(source)
+  const isUpdate = /(수정|업데이트|변경|edit|update|change)/i.test(source)
+
+  if (isDelete) {
+    return {
+      action: 'delete',
+      confidence: 'low',
+      reason: fallbackReason,
+      selector,
+      listOptions: {
+        runningOnly: false,
+        activeOnly: false,
+        query: null
+      },
+      draft: {
+        name,
+        description,
+        instruction: instruction || source,
+        triggerType: trigger.triggerType,
+        triggerValue: trigger.triggerValue,
+        workflowDispatch: true,
+        skills
+      }
+    }
+  }
+
+  if (isList) {
+    return {
+      action: 'list',
+      confidence: 'low',
+      reason: fallbackReason,
+      selector: {
+        slug: null,
+        query: null
+      },
+      listOptions: {
+        runningOnly: /(running|실행중|동작중|진행중)/i.test(source),
+        activeOnly: /(active|활성)/i.test(source),
+        query: null
+      },
+      draft: {
+        name,
+        description,
+        instruction: instruction || source,
+        triggerType: trigger.triggerType,
+        triggerValue: trigger.triggerValue,
+        workflowDispatch: true,
+        skills
+      }
+    }
+  }
+
+  if (isUpdate) {
+    return {
+      action: 'update',
+      confidence: 'low',
+      reason: fallbackReason,
+      selector,
+      listOptions: {
+        runningOnly: false,
+        activeOnly: false,
+        query: null
+      },
+      draft: {
+        name,
+        description,
+        instruction: instruction || source,
+        triggerType: trigger.triggerType,
+        triggerValue: trigger.triggerValue,
+        workflowDispatch: true,
+        skills
+      }
+    }
+  }
+
+  return {
+    action: 'create',
+    confidence: 'low',
+    reason: fallbackReason,
+    selector: {
+      slug: null,
+      query: null
+    },
+    listOptions: {
+      runningOnly: false,
+      activeOnly: false,
+      query: null
+    },
+    draft: {
+      name,
+      description,
+      instruction: instruction || source,
+      triggerType: trigger.triggerType,
+      triggerValue: trigger.triggerValue,
+      workflowDispatch: true,
+      skills
+    }
+  }
+}
+
+const inferActionFromTextWithCodex = async ({ text, workflows, availableSkills }) => {
+  const codex = await getOptionalCodex()
+  if (!codex) {
+    return null
+  }
+
   const requestText = asString(text)
   if (!requestText) {
     throw new Error('Text is required for inference.')
@@ -808,25 +1431,49 @@ const inferActionFromText = async ({ text, workflows, availableSkills }) => {
     JSON.stringify(workflowContext, null, 2)
   ].join('\n')
 
-  const thread = getCodex().startThread({
-    model: INFER_MODEL,
-    workingDirectory: process.cwd()
-  })
-
-  const result = await thread.run(prompt, { outputSchema: AI_ACTION_SCHEMA })
-  const response = asString(result.finalResponse)
-  if (!response) {
-    throw new Error('LLM did not return a structured action.')
-  }
-
-  let parsed
   try {
-    parsed = JSON.parse(response)
-  } catch {
-    throw new Error('Failed to parse LLM action JSON.')
+    const thread = codex.startThread({
+      model: INFER_MODEL,
+      workingDirectory: process.cwd()
+    })
+
+    const result = await thread.run(prompt, { outputSchema: AI_ACTION_SCHEMA })
+    const response = asString(result.finalResponse)
+    if (!response) {
+      return null
+    }
+
+    const parsed = JSON.parse(response)
+    return normalizeAIAction(parsed, availableSkills)
+  } catch (error) {
+    codexUnavailableReason = error instanceof Error ? error.message : 'Codex SDK inference failed.'
+    return null
+  }
+}
+
+const inferActionFromText = async ({ text, workflows, availableSkills }) => {
+  const requestText = asString(text)
+  if (!requestText) {
+    throw new Error('Text is required for inference.')
   }
 
-  return normalizeAIAction(parsed, availableSkills)
+  const aiAction = await inferActionFromTextWithCodex({
+    text: requestText,
+    workflows,
+    availableSkills
+  })
+  if (aiAction) {
+    return aiAction
+  }
+
+  return inferActionFromTextByRules({
+    text: requestText,
+    workflows,
+    availableSkills,
+    reason: codexUnavailableReason
+      ? `${FALLBACK_AI_REASON} ${codexUnavailableReason}`
+      : FALLBACK_AI_REASON
+  })
 }
 
 const draftToFrontmatter = (draft) => {
