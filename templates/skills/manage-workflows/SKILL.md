@@ -23,7 +23,7 @@ node scripts/manage-workflows.mjs help
 2. If user input is natural language, run `from-text` first to verify intent.
 3. Execute one of `list`, `create`, `update`, `delete`, or `apply-text`.
 4. If `--query` matches multiple workflows, refine query or switch to `--slug`.
-5. For recurring weekly/monthly schedules, prefer `rrule` over cron.
+5. Use `rrule` for recurring schedules that are hard to represent or maintain with cron, and use cron when it is sufficient.
 6. Return command JSON results without rewriting fields manually.
 
 ## Commands
@@ -41,7 +41,7 @@ node scripts/manage-workflows.mjs create \
   --root /path/to/corazon \
   --instruction "Summarize top news and send to Telegram." \
   --name "News Summary Telegram" \
-  --rrule "FREQ=DAILY;BYHOUR=9;BYMINUTE=0" \
+  --schedule "0 9 * * *" \
   --workflow-dispatch true \
   --skills "shared-memory"
 ```
@@ -60,7 +60,7 @@ node scripts/manage-workflows.mjs apply-text \
 node scripts/manage-workflows.mjs update \
   --root /path/to/corazon \
   --slug news-summary-telegram \
-  --rrule "FREQ=DAILY;BYHOUR=10;BYMINUTE=0" \
+  --schedule "0 10 * * *" \
   --workflow-dispatch true
 ```
 
