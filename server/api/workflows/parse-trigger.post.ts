@@ -72,7 +72,8 @@ export default defineEventHandler(async (event): Promise<WorkflowTriggerGuessRes
         confidence = inferred.confidence
       }
     }
-  } catch {
+  } catch (error) {
+    console.error('Failed to infer workflow trigger with AI:', error)
     // Ignore AI fallback failure and return no trigger.
   }
 

@@ -143,7 +143,8 @@ export const inferWorkflowTriggerWithAI = async (text: string) => {
     ) {
       return parsed
     }
-  } catch {
+  } catch (error) {
+    console.error('Failed to parse AI response for trigger inference:', error, 'Response:', response)
     return null
   }
 
