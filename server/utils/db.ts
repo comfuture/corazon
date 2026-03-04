@@ -669,8 +669,15 @@ export const getWorkflowRunById = (runId: string): WorkflowRunSummary | null => 
   return toWorkflowRunSummary(row)
 }
 
-export const loadWorkflowRunsBySlug = (workflowFileSlug: string, limit = 50): WorkflowRunSummary[] => {
-  const safeLimit = Math.max(1, Math.min(limit, 200))
+export const loadWorkflowRunsPageBySlug = (
+  workflowFileSlug: string,
+  options: {
+    limit?: number
+    offset?: number
+  } = {}
+) => {
+  const safeLimit = Math.max(1, Math.min(options.limit ?? 50, 200))
+  const safeOffset = Math.max(0, Math.floor(options.offset ?? 0))
   const database = getDb()
   const rows = database
     .prepare(
@@ -694,9 +701,28 @@ export const loadWorkflowRunsBySlug = (workflowFileSlug: string, limit = 50): Wo
       WHERE workflow_file_slug = ?
       ORDER BY started_at DESC, id DESC
       LIMIT ?
+      OFFSET ?
     `
     )
-    .all(workflowFileSlug, safeLimit) as WorkflowRunRow[]
+    .all(workflowFileSlug, safeLimit + 1, safeOffset) as WorkflowRunRow[]
 
-  return rows.map(toWorkflowRunSummary)
+  const hasMore = rows.length > safeLimit
+  const runs = rows
+    .slice(0, safeLimit)
+    .map(toWorkflowRunSummary)
+
+  return {
+    runs,
+    hasMore,
+    nextOffset: hasMore ? safeOffset + runs.length : null
+  }
+}
+
+export const loadWorkflowRunsBySlug = (workflowFileSlug: string, limit = 50): WorkflowRunSummary[] => {
+  const page = loadWorkflowRunsPageBySlug(workflowFileSlug, {
+    limit,
+    offset: 0
+  })
+
+  return page.runs
 }
