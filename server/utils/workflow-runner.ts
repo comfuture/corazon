@@ -52,24 +52,23 @@ const buildRunContextPrompt = (
   const allowedSkills = definition.frontmatter.skills.join(', ')
 
   return [
-    '실행시 아래 실행 콘텍스트를 참조해야 합니다.',
+    `워크플로 설명: ${definition.frontmatter.description}`,
+    `사용 가능한 스킬: ${allowedSkills}`,
+    definition.instruction,
     '',
+    '실행 시 아래 실행 콘텍스트를 참조해야 합니다.',
     '<run-context>',
-    `current_date: ${toLocalDate(now)}`,
-    `current_datetime_iso: ${now.toISOString()}`,
-    `timezone: ${timezone}`,
     `workflow_name: ${definition.frontmatter.name}`,
     `workflow_description: ${definition.frontmatter.description}`,
     `workflow_file: workflows/${definition.fileSlug}.md`,
+    `allowed_skills: ${allowedSkills}`,
+    `working_directory: ${process.cwd()}`,
     `trigger_type: ${triggerType}`,
     `trigger_value: ${triggerValue ?? ''}`,
-    `working_directory: ${process.cwd()}`,
-    `allowed_skills: ${allowedSkills}`,
-    '</run-context>',
-    '',
-    `워크플로 설명: ${definition.frontmatter.description}`,
-    `사용 가능한 스킬: ${allowedSkills}`,
-    definition.instruction
+    `timezone: ${timezone}`,
+    `current_date: ${toLocalDate(now)}`,
+    `current_datetime_iso: ${now.toISOString()}`,
+    '</run-context>'
   ].join('\n')
 }
 
