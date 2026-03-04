@@ -1,3 +1,4 @@
+import { watch, type FSWatcher } from 'node:fs'
 import { AsyncTask, CronJob, SimpleIntervalJob, ToadScheduler } from 'toad-scheduler'
 import { rrulestr } from 'rrule'
 import type { WorkflowDefinition, WorkflowTriggerType } from '@@/types/workflow'
@@ -12,7 +13,10 @@ let scheduler: ToadScheduler | null = null
 let schedulerInitialized = false
 let workflowScheduledExecutor: WorkflowScheduledExecutor = async () => {}
 const rruleTimerByJobId = new Map<string, ReturnType<typeof setTimeout>>()
+let workflowDefinitionsWatcher: FSWatcher | null = null
+let workflowDefinitionsReloadTimer: ReturnType<typeof setTimeout> | null = null
 const MAX_TIMEOUT_MS = 2_147_483_647
+const WORKFLOW_RELOAD_DEBOUNCE_MS = 200
 
 const createScheduler = () => {
   scheduler = new ToadScheduler()
@@ -26,6 +30,59 @@ const clearRegisteredRRuleTimers = () => {
     clearTimeout(timer)
   }
   rruleTimerByJobId.clear()
+}
+
+const clearWorkflowDefinitionsWatcher = () => {
+  if (workflowDefinitionsReloadTimer) {
+    clearTimeout(workflowDefinitionsReloadTimer)
+    workflowDefinitionsReloadTimer = null
+  }
+
+  if (workflowDefinitionsWatcher) {
+    workflowDefinitionsWatcher.close()
+    workflowDefinitionsWatcher = null
+  }
+}
+
+const scheduleWorkflowReloadFromDefinitionChange = () => {
+  if (workflowDefinitionsReloadTimer) {
+    clearTimeout(workflowDefinitionsReloadTimer)
+  }
+
+  workflowDefinitionsReloadTimer = setTimeout(() => {
+    workflowDefinitionsReloadTimer = null
+
+    try {
+      reloadWorkflowScheduler()
+    } catch (error) {
+      console.error(error)
+    }
+  }, WORKFLOW_RELOAD_DEBOUNCE_MS)
+}
+
+const ensureWorkflowDefinitionsWatcher = () => {
+  if (workflowDefinitionsWatcher) {
+    return
+  }
+
+  const directory = ensureWorkflowsDirectory()
+
+  try {
+    workflowDefinitionsWatcher = watch(directory, (_eventType, filename) => {
+      const resolvedFilename = filename ? String(filename) : ''
+
+      if (resolvedFilename && !resolvedFilename.endsWith('.md')) {
+        return
+      }
+
+      scheduleWorkflowReloadFromDefinitionChange()
+    })
+    workflowDefinitionsWatcher.on('error', (error) => {
+      console.error(error)
+    })
+  } catch (error) {
+    console.error(error)
+  }
 }
 
 const toIntervalSchedule = (value: string) => {
@@ -192,6 +249,8 @@ export const setWorkflowScheduledExecutor = (executor: WorkflowScheduledExecutor
 }
 
 export const reloadWorkflowScheduler = () => {
+  ensureWorkflowDefinitionsWatcher()
+
   if (scheduler) {
     scheduler.stop()
   }
@@ -219,4 +278,5 @@ export const ensureWorkflowSchedulerInitialized = () => {
 export const stopWorkflowScheduler = () => {
   getScheduler().stop()
   clearRegisteredRRuleTimers()
+  clearWorkflowDefinitionsWatcher()
 }
