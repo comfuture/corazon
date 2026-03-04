@@ -91,10 +91,21 @@ const ensureDefaultMemoryFile = (agentHomeDir: string) => {
   writeFileSync(destinationPath, buildDefaultMemoryContent(), 'utf8')
 }
 
-const ensureBundledSharedMemorySkill = (agentHomeDir: string) => {
-  const sourcePath = join(process.cwd(), 'templates', 'skills', 'shared-memory')
-  const destinationPath = join(agentHomeDir, 'skills', 'shared-memory')
-  ensureSeededDirectory(sourcePath, destinationPath)
+const ensureBundledSkills = (agentHomeDir: string) => {
+  const bundledSkillsRoot = join(process.cwd(), 'templates', 'skills')
+  if (!existsSync(bundledSkillsRoot)) {
+    return
+  }
+
+  const entries = readdirSync(bundledSkillsRoot, { withFileTypes: true })
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue
+    }
+    const sourcePath = join(bundledSkillsRoot, entry.name)
+    const destinationPath = join(agentHomeDir, 'skills', entry.name)
+    ensureSeededDirectory(sourcePath, destinationPath)
+  }
 }
 
 const getCodexSeedSourceDir = () => {
@@ -127,7 +138,7 @@ export const ensureAgentBootstrap = () => {
     ensureLinkedAuthFile(join(sourceRootDir, AUTH_FILE), join(agentHomeDir, AUTH_FILE))
   }
 
-  ensureBundledSharedMemorySkill(agentHomeDir)
+  ensureBundledSkills(agentHomeDir)
   ensureDefaultAgentsFile(agentHomeDir)
   ensureDefaultMemoryFile(agentHomeDir)
   bootstrapDone = true
