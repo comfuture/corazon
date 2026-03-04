@@ -71,7 +71,7 @@ This script is uv-compatible and self-contained via shebang + inline metadata:
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = []
+# dependencies = ["PyYAML>=6.0.2"]
 # ///
 ```
 

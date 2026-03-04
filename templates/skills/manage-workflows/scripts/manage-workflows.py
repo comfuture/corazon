@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = []
+# dependencies = ["PyYAML>=6.0.2"]
 # ///
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 WORKFLOW_NAME_PATTERN = re.compile(r"^[A-Za-z]+(?: [A-Za-z]+){1,2}$")
 WORKFLOW_NAME_WORD_PATTERN = re.compile(r"^[A-Za-z]+$")
@@ -114,92 +116,6 @@ def parse_csv(value: Any) -> list[str]:
     if not source:
         return []
     return [item.strip() for item in source.split(",") if item.strip()]
-
-
-def unquote_yaml_scalar(value: str) -> str:
-    raw = as_string(value)
-    if not raw:
-        return ""
-
-    if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
-        inner = raw[1:-1]
-        return inner.replace(r"\\'", "'").replace(r'\\"', '"').replace(r"\\\\", "\\")
-
-    return raw
-
-
-def quote_yaml_scalar(value: str) -> str:
-    source = as_string(value)
-    if not source:
-        return '""'
-
-    plain_safe = re.compile(r"^[A-Za-z0-9 _./:+@-]+$")
-    lower = source.lower()
-    if plain_safe.match(source) and lower not in {"true", "false", "null"} and not source.isdigit():
-        return source
-
-    escaped = source.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
-
-
-def parse_inline_yaml_list(value: str) -> list[str] | None:
-    source = as_string(value)
-    if not source:
-        return []
-
-    lowered = source.lower()
-    if lowered in {"null", "~"}:
-        return []
-
-    if source.startswith("[") and source.endswith("]"):
-        inner = source[1:-1].strip()
-        if not inner:
-            return []
-
-        items: list[str] = []
-        token: list[str] = []
-        quote: str | None = None
-        escape = False
-
-        for char in inner:
-            if escape:
-                token.append(char)
-                escape = False
-                continue
-
-            if quote:
-                if quote == '"' and char == "\\":
-                    escape = True
-                    continue
-                if char == quote:
-                    quote = None
-                    continue
-                token.append(char)
-                continue
-
-            if char in {'"', "'"}:
-                quote = char
-                continue
-
-            if char == ",":
-                piece = as_string("".join(token))
-                if piece:
-                    items.append(unquote_yaml_scalar(piece))
-                token = []
-                continue
-
-            token.append(char)
-
-        if quote:
-            return None
-
-        piece = as_string("".join(token))
-        if piece:
-            items.append(unquote_yaml_scalar(piece))
-
-        return [item for item in items if item]
-
-    return [unquote_yaml_scalar(source)]
 
 
 def normalize_workflow_name(value: str) -> str:
@@ -485,102 +401,70 @@ def validate_workflow(frontmatter: WorkflowFrontmatter, instruction: str) -> str
 
 
 def parse_frontmatter_yaml(source: str) -> WorkflowFrontmatter:
-    lines = source.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    name = ""
-    description = ""
-    on = TriggerConfig()
+    try:
+        parsed = yaml.load(source, Loader=yaml.BaseLoader)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Invalid YAML frontmatter: {exc}") from exc
+
+    if parsed is None:
+        parsed = {}
+    if not isinstance(parsed, dict):
+        raise ValueError("Frontmatter root must be a mapping.")
+
+    name = as_string(parsed.get("name"))
+    description = as_string(parsed.get("description"))
+
+    raw_on = parsed.get("on")
+    on_mapping = raw_on if isinstance(raw_on, dict) else {}
+    on = TriggerConfig(
+        schedule=as_string(on_mapping.get("schedule")) or None,
+        interval=as_string(on_mapping.get("interval")) or None,
+        rrule=as_string(on_mapping.get("rrule")) or None,
+        workflow_dispatch=parse_bool(on_mapping.get("workflow-dispatch"), False) is True,
+    )
+
+    raw_skills = parsed.get("skills")
     skills: list[str] = []
-    section = "root"
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-
-        indent = len(line) - len(line.lstrip(" "))
-        if indent == 0:
-            match = re.fullmatch(r"([A-Za-z][A-Za-z0-9-]*):(?:\s*(.*))?", stripped)
-            if not match:
-                continue
-            key, raw = match.group(1), match.group(2) or ""
-
-            if key == "on":
-                section = "on"
-                continue
-            if key == "skills":
-                inline_skills = parse_inline_yaml_list(raw)
-                if inline_skills is None:
-                    raise ValueError("Invalid inline skills list syntax.")
-                if as_string(raw):
-                    skills.extend(inline_skills)
-                    section = "root"
-                else:
-                    section = "skills"
-                continue
-
-            section = "root"
-            if key == "name":
-                name = unquote_yaml_scalar(raw)
-            elif key == "description":
-                description = unquote_yaml_scalar(raw)
-            continue
-
-        if section == "on" and indent >= 2:
-            match = re.fullmatch(r"([A-Za-z][A-Za-z0-9-]*):(?:\s*(.*))?", stripped)
-            if not match:
-                continue
-            key, raw = match.group(1), match.group(2) or ""
-            value = unquote_yaml_scalar(raw)
-            if key == "schedule":
-                on.schedule = value or None
-            elif key == "interval":
-                on.interval = value or None
-            elif key == "rrule":
-                on.rrule = value or None
-            elif key == "workflow-dispatch":
-                on.workflow_dispatch = parse_bool(value, False) is True
-            continue
-
-        if section == "skills" and indent >= 2:
-            match = re.fullmatch(r"-\s+(.*)", stripped)
-            if not match:
-                continue
-            item = unquote_yaml_scalar(match.group(1))
-            if item:
-                skills.append(item)
+    if raw_skills is None:
+        skills = []
+    elif isinstance(raw_skills, list):
+        skills = [as_string(item) for item in raw_skills if as_string(item)]
+    elif isinstance(raw_skills, str):
+        single = as_string(raw_skills)
+        if single and single.lower() not in {"null", "~"}:
+            skills = [single]
+    else:
+        raise ValueError("Frontmatter skills must be a list, string, or null.")
 
     return WorkflowFrontmatter(
-        name=as_string(name),
-        description=as_string(description),
+        name=name,
+        description=description,
         on=on,
         skills=list(dict.fromkeys(skills)),
     )
 
 
 def stringify_frontmatter_yaml(frontmatter: WorkflowFrontmatter) -> str:
-    lines = [
-        f"name: {quote_yaml_scalar(frontmatter.name)}",
-        f"description: {quote_yaml_scalar(frontmatter.description)}",
-        "on:",
-    ]
+    normalized_skills = [as_string(skill) for skill in frontmatter.skills if as_string(skill)]
+    on_mapping: dict[str, Any] = {
+        "workflow-dispatch": frontmatter.on.workflow_dispatch is True,
+    }
 
     if as_string(frontmatter.on.schedule):
-        lines.append(f"  schedule: {quote_yaml_scalar(frontmatter.on.schedule or '')}")
+        on_mapping["schedule"] = frontmatter.on.schedule
     if as_string(frontmatter.on.interval):
-        lines.append(f"  interval: {quote_yaml_scalar(frontmatter.on.interval or '')}")
+        on_mapping["interval"] = frontmatter.on.interval
     if as_string(frontmatter.on.rrule):
-        lines.append(f"  rrule: {quote_yaml_scalar(frontmatter.on.rrule or '')}")
+        on_mapping["rrule"] = frontmatter.on.rrule
 
-    lines.append(f"  workflow-dispatch: {'true' if frontmatter.on.workflow_dispatch else 'false'}")
-    normalized_skills = [as_string(skill) for skill in frontmatter.skills if as_string(skill)]
-    if normalized_skills:
-        lines.append("skills:")
-        for skill in normalized_skills:
-            lines.append(f"  - {quote_yaml_scalar(skill)}")
-    else:
-        lines.append("skills: []")
+    payload = {
+        "name": frontmatter.name,
+        "description": frontmatter.description,
+        "on": on_mapping,
+        "skills": normalized_skills,
+    }
 
-    return "\n".join(lines)
+    return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True).strip()
 
 
 def serialize_workflow_source(frontmatter: WorkflowFrontmatter, instruction: str) -> str:
