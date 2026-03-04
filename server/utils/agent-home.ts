@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, parse, resolve } from 'node:path'
 
 let cachedCorazonRootDir: string | null = null
 
@@ -22,6 +22,44 @@ const getWindowsCorazonRootDir = () => {
   return join(homedir(), 'AppData', 'Roaming', 'Corazon')
 }
 
+const normalizeCorazonRootCandidate = (value: string) => {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return trimmed
+  }
+
+  const resolved = resolve(trimmed)
+  const segments = resolved.split(/[\\/]+/).filter(Boolean)
+  if (segments.length === 0) {
+    return resolved
+  }
+
+  for (let index = 1; index < segments.length; index += 1) {
+    const current = segments[index]?.toLowerCase()
+    const previous = segments[index - 1]?.toLowerCase()
+
+    if (current !== 'threads') {
+      continue
+    }
+    if (previous !== 'corazon' && previous !== '.corazon') {
+      continue
+    }
+
+    const rootInfo = parse(resolved).root
+    const head = segments.slice(0, index)
+    if (rootInfo) {
+      const drive = rootInfo.replace(/[\\/]/g, '').toLowerCase()
+      if (head[0]?.toLowerCase() === drive) {
+        head.shift()
+      }
+      return join(rootInfo, ...head)
+    }
+    return join(...head)
+  }
+
+  return resolved
+}
+
 export const getPlatformDefaultCorazonRootDir = () => {
   if (process.platform === 'darwin') {
     return join(homedir(), 'Library', 'Application Support', 'Corazon')
@@ -39,7 +77,7 @@ export const resolveCorazonRootDir = () => {
 
   const configuredRoot = process.env.CORAZON_ROOT_DIR?.trim()
   if (configuredRoot) {
-    cachedCorazonRootDir = configuredRoot
+    cachedCorazonRootDir = normalizeCorazonRootCandidate(configuredRoot)
     return cachedCorazonRootDir
   }
 

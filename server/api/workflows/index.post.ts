@@ -11,10 +11,13 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const requestedSlug = typeof body?.fileSlug === 'string' && body.fileSlug.trim()
-    ? body.fileSlug.trim()
-    : parsed.frontmatter.name
-  const fileSlug = resolveUniqueWorkflowFileSlug(requestedSlug)
+  const requestedSlug = typeof body?.fileSlug === 'string' ? body.fileSlug.trim() : ''
+  const derivedSlug = deriveWorkflowFileSlugFromInput({
+    requestedFileSlug: requestedSlug,
+    workflowName: parsed.frontmatter.name,
+    instruction: parsed.instruction
+  })
+  const fileSlug = resolveUniqueWorkflowFileSlug(derivedSlug)
 
   const workflow = writeWorkflowDefinition(fileSlug, parsed.frontmatter, parsed.instruction)
   reloadWorkflowScheduler()

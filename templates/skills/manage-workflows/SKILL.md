@@ -18,14 +18,14 @@ Each workflow file must be Markdown with YAML frontmatter.
 ```md
 ---
 name: Hello Workflow
-description: 실행 시마다 지정된 인사 메시지를 한 줄로 출력합니다.
+description: Prints exactly one configured greeting line on each run.
 on:
   interval: 2m
   workflow-dispatch: true
 skills:
   - shared-memory
 ---
-각 실행에서 assistant 메시지로 정확히 "안녕하세요" 한 줄만 출력한다.
+On each run, output exactly one assistant message: "Hello".
 ```
 
 ## Frontmatter Rules
@@ -37,25 +37,26 @@ skills:
   - `rrule`: RFC5545 RRULE
   - `workflow-dispatch`: boolean
 - `skills`: list of skill names.
-- Time trigger(`schedule/interval/rrule`)는 동시에 하나만 사용.
-- 시간 트리거가 없다면 `workflow-dispatch: true`가 필요.
+- Use only one time trigger at a time (`schedule`, `interval`, or `rrule`).
+- If no time trigger is configured, `workflow-dispatch: true` is required.
 
 ## Instruction Writing Principles
-- "워크플로우를 생성/수정" 같은 메타 지시를 쓰지 말고, **실행 시 실제 수행 작업**을 작성.
-- 스케줄/주기 정보는 `on`에 두고 instruction 본문에는 넣지 않음.
-- 출력 형식, 완료 조건, 금지사항을 명확히 작성.
+- Do not write meta instructions such as "create/update a workflow"; write the **actual run-time behavior**.
+- Keep schedule/interval settings in `on`; do not duplicate timing details in the instruction body.
+- State output format, completion criteria, and prohibitions explicitly.
+- Prefer the user's language for generated `description` and `instruction` content unless the user requests a different language.
 
 Good:
-- `각 실행에서 assistant 메시지로 정확히 "안녕하세요" 한 줄만 출력한다.`
+- `On each run, output exactly one assistant message: "Hello".`
 
 Bad:
-- `2분마다 안녕하세요를 말하는 워크플로우를 만들어라.`
+- `Create a workflow that says hello every 2 minutes.`
 
 ## Scriptless Recommended Flow
-1. `workflows/` 디렉토리에서 대상 파일을 찾음.
-2. 파일 frontmatter와 instruction을 규칙에 맞게 직접 수정.
-3. 저장 후 파일 유효성(이름/트리거/instruction) 점검.
-4. 필요 시 `/workflows` UI에서 실행/이력 확인.
+1. Find the target file in the `workflows/` directory.
+2. Edit frontmatter and instruction directly according to the rules.
+3. Validate file correctness (name/trigger/instruction) after saving.
+4. Use the `/workflows` UI to inspect execution and run history when needed.
 
 ## Optional Python Script
 When CLI automation is needed, use:
@@ -83,7 +84,7 @@ scripts/manage-workflows.py list --root /path/to/corazon --running-only
 ```bash
 scripts/manage-workflows.py create \
   --root /path/to/corazon \
-  --instruction "각 실행에서 assistant 메시지로 정확히 \"안녕하세요\" 한 줄만 출력한다." \
+  --instruction "On each run, output exactly one assistant message: \"Hello\"." \
   --name "Hello Workflow" \
   --interval "2m" \
   --workflow-dispatch true
@@ -99,7 +100,7 @@ scripts/manage-workflows.py update \
 ```bash
 scripts/manage-workflows.py apply-text \
   --root /path/to/corazon \
-  --text "매 1분마다 안녕하세요 한 줄 출력하는 워크플로우를 만들어줘"
+  --text "Create a workflow that outputs one 'Hello' line every minute."
 ```
 
 ## Output Contract (Script)
