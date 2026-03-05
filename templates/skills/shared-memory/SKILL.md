@@ -1,6 +1,6 @@
 ---
 name: shared-memory
-description: Use this skill to read and update shared long-term memory in CODEX_HOME/MEMORY.md using sectioned markdown list items with deduplicated upserts.
+description: Use this skill to retrieve and upsert shared long-term memory via Corazon memory APIs backed by mem0 + ChromaDB.
 ---
 
 # Shared Memory
@@ -9,51 +9,39 @@ description: Use this skill to read and update shared long-term memory in CODEX_
 
 Use this skill whenever the agent should persist or retrieve durable context shared across all threads.
 
-## Memory Source
+## Memory Backend
 
-- File path: `${CODEX_HOME}/MEMORY.md`
-- Shared scope: all conversation threads
-- Storage model: section headers (`## Section`) with one-depth list items (`- item` or `* item`)
-- Default sections:
-  - `## Facts`
-  - `## Preferences`
-  - `## Decisions`
-  - `## Tasks`
+- Backend: Corazon memory API (`/api/memory/*`)
+- Engine: `mem0ai/oss`
+- Vector store: ChromaDB
+- Shared scope: all conversation threads (default `userId` is shared)
 
 ## Script And Commands
 
 Use `scripts/shared-memory.mjs`.
 All command responses must be parsed as JSON.
 
-Memory reads are also allowed via direct shell reads (`rg`/`cat`) when that is simpler.
-
-### Ensure Memory File
+### Ensure Memory API
 
 ```bash
-node scripts/shared-memory.mjs ensure --memory-file "${CODEX_HOME}/MEMORY.md"
+node scripts/shared-memory.mjs ensure \
+  --api-base-url "http://127.0.0.1:3000"
 ```
 
 ### Search Memory
 
 ```bash
 node scripts/shared-memory.mjs search \
-  --memory-file "${CODEX_HOME}/MEMORY.md" \
+  --api-base-url "http://127.0.0.1:3000" \
   --query "user preference related statement" \
   --limit 5
-```
-
-### Direct File Read (Allowed)
-
-```bash
-rg -n --no-heading "name|이름" "${CODEX_HOME}/MEMORY.md"
-cat "${CODEX_HOME}/MEMORY.md"
 ```
 
 ### Upsert Memory
 
 ```bash
 node scripts/shared-memory.mjs upsert \
-  --memory-file "${CODEX_HOME}/MEMORY.md" \
+  --api-base-url "http://127.0.0.1:3000" \
   --section "Preferences" \
   --text "The user prefers concise responses." \
   --threshold 0.62
@@ -61,26 +49,24 @@ node scripts/shared-memory.mjs upsert \
 
 ## Required Workflow
 
-1. Run `ensure` before any read/write.
-2. For each read, always re-read from disk (`search`, `rg`, or `cat`) and do not trust prior in-memory read results.
-3. Run `search` or direct file read before writing when you need duplicate evidence.
-4. Run `upsert` for writes. Do not append directly.
-5. Prefer updating an existing near-duplicate memory over adding a new item.
-6. Create a missing section only when necessary for the new memory.
+1. Run `ensure` before memory read/write tasks in the current execution context.
+2. Run `search` before writing when duplicate or near-duplicate risk exists.
+3. Run `upsert` for writes. Do not bypass the API with direct file edits.
+4. Prefer updating an existing near-duplicate memory over creating a new memory.
 
 ## Write Policy
 
 - Keep entries short, factual, and reusable.
 - Never store secrets, credentials, tokens, or private keys.
 - Avoid conversational noise; store stable memory only.
-- If memory is uncertain, write a qualified statement (for example: "User likely prefers...").
+- If uncertain, store a qualified statement (for example: "User likely prefers...").
 
 ## Output Contract
 
-- Success shape: `{ "ok": true, ... }`
-- Error shape: `{ "ok": false, "error": "..." }`
+- Success: `{ "ok": true, ... }`
+- Failure: `{ "ok": false, "error": "..." }`
 
 ## Scope Boundary
 
-- This skill is markdown memory only.
-- Embedding providers and vector retrieval are not implemented in this skill.
+- This skill is an API wrapper only.
+- Storage/index internals are implemented in core server memory utilities.
