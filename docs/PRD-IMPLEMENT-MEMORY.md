@@ -1,7 +1,7 @@
 # PRD: Mem0 + ChromaDB 기반 Shared Memory 고도화
 
 ## 배경
-- 현재 `shared-memory`는 `${CODEX_HOME}/MEMORY.md` 파일을 직접 읽고 쓰는 pseudo 메모리 방식이다.
+- 기존 `shared-memory`는 벡터 검색이 없는 pseudo 메모리 방식이었다.
 - 스레드 단위 대화 데이터는 SQLite(`threads`, `messages`)에 저장되지만, 장기 기억 검색/회상/업데이트는 벡터 기반이 아니다.
 - Codex SDK 메시지 포맷(`CodexUIMessage[]`)은 OpenAI 호환 `message[]`와 구조가 달라 장기 메모리 시스템에 바로 입력하기 어렵다.
 
@@ -16,7 +16,7 @@
 - `templates/agent-behavior.md`에 기억 추가/회상 시 shared-memory 활용 규칙을 반영한다.
 
 ## 비목표
-- 기존 `MEMORY.md` 내용을 자동 마이그레이션하는 기능
+- 기존 pseudo 메모리 데이터의 자동 마이그레이션 기능
 - 멀티 인스턴스 분산 락/중복 실행 방지
 - 사용자별 메모리 분리 UI 제공
 
