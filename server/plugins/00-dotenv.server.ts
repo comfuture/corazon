@@ -3,6 +3,7 @@ import { config as loadDotEnv } from 'dotenv'
 
 const loadResult = loadDotEnv({
   path: resolve(process.cwd(), '.env'),
+  quiet: true,
   override: false
 })
 
@@ -11,6 +12,10 @@ if (loadResult.error) {
   if (code !== 'ENOENT') {
     console.error(`[dotenv] failed to load .env: ${loadResult.error.message}`)
   }
+}
+
+if (typeof process.env.MEM0_TELEMETRY === 'undefined') {
+  process.env.MEM0_TELEMETRY = 'false'
 }
 
 export default defineNitroPlugin(() => {})
