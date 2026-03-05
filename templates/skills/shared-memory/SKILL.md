@@ -18,20 +18,22 @@ Use this skill whenever the agent should persist or retrieve durable context sha
 
 ## Script And Commands
 
-Use `scripts/shared-memory.mjs`.
+Use `scripts/shared-memory.py`.
 All command responses must be parsed as JSON.
+
+This script is uvx-based and installs runtime dependencies automatically.
 
 ### Ensure Memory API
 
 ```bash
-node scripts/shared-memory.mjs ensure \
+scripts/shared-memory.py ensure \
   --api-base-url "http://127.0.0.1:3000"
 ```
 
 ### Search Memory
 
 ```bash
-node scripts/shared-memory.mjs search \
+scripts/shared-memory.py search \
   --api-base-url "http://127.0.0.1:3000" \
   --query "user preference related statement" \
   --limit 5
@@ -40,7 +42,7 @@ node scripts/shared-memory.mjs search \
 ### Upsert Memory
 
 ```bash
-node scripts/shared-memory.mjs upsert \
+scripts/shared-memory.py upsert \
   --api-base-url "http://127.0.0.1:3000" \
   --section "Preferences" \
   --text "The user prefers concise responses." \
