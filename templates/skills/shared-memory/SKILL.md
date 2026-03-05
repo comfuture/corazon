@@ -60,8 +60,7 @@ scripts/shared-memory.py --api-base-url "http://localhost:3000" search \
 scripts/shared-memory.py upsert \
   --api-base-url "http://localhost:3000" \
   --section "Preferences" \
-  --text "The user prefers concise responses." \
-  --threshold 0.62
+  --text "The user prefers concise responses."
 ```
 
 Equivalent:
@@ -69,8 +68,7 @@ Equivalent:
 ```bash
 scripts/shared-memory.py --api-base-url "http://localhost:3000" upsert \
   --section "Preferences" \
-  --text "The user prefers concise responses." \
-  --threshold 0.62
+  --text "The user prefers concise responses."
 ```
 
 ## Required Workflow

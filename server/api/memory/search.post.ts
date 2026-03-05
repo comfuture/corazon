@@ -17,9 +17,6 @@ export default defineEventHandler(async (event) => {
   const limit = typeof body?.limit === 'number'
     ? body.limit
     : undefined
-  const userId = typeof body?.userId === 'string'
-    ? body.userId
-    : null
   const filters = isObject(body?.filters)
     ? body.filters
     : undefined
@@ -28,7 +25,6 @@ export default defineEventHandler(async (event) => {
     const results = await searchMemories({
       query,
       limit,
-      userId,
       filters
     })
 
