@@ -214,9 +214,39 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def normalize_global_option_order(argv: list[str]) -> list[str]:
+    rest: list[str] = []
+    api_base_values: list[str] = []
+    index = 0
+
+    while index < len(argv):
+        token = argv[index]
+        if token == "--api-base-url":
+            if index + 1 >= len(argv):
+                raise ValueError("missing value for --api-base-url")
+            api_base_values.append(argv[index + 1])
+            index += 2
+            continue
+
+        if token.startswith("--api-base-url="):
+            api_base_values.append(token.split("=", 1)[1])
+            index += 1
+            continue
+
+        rest.append(token)
+        index += 1
+
+    if not api_base_values:
+        return rest
+
+    # Keep CLI behavior predictable: the last supplied global value wins.
+    return ["--api-base-url", api_base_values[-1], *rest]
+
+
 def run(argv: list[str]) -> dict[str, Any]:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    normalized_argv = normalize_global_option_order(argv)
+    args = parser.parse_args(normalized_argv)
     api_base_url = resolve_api_base_url(args.api_base_url)
 
     if args.command == "ensure":

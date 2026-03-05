@@ -22,12 +22,19 @@ Use `scripts/shared-memory.py`.
 All command responses must be parsed as JSON.
 
 This script is uvx-based and installs runtime dependencies automatically.
+`--api-base-url` is order-insensitive and can be placed before or after the command.
 
 ### Ensure Memory API
 
 ```bash
 scripts/shared-memory.py ensure \
   --api-base-url "http://localhost:3000"
+```
+
+Equivalent:
+
+```bash
+scripts/shared-memory.py --api-base-url "http://localhost:3000" ensure
 ```
 
 ### Search Memory
@@ -39,11 +46,28 @@ scripts/shared-memory.py search \
   --limit 5
 ```
 
+Equivalent:
+
+```bash
+scripts/shared-memory.py --api-base-url "http://localhost:3000" search \
+  --query "user preference related statement" \
+  --limit 5
+```
+
 ### Upsert Memory
 
 ```bash
 scripts/shared-memory.py upsert \
   --api-base-url "http://localhost:3000" \
+  --section "Preferences" \
+  --text "The user prefers concise responses." \
+  --threshold 0.62
+```
+
+Equivalent:
+
+```bash
+scripts/shared-memory.py --api-base-url "http://localhost:3000" upsert \
   --section "Preferences" \
   --text "The user prefers concise responses." \
   --threshold 0.62
