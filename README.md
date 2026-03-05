@@ -29,6 +29,10 @@ pnpm install
 pnpm dev
 ```
 
+Optional runtime mode:
+- `CORAZON_CODEX_CLIENT_MODE=app-server` (default)
+- `CORAZON_CODEX_CLIENT_MODE=sdk` (fallback)
+
 The app runs at:
 
 ```text
