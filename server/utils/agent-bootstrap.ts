@@ -18,8 +18,6 @@ const SEED_DIRECTORIES = ['skills', 'rules', 'vendor_imports'] as const
 const AUTH_FILE = 'auth.json'
 const AGENTS_FILE = 'AGENTS.md'
 const AGENTS_SKELETON_FILE = 'agent-behavior.md'
-const MEMORY_FILE = 'MEMORY.md'
-const DEFAULT_MEMORY_SECTIONS = ['Facts', 'Preferences', 'Decisions', 'Tasks'] as const
 
 let bootstrapDone = false
 
@@ -79,17 +77,6 @@ const ensureDefaultAgentsFile = (agentHomeDir: string) => {
     return
   }
   writeFileSync(destinationPath, '# Corazon Assistant\n', 'utf8')
-}
-
-const buildDefaultMemoryContent = () =>
-  `${DEFAULT_MEMORY_SECTIONS.map(section => `## ${section}`).join('\n\n')}\n`
-
-const ensureDefaultMemoryFile = (agentHomeDir: string) => {
-  const destinationPath = join(agentHomeDir, MEMORY_FILE)
-  if (existsSync(destinationPath)) {
-    return
-  }
-  writeFileSync(destinationPath, buildDefaultMemoryContent(), 'utf8')
 }
 
 const ensureBundledSkills = (agentHomeDir: string) => {
@@ -209,7 +196,6 @@ export const ensureAgentBootstrap = () => {
   ensureBundledSkills(agentHomeDir)
   ensureSkillScriptPermissions(agentHomeDir)
   ensureDefaultAgentsFile(agentHomeDir)
-  ensureDefaultMemoryFile(agentHomeDir)
   bootstrapDone = true
   return agentHomeDir
 }
