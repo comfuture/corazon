@@ -25,14 +25,18 @@
     "@workflow/ai": "4.0.1-beta.52",
     "ai": "^6.0.67",
     "better-sqlite3": "^12.6.2",
+    "chromadb": "^3.3.1",
     "croner": "^10.0.1",
+    "dotenv": "^17.3.1",
     "katex": "^0.16.28",
     "markstream-vue": "0.0.7-beta.3",
+    "mem0ai": "^2.2.4",
     "mime-types": "^3.0.2",
     "monaco-editor": "^0.52.2",
     "nuxt": "^4.3.0",
     "rrule": "^2.8.1",
     "shiki": "^3.22.0",
+    "sqlite3": "^5.1.7",
     "stream-markdown": "^0.0.13",
     "stream-monaco": "^0.0.18",
     "tailwindcss": "^4.1.18",
@@ -53,7 +57,19 @@
   "pnpm": {
     "overrides": {
       "tar": "7.5.7"
-    }
+    },
+    "ignoredBuiltDependencies": [
+      "@parcel/watcher",
+      "@tailwindcss/oxide",
+      "esbuild",
+      "protobufjs",
+      "unrs-resolver",
+      "vue-demi"
+    ],
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "sqlite3"
+    ]
   },
   "packageManager": "pnpm@10.28.2"
 }
