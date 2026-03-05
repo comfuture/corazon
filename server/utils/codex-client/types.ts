@@ -32,8 +32,7 @@ export interface CodexClient {
 
 export type CodexClientMode = 'sdk' | 'app-server'
 
-export type CodexClientConfigValue
-  = string
+export type CodexClientConfigValue = string
   | number
   | boolean
   | CodexClientConfigValue[]

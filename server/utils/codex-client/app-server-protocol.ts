@@ -31,7 +31,7 @@ type JsonRpcNotification = {
 }
 
 type PendingRequest = {
-  resolve: (value: any) => void
+  resolve: (value: unknown) => void
   reject: (error: unknown) => void
 }
 
@@ -199,8 +199,17 @@ export class AppServerProtocol {
     }
 
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(requestId, { resolve, reject })
-      this.write(payload)
+      this.pending.set(requestId, {
+        resolve: value => resolve(value as T),
+        reject
+      })
+
+      try {
+        this.write(payload)
+      } catch (error) {
+        this.pending.delete(requestId)
+        reject(error)
+      }
     })
   }
 
