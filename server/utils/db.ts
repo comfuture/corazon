@@ -29,6 +29,11 @@ export type ThreadSummaryPage = {
   nextCursor: ThreadSummaryCursor | null
 }
 
+export type ThreadMemorySyncCandidate = {
+  id: string
+  updatedAt: number
+}
+
 type ThreadRow = {
   id: string
   title: string | null
@@ -40,6 +45,11 @@ type ThreadRow = {
   total_cached_input_tokens: number
   total_output_tokens: number
   turn_count: number
+}
+
+type ThreadMemorySyncRow = {
+  id: string
+  updated_at: number
 }
 
 type WorkflowRunRow = {
@@ -126,6 +136,9 @@ const getDb = () => {
       working_directory TEXT,
       active_run_id TEXT,
       active_run_updated_at INTEGER,
+      memory_synced_source_updated_at INTEGER,
+      memory_last_synced_at INTEGER,
+      memory_sync_error TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       total_input_tokens INTEGER NOT NULL DEFAULT 0,
@@ -185,6 +198,18 @@ const getDb = () => {
 
   if (!hasColumn('active_run_updated_at')) {
     db.exec('ALTER TABLE threads ADD COLUMN active_run_updated_at INTEGER')
+  }
+
+  if (!hasColumn('memory_synced_source_updated_at')) {
+    db.exec('ALTER TABLE threads ADD COLUMN memory_synced_source_updated_at INTEGER')
+  }
+
+  if (!hasColumn('memory_last_synced_at')) {
+    db.exec('ALTER TABLE threads ADD COLUMN memory_last_synced_at INTEGER')
+  }
+
+  if (!hasColumn('memory_sync_error')) {
+    db.exec('ALTER TABLE threads ADD COLUMN memory_sync_error TEXT')
   }
 
   return db
@@ -291,6 +316,82 @@ export const loadThreadMessages = (threadId: string): CodexUIMessage[] | null =>
     return null
   }
   return normalizeCodexItemParts(parsed)
+}
+
+export const loadStaleThreadsForMemorySync = (
+  staleBefore: number,
+  limit = 20
+): ThreadMemorySyncCandidate[] => {
+  const safeLimit = Math.max(1, Math.min(Math.floor(limit), 200))
+  const database = getDb()
+  const rows = database
+    .prepare(
+      `
+      SELECT id, updated_at
+      FROM threads
+      WHERE id != '_pending'
+      AND updated_at <= ?
+      AND active_run_id IS NULL
+      AND (
+        memory_synced_source_updated_at IS NULL
+        OR memory_synced_source_updated_at < updated_at
+      )
+      ORDER BY updated_at ASC, id ASC
+      LIMIT ?
+    `
+    )
+    .all(staleBefore, safeLimit) as ThreadMemorySyncRow[]
+
+  return rows.map(row => ({
+    id: row.id,
+    updatedAt: row.updated_at
+  }))
+}
+
+export const markThreadMemorySyncSuccess = (
+  threadId: string,
+  sourceUpdatedAt: number,
+  syncedAt?: number
+) => {
+  const now = syncedAt ?? Date.now()
+  const database = getDb()
+  ensureThread(threadId)
+  database
+    .prepare(
+      `
+      UPDATE threads
+      SET
+        memory_synced_source_updated_at = ?,
+        memory_last_synced_at = ?,
+        memory_sync_error = NULL
+      WHERE id = ?
+    `
+    )
+    .run(sourceUpdatedAt, now, threadId)
+  return now
+}
+
+export const markThreadMemorySyncFailure = (
+  threadId: string,
+  _sourceUpdatedAt: number,
+  message: string,
+  syncedAt?: number
+) => {
+  const now = syncedAt ?? Date.now()
+  const database = getDb()
+  ensureThread(threadId)
+  database
+    .prepare(
+      `
+      UPDATE threads
+      SET
+        memory_last_synced_at = ?,
+        memory_sync_error = ?
+      WHERE id = ?
+    `
+    )
+    .run(now, message.trim() || 'Memory sync failed.', threadId)
+  return now
 }
 
 export const recordThreadUsage = (threadId: string, usage: Usage) => {
