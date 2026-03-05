@@ -13,9 +13,6 @@ export default defineEventHandler(async (event) => {
   const section = typeof body?.section === 'string'
     ? body.section.trim()
     : ''
-  const userId = typeof body?.userId === 'string'
-    ? body.userId
-    : null
 
   if (!text && messages.length === 0) {
     throw createError({
@@ -38,13 +35,11 @@ export default defineEventHandler(async (event) => {
     const result = text
       ? await rememberText({
           text,
-          metadata,
-          userId
+          metadata
         })
       : await rememberMessages({
           messages,
-          metadata,
-          userId
+          metadata
         })
 
     return result

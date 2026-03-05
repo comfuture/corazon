@@ -12,7 +12,6 @@ from urllib.parse import urlsplit, urlunsplit
 import requests
 
 DEFAULT_LIMIT = 5
-DEFAULT_THRESHOLD = 0.62
 DEFAULT_MEMORY_API_BASE_URL = "http://localhost:3000"
 LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1")
 
@@ -29,18 +28,6 @@ def clamp_limit(value: Any) -> int:
     if parsed < 1:
         return 1
     return min(parsed, 100)
-
-
-def clamp_threshold(value: Any) -> float:
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
-        return DEFAULT_THRESHOLD
-    if parsed < 0:
-        return 0.0
-    if parsed > 1:
-        return 1.0
-    return parsed
 
 
 def trim_trailing_slash(value: str) -> str:
@@ -161,7 +148,6 @@ def upsert_memory(
     api_base_url: str,
     section: str,
     text: str,
-    threshold: float,
 ) -> dict[str, Any]:
     payload = request_json(
         api_base_url=api_base_url,
@@ -173,7 +159,6 @@ def upsert_memory(
             "metadata": {
                 "source": "shared-memory-skill",
                 "section": section,
-                "threshold": threshold,
             },
         },
     )
@@ -184,7 +169,6 @@ def upsert_memory(
         "apiBaseUrl": api_base_url,
         "section": section,
         "text": text,
-        "threshold": threshold,
         "memories": memories if isinstance(memories, list) else [],
         "messageCount": message_count if isinstance(message_count, int) else 0,
     }
@@ -209,7 +193,6 @@ def build_parser() -> argparse.ArgumentParser:
     upsert_parser = subparsers.add_parser("upsert", help="Write memory")
     upsert_parser.add_argument("--text", required=True)
     upsert_parser.add_argument("--section", default="Facts")
-    upsert_parser.add_argument("--threshold", default=str(DEFAULT_THRESHOLD))
 
     return parser
 
@@ -262,8 +245,7 @@ def run(argv: list[str]) -> dict[str, Any]:
         if not text:
             raise ValueError("missing --text")
         section = args.section.strip() or "Facts"
-        threshold = clamp_threshold(args.threshold)
-        return upsert_memory(api_base_url, section, text, threshold)
+        return upsert_memory(api_base_url, section, text)
 
     raise ValueError(f"unknown command: {args.command}")
 

@@ -355,7 +355,6 @@ export const markThreadMemorySyncSuccess = (
 ) => {
   const now = syncedAt ?? Date.now()
   const database = getDb()
-  ensureThread(threadId)
   database
     .prepare(
       `
@@ -379,7 +378,6 @@ export const markThreadMemorySyncFailure = (
 ) => {
   const now = syncedAt ?? Date.now()
   const database = getDb()
-  ensureThread(threadId)
   database
     .prepare(
       `

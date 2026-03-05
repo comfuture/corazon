@@ -373,10 +373,7 @@ export const getMemoryHealth = async () => {
   await getMemoryEngine()
   return {
     configured: true,
-    userId: resolveMemoryUserId(),
-    vectorStore: 'chromadb',
-    chromaUrl: resolveChromaUrl(),
-    chromaCollection: resolveChromaCollectionName()
+    vectorStore: 'chromadb'
   }
 }
 
