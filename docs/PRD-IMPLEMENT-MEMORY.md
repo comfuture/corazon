@@ -148,6 +148,7 @@ stale 대상 조건:
 - 잘못된 요청 형식: 400
 - mem0 처리 실패: 500, `statusMessage`에 원인 전달
 - stale 동기화 실패: `threads.memory_sync_error` 저장 후 다음 주기에 재시도
+- Chroma 미연결 시 stale 동기화는 백오프 후 재시도 (기본 60초, `CORAZON_MEMORY_SYNC_BACKOFF_MS`)
 
 ## 구현 단계
 1. PRD 문서 작성
@@ -179,6 +180,7 @@ stale 대상 조건:
 - [ ] stale 스레드(15분+)만 메모리 동기화 대상
 - [ ] 동기화 성공 시 `memory_synced_source_updated_at` 갱신
 - [ ] 동기화 실패 시 `memory_sync_error` 저장
+- [ ] Chroma 미연결 시 memory-sync가 스레드별 에러 폭주 없이 백오프 동작
 - [ ] `shared-memory` 스크립트 ensure/search/upsert가 memory API로 동작
 - [ ] `templates/agent-behavior.md`에 shared-memory 사용 규칙 반영
 - [ ] `pnpm typecheck` 통과
