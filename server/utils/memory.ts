@@ -150,6 +150,15 @@ const resolveChromaDatabase = () =>
   || process.env.CHROMA_DATABASE?.trim()
   || ''
 
+const buildChromaHeaders = () => {
+  const headers: Record<string, string> = {}
+  const apiKey = resolveChromaCloudApiKey()
+  if (apiKey) {
+    headers['x-chroma-token'] = apiKey
+  }
+  return headers
+}
+
 const toIsoStringOrNull = (value: unknown) => {
   if (typeof value === 'string' && value.trim()) {
     return value
@@ -269,9 +278,34 @@ const createMemoryEngine = async (): Promise<Mem0Engine> => {
 
 const getMemoryEngine = async () => {
   if (!memoryEnginePromise) {
-    memoryEnginePromise = createMemoryEngine()
+    memoryEnginePromise = createMemoryEngine().catch((error) => {
+      memoryEnginePromise = null
+      throw error
+    })
   }
   return memoryEnginePromise
+}
+
+export const ensureMemoryBackendReady = async () => {
+  requireOpenAiApiKey()
+
+  const { ChromaClient } = await import('chromadb')
+  const headers = buildChromaHeaders()
+  const tenant = resolveChromaTenant()
+  const database = resolveChromaDatabase()
+  const client = new ChromaClient({
+    path: resolveChromaUrl(),
+    tenant: tenant || undefined,
+    database: database || undefined,
+    headers: Object.keys(headers).length > 0
+      ? headers
+      : undefined
+  })
+
+  await client.getOrCreateCollection({
+    name: resolveChromaCollectionName(),
+    embeddingFunction: null
+  })
 }
 
 const normalizeMessageContent = (value: unknown) =>
@@ -332,6 +366,7 @@ export const isMemoryConfigured = () => Boolean(process.env.OPENAI_API_KEY?.trim
 
 export const getMemoryHealth = async () => {
   requireOpenAiApiKey()
+  await ensureMemoryBackendReady()
   await getMemoryEngine()
   return {
     configured: true,
