@@ -1,0 +1,623 @@
+import type { ServerNotification } from '@@/types/codex-app-server/ServerNotification'
+import type { ThreadStartResponse } from '@@/types/codex-app-server/v2/ThreadStartResponse'
+import type { ThreadResumeResponse } from '@@/types/codex-app-server/v2/ThreadResumeResponse'
+import type { ThreadItem as AppServerThreadItem } from '@@/types/codex-app-server/v2/ThreadItem'
+import type { TurnStartResponse } from '@@/types/codex-app-server/v2/TurnStartResponse'
+import type { UserInput as AppServerUserInput } from '@@/types/codex-app-server/v2/UserInput'
+import { AppServerProtocol } from './app-server-protocol.ts'
+import type {
+  CodexClient,
+  CodexClientInitOptions,
+  CodexInput,
+  CodexThreadClient,
+  CodexThreadEvent,
+  CodexThreadItem,
+  CodexThreadOptions,
+  CodexTurn,
+  CodexTurnOptions,
+  CodexUsage
+} from './types.ts'
+
+type QueueResolver<T> = (value: IteratorResult<T>) => void
+type QueueRejecter = (error: unknown) => void
+
+const emptyUsage = (): CodexUsage => ({
+  input_tokens: 0,
+  cached_input_tokens: 0,
+  output_tokens: 0
+})
+
+class AsyncEventQueue<T> {
+  private values: T[] = []
+
+  private resolvers: Array<{ resolve: QueueResolver<T>, reject: QueueRejecter }> = []
+
+  private closed = false
+
+  private error: Error | null = null
+
+  push(value: T) {
+    if (this.closed || this.error) {
+      return
+    }
+
+    const resolver = this.resolvers.shift()
+    if (resolver) {
+      resolver.resolve({ value, done: false })
+      return
+    }
+
+    this.values.push(value)
+  }
+
+  close() {
+    if (this.closed || this.error) {
+      return
+    }
+
+    this.closed = true
+    while (this.resolvers.length > 0) {
+      const resolver = this.resolvers.shift()
+      resolver?.resolve({ value: undefined as T, done: true })
+    }
+  }
+
+  fail(error: unknown) {
+    if (this.closed || this.error) {
+      return
+    }
+
+    this.error = error instanceof Error ? error : new Error(String(error))
+    while (this.resolvers.length > 0) {
+      const resolver = this.resolvers.shift()
+      resolver?.reject(this.error)
+    }
+  }
+
+  async next(): Promise<IteratorResult<T>> {
+    if (this.error) {
+      throw this.error
+    }
+
+    if (this.values.length > 0) {
+      const value = this.values.shift() as T
+      return { value, done: false }
+    }
+
+    if (this.closed) {
+      return { value: undefined as T, done: true }
+    }
+
+    return new Promise<IteratorResult<T>>((resolve, reject) => {
+      this.resolvers.push({
+        resolve: (result) => {
+          if (this.error) {
+            reject(this.error)
+            return
+          }
+          resolve(result)
+        },
+        reject
+      })
+    })
+  }
+
+  async return(): Promise<IteratorResult<T>> {
+    this.close()
+    return { value: undefined as T, done: true }
+  }
+
+  async throw(error?: unknown): Promise<IteratorResult<T>> {
+    this.fail(error ?? new Error('Async queue was interrupted.'))
+    throw this.error
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<T> {
+    return this
+  }
+}
+
+const toEventStream = async function *<T>(
+  source: AsyncEventQueue<T>,
+  onFinally?: () => void
+): AsyncGenerator<T> {
+  try {
+    for await (const event of source) {
+      yield event
+    }
+  } finally {
+    onFinally?.()
+  }
+}
+
+const toSandboxMode = (mode: CodexThreadOptions['sandboxMode']) => mode ?? null
+
+const toApprovalPolicy = (policy: CodexThreadOptions['approvalPolicy']) => policy ?? null
+
+const toThreadConfig = (options: CodexThreadOptions) => {
+  const config: Record<string, unknown> = {}
+
+  if (options.skipGitRepoCheck) {
+    config.skip_git_repo_check = true
+  }
+
+  if (options.modelReasoningEffort) {
+    config.model_reasoning_effort = options.modelReasoningEffort
+  }
+
+  if (options.networkAccessEnabled !== undefined) {
+    config.sandbox_workspace_write = {
+      network_access: options.networkAccessEnabled
+    }
+  }
+
+  if (options.webSearchMode) {
+    config.web_search = options.webSearchMode
+  } else if (options.webSearchEnabled === true) {
+    config.web_search = 'live'
+  } else if (options.webSearchEnabled === false) {
+    config.web_search = 'disabled'
+  }
+
+  if (options.additionalDirectories && options.additionalDirectories.length > 0) {
+    config.additional_directories = options.additionalDirectories
+  }
+
+  return Object.keys(config).length > 0 ? config : null
+}
+
+const toTurnInput = (input: CodexInput): AppServerUserInput[] => {
+  if (typeof input === 'string') {
+    return [{
+      type: 'text',
+      text: input,
+      text_elements: []
+    }]
+  }
+
+  const mapped: AppServerUserInput[] = []
+
+  for (const part of input) {
+    if (part.type === 'text') {
+      mapped.push({
+        type: 'text',
+        text: part.text,
+        text_elements: []
+      })
+      continue
+    }
+
+    if (part.type === 'local_image') {
+      mapped.push({
+        type: 'localImage',
+        path: part.path
+      })
+    }
+  }
+
+  return mapped
+}
+
+const normalizeCommandStatus = (status: string): Extract<CodexThreadItem, { type: 'command_execution' }>['status'] => {
+  if (status === 'inProgress') {
+    return 'in_progress'
+  }
+  if (status === 'completed') {
+    return 'completed'
+  }
+  return 'failed'
+}
+
+const normalizeMcpStatus = (status: string): Extract<CodexThreadItem, { type: 'mcp_tool_call' }>['status'] => {
+  if (status === 'inProgress') {
+    return 'in_progress'
+  }
+  if (status === 'completed') {
+    return 'completed'
+  }
+  return 'failed'
+}
+
+const normalizeFileChangeStatus = (status: string): Extract<CodexThreadItem, { type: 'file_change' }>['status'] => {
+  if (status === 'completed') {
+    return 'completed'
+  }
+  return 'failed'
+}
+
+const normalizePatchChangeKind = (
+  kind: unknown
+): Extract<CodexThreadItem, { type: 'file_change' }>['changes'][number]['kind'] => {
+  if (typeof kind === 'object' && kind && 'type' in kind) {
+    const value = (kind as { type?: unknown }).type
+    if (value === 'add' || value === 'delete' || value === 'update') {
+      return value
+    }
+  }
+  return 'update'
+}
+
+const toUsage = (notification: ServerNotification): CodexUsage | null => {
+  if (notification.method !== 'thread/tokenUsage/updated') {
+    return null
+  }
+
+  return {
+    input_tokens: notification.params.tokenUsage.last.inputTokens,
+    cached_input_tokens: notification.params.tokenUsage.last.cachedInputTokens,
+    output_tokens: notification.params.tokenUsage.last.outputTokens
+  }
+}
+
+const toThreadItem = (
+  raw: AppServerThreadItem,
+  previous?: CodexThreadItem | null
+): CodexThreadItem | null => {
+  switch (raw.type) {
+    case 'agentMessage':
+      return {
+        id: raw.id,
+        type: 'agent_message',
+        text: raw.text
+      }
+    case 'reasoning': {
+      const summaryText = raw.summary.join('\n')
+      const contentText = raw.content.join('\n')
+      const text = [summaryText, contentText].filter(Boolean).join('\n').trim()
+      const previousText = previous?.type === 'reasoning' ? previous.text : ''
+      return {
+        id: raw.id,
+        type: 'reasoning',
+        text: text || previousText
+      }
+    }
+    case 'commandExecution':
+      return {
+        id: raw.id,
+        type: 'command_execution',
+        command: raw.command,
+        aggregated_output: raw.aggregatedOutput ?? (previous?.type === 'command_execution' ? previous.aggregated_output : ''),
+        exit_code: typeof raw.exitCode === 'number' ? raw.exitCode : undefined,
+        status: normalizeCommandStatus(raw.status)
+      }
+    case 'fileChange':
+      return {
+        id: raw.id,
+        type: 'file_change',
+        changes: (raw.changes ?? []).map(change => ({
+          path: change.path,
+          kind: normalizePatchChangeKind(change.kind)
+        })),
+        status: normalizeFileChangeStatus(raw.status)
+      }
+    case 'mcpToolCall':
+      return {
+        id: raw.id,
+        type: 'mcp_tool_call',
+        server: raw.server,
+        tool: raw.tool,
+        arguments: raw.arguments,
+        result: raw.result
+          ? {
+              content: raw.result.content as unknown[],
+              structured_content: raw.result.structuredContent
+            }
+          : undefined,
+        error: raw.error ? { message: raw.error.message } : undefined,
+        status: normalizeMcpStatus(raw.status)
+      }
+    case 'webSearch':
+      return {
+        id: raw.id,
+        type: 'web_search',
+        query: raw.query
+      }
+    default:
+      return null
+  }
+}
+
+const appendItemDelta = (previous: CodexThreadItem, delta: string): CodexThreadItem => {
+  if (previous.type === 'agent_message') {
+    return {
+      ...previous,
+      text: `${previous.text}${delta}`
+    }
+  }
+
+  if (previous.type === 'reasoning') {
+    return {
+      ...previous,
+      text: `${previous.text}${delta}`
+    }
+  }
+
+  if (previous.type === 'command_execution') {
+    return {
+      ...previous,
+      aggregated_output: `${previous.aggregated_output}${delta}`
+    }
+  }
+
+  return previous
+}
+
+const notificationTurnId = (notification: ServerNotification): string | null => {
+  const params = notification.params as { turnId?: unknown, turn?: { id?: unknown } } | undefined
+  const direct = params?.turnId
+  if (typeof direct === 'string') {
+    return direct
+  }
+
+  const fromTurn = params?.turn?.id
+  if (typeof fromTurn === 'string') {
+    return fromTurn
+  }
+
+  return null
+}
+
+const notificationThreadId = (notification: ServerNotification): string | null => {
+  const params = notification.params as { threadId?: unknown } | undefined
+  return typeof params?.threadId === 'string' ? params.threadId : null
+}
+
+class AppServerThreadClient implements CodexThreadClient {
+  private threadId: string | null
+
+  private readonly options: CodexThreadOptions
+
+  private readonly protocol: AppServerProtocol
+
+  constructor(protocol: AppServerProtocol, threadId: string | null, options: CodexThreadOptions) {
+    this.protocol = protocol
+    this.threadId = threadId
+    this.options = options
+  }
+
+  get id() {
+    return this.threadId
+  }
+
+  private async ensureThread(queue: AsyncEventQueue<CodexThreadEvent>) {
+    if (!this.threadId) {
+      const started = await this.protocol.request<ThreadStartResponse>('thread/start', {
+        model: this.options.model ?? null,
+        cwd: this.options.workingDirectory ?? null,
+        approvalPolicy: toApprovalPolicy(this.options.approvalPolicy),
+        sandbox: toSandboxMode(this.options.sandboxMode),
+        config: toThreadConfig(this.options),
+        experimentalRawEvents: false,
+        persistExtendedHistory: false
+      })
+      this.threadId = started.thread.id
+      queue.push({
+        type: 'thread.started',
+        thread_id: this.threadId
+      })
+      return
+    }
+
+    await this.protocol.request<ThreadResumeResponse>('thread/resume', {
+      threadId: this.threadId,
+      model: this.options.model ?? null,
+      cwd: this.options.workingDirectory ?? null,
+      approvalPolicy: toApprovalPolicy(this.options.approvalPolicy),
+      sandbox: toSandboxMode(this.options.sandboxMode),
+      config: toThreadConfig(this.options),
+      persistExtendedHistory: false
+    })
+  }
+
+  async runStreamed(
+    input: CodexInput,
+    turnOptions: CodexTurnOptions = {}
+  ): Promise<{ events: AsyncGenerator<CodexThreadEvent> }> {
+    const queue = new AsyncEventQueue<CodexThreadEvent>()
+    const itemState = new Map<string, CodexThreadItem>()
+    let lastUsage = emptyUsage()
+    let activeTurnId: string | null = null
+    const bufferedNotifications: ServerNotification[] = []
+
+    try {
+      await this.ensureThread(queue)
+    } catch (error) {
+      queue.fail(error)
+      return { events: toEventStream(queue) }
+    }
+
+    const currentThreadId = this.threadId
+    if (!currentThreadId) {
+      queue.fail(new Error('Failed to resolve thread id for app-server turn.'))
+      return { events: toEventStream(queue) }
+    }
+
+    const processNotification = (notification: ServerNotification) => {
+      if (notificationThreadId(notification) !== currentThreadId) {
+        return
+      }
+
+      if (!activeTurnId) {
+        bufferedNotifications.push(notification)
+        return
+      }
+
+      const turnId = notificationTurnId(notification)
+      if (turnId && turnId !== activeTurnId) {
+        return
+      }
+
+      const usage = toUsage(notification)
+      if (usage) {
+        lastUsage = usage
+        return
+      }
+
+      switch (notification.method) {
+        case 'item/started': {
+          const item = toThreadItem(notification.params.item)
+          if (!item) {
+            return
+          }
+          itemState.set(item.id, item)
+          queue.push({ type: 'item.started', item })
+          return
+        }
+        case 'item/completed': {
+          const previous = itemState.get(notification.params.item.id) ?? null
+          const item = toThreadItem(notification.params.item, previous)
+          if (!item) {
+            return
+          }
+          itemState.set(item.id, item)
+          queue.push({ type: 'item.completed', item })
+          return
+        }
+        case 'item/agentMessage/delta':
+        case 'item/reasoning/summaryTextDelta':
+        case 'item/reasoning/textDelta':
+        case 'item/commandExecution/outputDelta': {
+          const previous = itemState.get(notification.params.itemId)
+          if (!previous) {
+            return
+          }
+          const next = appendItemDelta(previous, notification.params.delta)
+          itemState.set(next.id, next)
+          queue.push({ type: 'item.updated', item: next })
+          return
+        }
+        case 'error':
+          queue.push({
+            type: 'error',
+            message: notification.params.error.message
+          })
+          return
+        case 'turn/completed':
+          if (notification.params.turn.status === 'failed') {
+            queue.push({
+              type: 'turn.failed',
+              error: {
+                message: notification.params.turn.error?.message ?? 'Codex turn failed.'
+              }
+            })
+          } else {
+            queue.push({
+              type: 'turn.completed',
+              usage: lastUsage
+            })
+          }
+          queue.close()
+      }
+    }
+
+    const unsubscribe = this.protocol.subscribe((notification) => {
+      processNotification(notification)
+    })
+    const unsubscribeClose = this.protocol.onClose((error) => {
+      queue.fail(error)
+    })
+
+    try {
+      const turnStart = await this.protocol.request<TurnStartResponse>('turn/start', {
+        threadId: currentThreadId,
+        input: toTurnInput(input),
+        outputSchema: turnOptions.outputSchema,
+        model: this.options.model ?? null,
+        cwd: this.options.workingDirectory ?? null,
+        approvalPolicy: toApprovalPolicy(this.options.approvalPolicy),
+        effort: this.options.modelReasoningEffort ?? null
+      })
+
+      activeTurnId = turnStart.turn.id
+      queue.push({ type: 'turn.started' })
+
+      if (bufferedNotifications.length > 0) {
+        for (const notification of bufferedNotifications.splice(0, bufferedNotifications.length)) {
+          processNotification(notification)
+        }
+      }
+
+      if (turnOptions.signal) {
+        const abortHandler = () => {
+          if (!this.threadId || !activeTurnId) {
+            return
+          }
+          void this.protocol.request('turn/interrupt', {
+            threadId: this.threadId,
+            turnId: activeTurnId
+          }).catch(() => {})
+        }
+
+        if (turnOptions.signal.aborted) {
+          abortHandler()
+        } else {
+          turnOptions.signal.addEventListener('abort', abortHandler, { once: true })
+        }
+      }
+    } catch (error) {
+      unsubscribe()
+      unsubscribeClose()
+      queue.fail(error)
+      return { events: toEventStream(queue) }
+    }
+
+    const events = toEventStream(queue, () => {
+      unsubscribe()
+      unsubscribeClose()
+    })
+
+    return { events }
+  }
+
+  async run(input: CodexInput, turnOptions: CodexTurnOptions = {}): Promise<CodexTurn> {
+    const { events } = await this.runStreamed(input, turnOptions)
+    const items: CodexThreadItem[] = []
+    let finalResponse = ''
+    let usage: CodexUsage | null = null
+    let turnFailure: string | null = null
+
+    for await (const event of events) {
+      if (event.type === 'item.completed') {
+        items.push(event.item)
+        if (event.item.type === 'agent_message') {
+          finalResponse = event.item.text
+        }
+      }
+
+      if (event.type === 'turn.completed') {
+        usage = event.usage
+      }
+
+      if (event.type === 'turn.failed') {
+        turnFailure = event.error.message
+        break
+      }
+    }
+
+    if (turnFailure) {
+      throw new Error(turnFailure)
+    }
+
+    return {
+      items,
+      finalResponse,
+      usage
+    }
+  }
+}
+
+export const createAppServerCodexClient = (options: CodexClientInitOptions): CodexClient => {
+  const protocol = new AppServerProtocol({
+    env: options.env,
+    config: options.config
+  })
+
+  return {
+    startThread(threadOptions: CodexThreadOptions = {}) {
+      return new AppServerThreadClient(protocol, null, threadOptions)
+    },
+    resumeThread(threadId: string, threadOptions: CodexThreadOptions = {}) {
+      return new AppServerThreadClient(protocol, threadId, threadOptions)
+    }
+  }
+}
