@@ -27,14 +27,14 @@ This script is uvx-based and installs runtime dependencies automatically.
 
 ```bash
 scripts/shared-memory.py ensure \
-  --api-base-url "http://127.0.0.1:3000"
+  --api-base-url "http://localhost:3000"
 ```
 
 ### Search Memory
 
 ```bash
 scripts/shared-memory.py search \
-  --api-base-url "http://127.0.0.1:3000" \
+  --api-base-url "http://localhost:3000" \
   --query "user preference related statement" \
   --limit 5
 ```
@@ -43,7 +43,7 @@ scripts/shared-memory.py search \
 
 ```bash
 scripts/shared-memory.py upsert \
-  --api-base-url "http://127.0.0.1:3000" \
+  --api-base-url "http://localhost:3000" \
   --section "Preferences" \
   --text "The user prefers concise responses." \
   --threshold 0.62
@@ -55,6 +55,7 @@ scripts/shared-memory.py upsert \
 2. Run `search` before writing when duplicate or near-duplicate risk exists.
 3. Run `upsert` for writes. Do not bypass the API with direct file edits.
 4. Prefer updating an existing near-duplicate memory over creating a new memory.
+5. Loopback fallback (`localhost`, `127.0.0.1`, `::1`) is handled automatically by the script for local development.
 
 ## Write Policy
 
