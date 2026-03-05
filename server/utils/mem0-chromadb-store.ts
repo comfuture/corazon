@@ -1,4 +1,9 @@
-import type { ChromaClient as ChromaClientType, Collection as ChromaCollectionType } from 'chromadb'
+import type {
+  ChromaClient as ChromaClientType,
+  Collection as ChromaCollectionType,
+  EmbeddingFunction
+} from 'chromadb'
+import { registerEmbeddingFunction } from 'chromadb'
 
 type ChromaMetadataValue = string | number | boolean
 
@@ -23,11 +28,13 @@ type VectorStoreFactoryLike = {
 
 const DEFAULT_CHROMA_URL = 'http://127.0.0.1:8000'
 const DEFAULT_COLLECTION_NAME = 'mem0'
+const DIRECT_EMBEDDING_FUNCTION_NAME = 'corazon-direct-embeddings'
 const PAYLOAD_JSON_KEY = '_mem0_payload_json'
 const DOCUMENT_KEY = '_mem0_document'
 const SCORE_FLOOR = -1_000_000
 
 let chromaProviderRegistered = false
+let directEmbeddingFunctionRegistered = false
 
 const isScalarMetadataValue = (value: unknown): value is ChromaMetadataValue =>
   typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
@@ -146,6 +153,87 @@ const pickStringHeaders = (value: unknown): Record<string, string> | undefined =
   return Object.fromEntries(entries) as Record<string, string>
 }
 
+type ChromaConnection = {
+  host: string
+  port: number
+  ssl: boolean
+}
+
+const parseChromaConnection = (url: string): ChromaConnection => {
+  const trimmed = url.trim()
+  if (!trimmed) {
+    throw new Error('Chroma URL is empty.')
+  }
+
+  const withProtocol = trimmed.includes('://')
+    ? trimmed
+    : `http://${trimmed}`
+  const parsed = new URL(withProtocol)
+  const ssl = parsed.protocol === 'https:'
+  const defaultPort = ssl ? 443 : 80
+  const port = Number(parsed.port || defaultPort)
+  if (!parsed.hostname) {
+    throw new Error(`Invalid Chroma URL host: ${trimmed}`)
+  }
+  if (!Number.isFinite(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid Chroma URL port: ${parsed.port || '(empty)'}`)
+  }
+
+  return {
+    host: parsed.hostname,
+    port: Math.floor(port),
+    ssl
+  }
+}
+
+class CorazonDirectEmbeddingFunction implements EmbeddingFunction {
+  name = DIRECT_EMBEDDING_FUNCTION_NAME
+
+  static buildFromConfig() {
+    return new CorazonDirectEmbeddingFunction()
+  }
+
+  getConfig() {
+    return {}
+  }
+
+  generate(_texts: string[]): Promise<number[][]> {
+    return Promise.reject(
+      new Error(
+        'This collection expects precomputed embeddings. Use upsert/query with embeddings.'
+      )
+    )
+  }
+}
+
+const ensureDirectEmbeddingFunctionRegistered = () => {
+  if (directEmbeddingFunctionRegistered) {
+    return
+  }
+
+  try {
+    registerEmbeddingFunction(
+      DIRECT_EMBEDDING_FUNCTION_NAME,
+      CorazonDirectEmbeddingFunction
+    )
+  } catch (error) {
+    const message = toErrorMessage(error)
+    if (!message.includes('already registered')) {
+      throw error
+    }
+  }
+
+  directEmbeddingFunctionRegistered = true
+}
+
+export const createDirectEmbeddingsOnlyFunction = (): EmbeddingFunction => {
+  ensureDirectEmbeddingFunctionRegistered()
+  return new CorazonDirectEmbeddingFunction()
+}
+
+export const parseChromaConnectionUrl = (url: string) =>
+  parseChromaConnection(url)
+
 export class Mem0ChromaVectorStore {
   private client: ChromaClientType | null = null
   private collectionPromise: Promise<ChromaCollectionType> | null = null
@@ -179,8 +267,12 @@ export class Mem0ChromaVectorStore {
       headers['x-chroma-token'] = this.apiKey
     }
 
+    const connection = parseChromaConnection(this.url)
+
     this.client = new ChromaClient({
-      path: this.url,
+      host: connection.host,
+      port: connection.port,
+      ssl: connection.ssl,
       tenant: this.tenant,
       database: this.database,
       headers
@@ -194,7 +286,7 @@ export class Mem0ChromaVectorStore {
       this.collectionPromise = this.getClient()
         .then(client => client.getOrCreateCollection({
           name: this.collectionName,
-          embeddingFunction: null
+          embeddingFunction: createDirectEmbeddingsOnlyFunction()
         }))
     }
 

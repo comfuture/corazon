@@ -1,5 +1,9 @@
 import type { CodexUIMessage } from '../../types/chat-ui.ts'
-import { registerMem0ChromadbProvider } from './mem0-chromadb-store.ts'
+import {
+  createDirectEmbeddingsOnlyFunction,
+  parseChromaConnectionUrl,
+  registerMem0ChromadbProvider
+} from './mem0-chromadb-store.ts'
 
 const DEFAULT_MEMORY_USER_ID = 'corazon-shared'
 const DEFAULT_SEARCH_LIMIT = 5
@@ -293,8 +297,11 @@ export const ensureMemoryBackendReady = async () => {
   const headers = buildChromaHeaders()
   const tenant = resolveChromaTenant()
   const database = resolveChromaDatabase()
+  const connection = parseChromaConnectionUrl(resolveChromaUrl())
   const client = new ChromaClient({
-    path: resolveChromaUrl(),
+    host: connection.host,
+    port: connection.port,
+    ssl: connection.ssl,
     tenant: tenant || undefined,
     database: database || undefined,
     headers: Object.keys(headers).length > 0
@@ -304,7 +311,7 @@ export const ensureMemoryBackendReady = async () => {
 
   await client.getOrCreateCollection({
     name: resolveChromaCollectionName(),
-    embeddingFunction: null
+    embeddingFunction: createDirectEmbeddingsOnlyFunction()
   })
 }
 
