@@ -1,4 +1,5 @@
-import { Codex } from '@openai/codex-sdk'
+import { createCodexClient } from './codex-client/index.ts'
+import type { CodexClient } from './codex-client/types.ts'
 
 type TriggerAiResult = {
   triggerType: 'schedule' | 'interval' | 'rrule' | 'none'
@@ -32,7 +33,7 @@ type EnhanceWorkflowInstructionOptions = {
   triggerValue?: string | null
 }
 
-let codexInstance: Codex | null = null
+let codexInstance: CodexClient | null = null
 
 const getCodexEnv = () => {
   const env: Record<string, string> = {}
@@ -50,7 +51,7 @@ const getCodex = () => {
     return codexInstance
   }
 
-  codexInstance = new Codex({
+  codexInstance = createCodexClient({
     env: getCodexEnv(),
     config: {
       show_raw_agent_reasoning: false,

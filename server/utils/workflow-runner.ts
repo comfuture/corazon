@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { Codex, type ThreadEvent, type Usage } from '@openai/codex-sdk'
 import type { WorkflowDefinition, WorkflowRunSummary, WorkflowTriggerType } from '@@/types/workflow'
+import { createCodexClient } from './codex-client/index.ts'
+import type { CodexClient, CodexThreadEvent, CodexUsage } from './codex-client/types.ts'
 
 const WORKFLOW_MODEL = 'gpt-5.3-codex'
 
-let codexInstance: Codex | null = null
+let codexInstance: CodexClient | null = null
 let workflowRunnerInitialized = false
 
 const getCodexEnv = () => {
@@ -23,7 +24,7 @@ const getCodex = () => {
     return codexInstance
   }
 
-  codexInstance = new Codex({
+  codexInstance = createCodexClient({
     env: getCodexEnv(),
     config: {
       show_raw_agent_reasoning: true,
@@ -85,13 +86,13 @@ const collectRunCompletionData = async (
     workingDirectory: process.cwd()
   })
 
-  let usage: Usage | null = null
+  let usage: CodexUsage | null = null
   let threadId: string | null = null
   let sessionFilePath: string | null = null
 
   const { events } = await thread.runStreamed(prompt)
   for await (const event of events) {
-    const typed = event as ThreadEvent
+    const typed = event as CodexThreadEvent
     if (typed.type === 'thread.started') {
       threadId = typed.thread_id
       sessionFilePath = findSessionFileByThreadId(threadId)

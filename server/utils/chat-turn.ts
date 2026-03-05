@@ -1,4 +1,3 @@
-import { Codex, type Input } from '@openai/codex-sdk'
 import { existsSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import {
@@ -10,6 +9,8 @@ import {
 import type { InferUIMessageChunk } from 'ai'
 import { createUIMessageStream } from 'ai'
 import { ensureAgentBootstrap } from './agent-bootstrap.ts'
+import { createCodexClient } from './codex-client/index.ts'
+import type { CodexClient, CodexInput } from './codex-client/types.ts'
 import { createCodexAssistantBuilder } from './message-builder.ts'
 import {
   clearThreadActiveRun,
@@ -50,7 +51,7 @@ const WORKFLOW_ROUTING_PREAMBLE = [
   '- Apply workflow changes through Corazon workflow definitions (`workflows/*.md`) via the skill tooling.'
 ].join('\n')
 
-let codexInstance: Codex | null = null
+let codexInstance: CodexClient | null = null
 
 const getCodexEnv = () => {
   const env: Record<string, string> = {}
@@ -68,7 +69,7 @@ const getCodex = () => {
     return codexInstance
   }
 
-  codexInstance = new Codex({
+  codexInstance = createCodexClient({
     env: getCodexEnv(),
     config: {
       show_raw_agent_reasoning: true,
@@ -124,7 +125,7 @@ const isWorkflowManagementIntent = (text: string) => {
   return WORKFLOW_ROUTING_INTENT_PATTERN.test(source) && WORKFLOW_MANAGEMENT_ACTION_PATTERN.test(source)
 }
 
-const prependWorkflowRoutingHint = (input: Input, userText: string): Input => {
+const prependWorkflowRoutingHint = (input: CodexInput, userText: string): CodexInput => {
   if (!isWorkflowManagementIntent(userText)) {
     return input
   }
@@ -241,7 +242,7 @@ const normalizeTitle = (value: string) => {
 }
 
 const generateThreadTitle = async (
-  codex: Codex,
+  codex: CodexClient,
   userText: string,
   assistantText: string,
   skipGitRepoCheck: boolean
