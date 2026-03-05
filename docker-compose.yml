@@ -1,13 +1,38 @@
 services:
   corazon:
     build: .
+    depends_on:
+      - chroma
     ports:
       - "3000:3000"
     environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       NITRO_HOST: 0.0.0.0
       NITRO_PORT: 3000
       CORAZON_ROOT_DIR: /root/.corazon
       CODEX_HOME: /root/.corazon
       WORKFLOW_LOCAL_DATA_DIR: /root/.corazon/workflow-data
+      CORAZON_MEMORY_CHROMA_URL: http://chroma.corazon.internal:8000
+      CORAZON_MEMORY_CHROMA_COLLECTION: mem0
+      CORAZON_MEMORY_SYNC_ENABLED: "true"
     volumes:
       - ./.corazon:/root/.corazon
+    networks:
+      - corazon-internal
+
+  chroma:
+    image: chromadb/chroma:latest
+    restart: unless-stopped
+    environment:
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: /chroma/chroma
+    volumes:
+      - ./.chroma:/chroma/chroma
+    networks:
+      corazon-internal:
+        aliases:
+          - chroma.corazon.internal
+
+networks:
+  corazon-internal:
+    name: corazon-internal
