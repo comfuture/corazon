@@ -117,7 +117,7 @@ class AsyncEventQueue<T> {
   }
 }
 
-const toEventStream = async function *<T>(
+const toEventStream = async function* <T>(
   source: AsyncEventQueue<T>,
   onFinally?: () => void
 ): AsyncGenerator<T> {
@@ -418,6 +418,7 @@ class AppServerThreadClient implements CodexThreadClient {
     let lastUsage = emptyUsage()
     let activeTurnId: string | null = null
     const bufferedNotifications: ServerNotification[] = []
+    let abortHandler: (() => void) | null = null
 
     try {
       await this.ensureThread(queue)
@@ -538,7 +539,7 @@ class AppServerThreadClient implements CodexThreadClient {
       }
 
       if (turnOptions.signal) {
-        const abortHandler = () => {
+        abortHandler = () => {
           if (!this.threadId || !activeTurnId) {
             return
           }
@@ -562,6 +563,9 @@ class AppServerThreadClient implements CodexThreadClient {
     }
 
     const events = toEventStream(queue, () => {
+      if (turnOptions.signal && abortHandler) {
+        turnOptions.signal.removeEventListener('abort', abortHandler)
+      }
       unsubscribe()
       unsubscribeClose()
     })
