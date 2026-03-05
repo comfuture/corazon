@@ -1,3 +1,4 @@
+import { createAppServerCodexClient } from './app-server-client.ts'
 import { createSdkCodexClient } from './sdk-client.ts'
 import type { CodexClient, CodexClientInitOptions, CodexClientMode } from './types.ts'
 
@@ -13,15 +14,11 @@ export const resolveCodexClientMode = (value: unknown): CodexClientMode => {
 const resolveMode = (options?: CodexClientInitOptions): CodexClientMode =>
   resolveCodexClientMode(options?.mode ?? process.env.CORAZON_CODEX_CLIENT_MODE ?? DEFAULT_MODE)
 
-const createAppServerCodexClient = (): CodexClient => {
-  throw new Error('Codex app-server client is not implemented yet.')
-}
-
 export const createCodexClient = (options: CodexClientInitOptions = {}): CodexClient => {
   const mode = resolveMode(options)
 
   if (mode === 'app-server') {
-    return createAppServerCodexClient()
+    return createAppServerCodexClient(options)
   }
 
   return createSdkCodexClient(options)
