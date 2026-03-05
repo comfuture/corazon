@@ -20,9 +20,6 @@ ENV NITRO_PORT=3000
 ENV CORAZON_ROOT_DIR=/root/.corazon
 ENV CODEX_HOME=/root/.corazon
 ENV WORKFLOW_LOCAL_DATA_DIR=/root/.corazon/workflow-data
-ENV CORAZON_MEMORY_CHROMA_URL=http://chroma.corazon.internal:8000
-ENV CORAZON_MEMORY_CHROMA_COLLECTION=mem0
-ENV CORAZON_MEMORY_SYNC_ENABLED=true
 
 COPY scripts/docker-entrypoint.sh /usr/local/bin/corazon-entrypoint
 RUN chmod +x /usr/local/bin/corazon-entrypoint
