@@ -1,6 +1,5 @@
 import type { CodexUIMessage } from '../../types/chat-ui.ts'
 import {
-  createDirectEmbeddingsOnlyFunction,
   parseChromaConnectionUrl,
   registerMem0ChromadbProvider
 } from './mem0-chromadb-store.ts'
@@ -309,10 +308,7 @@ export const ensureMemoryBackendReady = async () => {
       : undefined
   })
 
-  await client.getOrCreateCollection({
-    name: resolveChromaCollectionName(),
-    embeddingFunction: createDirectEmbeddingsOnlyFunction()
-  })
+  await client.heartbeat()
 }
 
 const normalizeMessageContent = (value: unknown) =>

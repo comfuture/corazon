@@ -153,6 +153,26 @@ const pickStringHeaders = (value: unknown): Record<string, string> | undefined =
   return Object.fromEntries(entries) as Record<string, string>
 }
 
+const shouldIgnoreChromaWarning = (message: string) =>
+  message.includes('No embedding function configuration found for collection')
+
+const runWithSuppressedChromaWarnings = async <T>(action: () => Promise<T>) => {
+  const originalWarn = console.warn
+  console.warn = (...args: unknown[]) => {
+    const [first] = args
+    if (typeof first === 'string' && shouldIgnoreChromaWarning(first)) {
+      return
+    }
+    originalWarn(...args)
+  }
+
+  try {
+    return await action()
+  } finally {
+    console.warn = originalWarn
+  }
+}
+
 type ChromaConnection = {
   host: string
   port: number
@@ -283,11 +303,13 @@ export class Mem0ChromaVectorStore {
 
   private async getCollection() {
     if (!this.collectionPromise) {
-      this.collectionPromise = this.getClient()
-        .then(client => client.getOrCreateCollection({
+      this.collectionPromise = runWithSuppressedChromaWarnings(async () => {
+        const client = await this.getClient()
+        return client.getOrCreateCollection({
           name: this.collectionName,
           embeddingFunction: createDirectEmbeddingsOnlyFunction()
-        }))
+        })
+      })
     }
 
     return this.collectionPromise
