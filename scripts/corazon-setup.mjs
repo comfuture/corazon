@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   lstatSync,
@@ -20,6 +21,16 @@ const SEED_DIRECTORIES = ['skills', 'rules', 'vendor_imports']
 const AUTH_FILE = 'auth.json'
 const AGENTS_FILE = 'AGENTS.md'
 const AGENTS_SKELETON_FILE = 'agent-behavior.md'
+const SYSTEM_SKILL_SYNC_NAMES = ['shared-memory', 'manage-workflows']
+const LEGACY_MEMORY_GUIDANCE_PATTERN = /## Shared memory[\s\S]*?(?=\n## |\n# |$)/i
+const UPDATED_SHARED_MEMORY_GUIDANCE = [
+  '## Shared memory',
+  '- For long-term memory, use the `shared-memory` skill.',
+  '- Treat Corazon memory APIs (`/api/memory/*`) as the shared memory interface across all threads.',
+  '- Memory backend is `mem0` with ChromaDB vector storage; do not bypass it with direct file edits.',
+  '- For memory reads/writes in a task, follow the skill workflow: `ensure`, then `search`, then `upsert`.',
+  '- Add memory when new stable facts/preferences/decisions emerge; search memory when prior context is needed.'
+].join('\n')
 
 const getPlatformDefaultRuntimeRoot = () => {
   if (process.platform === 'darwin') {
@@ -211,6 +222,82 @@ const ensureAgentsFile = (runtimeRoot, overwrite, counters) => {
   counters.copied += 1
 }
 
+const migrateLegacyAgentsFile = (runtimeRoot) => {
+  const destinationPath = join(runtimeRoot, AGENTS_FILE)
+  if (!existsSync(destinationPath)) {
+    return
+  }
+
+  const previous = readFileSync(destinationPath, 'utf8')
+  if (!previous.includes('${CODEX_HOME}/MEMORY.md')) {
+    return
+  }
+
+  const next = previous.match(LEGACY_MEMORY_GUIDANCE_PATTERN)
+    ? previous.replace(LEGACY_MEMORY_GUIDANCE_PATTERN, `${UPDATED_SHARED_MEMORY_GUIDANCE}\n`)
+    : `${previous.trimEnd()}\n\n${UPDATED_SHARED_MEMORY_GUIDANCE}\n`
+
+  if (next !== previous) {
+    writeFileSync(destinationPath, next, 'utf8')
+  }
+}
+
+const ensureSkillScriptPermissions = (runtimeRoot) => {
+  if (process.platform === 'win32') {
+    return
+  }
+
+  const skillsDir = join(runtimeRoot, 'skills')
+  if (!existsSync(skillsDir)) {
+    return
+  }
+
+  const skillEntries = readdirSync(skillsDir, { withFileTypes: true })
+  for (const skillEntry of skillEntries) {
+    if (!skillEntry.isDirectory()) {
+      continue
+    }
+
+    const scriptsDir = join(skillsDir, skillEntry.name, 'scripts')
+    if (!existsSync(scriptsDir)) {
+      continue
+    }
+
+    try {
+      chmodSync(scriptsDir, 0o755)
+    } catch {
+      continue
+    }
+
+    const scriptEntries = readdirSync(scriptsDir, { withFileTypes: true })
+    for (const scriptEntry of scriptEntries) {
+      const path = join(scriptsDir, scriptEntry.name)
+      if (scriptEntry.isDirectory()) {
+        try {
+          chmodSync(path, 0o755)
+        } catch {
+          // Ignore per-entry permission failures and continue.
+        }
+        continue
+      }
+
+      if (!scriptEntry.isFile()) {
+        continue
+      }
+
+      if (!/\.(mjs|cjs|js|sh|bash|zsh|py|rb|pl)$/i.test(scriptEntry.name)) {
+        continue
+      }
+
+      try {
+        chmodSync(path, 0o755)
+      } catch {
+        // Ignore per-entry permission failures and continue.
+      }
+    }
+  }
+}
+
 const printUsage = () => {
   console.log(`corazon setup
 
@@ -284,14 +371,18 @@ export const run = (args = []) => {
   }
 
   const scriptDir = dirname(fileURLToPath(import.meta.url))
-  ensureSeededDirectory(
-    resolve(scriptDir, '..', 'templates', 'skills', 'shared-memory'),
-    join(runtimeRoot, 'skills', 'shared-memory'),
-    options.overwrite,
-    counters
-  )
+  for (const skillName of SYSTEM_SKILL_SYNC_NAMES) {
+    ensureSeededDirectory(
+      resolve(scriptDir, '..', 'templates', 'skills', skillName),
+      join(runtimeRoot, 'skills', skillName),
+      true,
+      counters
+    )
+  }
 
   ensureAgentsFile(runtimeRoot, options.overwrite, counters)
+  migrateLegacyAgentsFile(runtimeRoot)
+  ensureSkillScriptPermissions(runtimeRoot)
 
   log(options, `Seeded/copied ${counters.copied} item(s), linked ${counters.linked} item(s), skipped ${counters.skipped} item(s).`)
   log(options, `Done. Mount ${runtimeRoot} into the container runtime root.`)
