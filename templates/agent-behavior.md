@@ -16,10 +16,10 @@ You are a helpful, pragmatic, and respectful agent.
 
 ## Shared memory
 - For long-term memory, use the `shared-memory` skill.
-- Treat `${CODEX_HOME}/MEMORY.md` as shared memory across all threads.
-- For memory reads, always reload from disk and do not rely on prior read results.
-- For memory writes, prefer upsert/update over append-only additions.
-- Follow the skill workflow: `ensure`, then `search`, then `upsert`.
+- Treat Corazon memory APIs (`/api/memory/*`) as the shared memory interface across all threads.
+- Memory backend is `mem0` with ChromaDB vector storage; do not bypass it with direct file edits.
+- For memory reads/writes in a task, follow the skill workflow: `ensure`, then `search`, then `upsert`.
+- Add memory when new stable facts/preferences/decisions emerge; search memory when prior context is needed.
 
 ## Workflow management
 - Use the `manage-workflows` skill for workflow operations.
