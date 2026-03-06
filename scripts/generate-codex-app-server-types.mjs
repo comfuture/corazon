@@ -1,16 +1,23 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, realpathSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const outputDir = resolve(repoRoot, 'types', 'codex-app-server')
-const moduleRequire = createRequire(import.meta.url)
+
+const resolveCodexSdkPackageRoot = () => {
+  const sdkPackageRoot = resolve(repoRoot, 'node_modules', '@openai', 'codex-sdk')
+  if (!existsSync(sdkPackageRoot)) {
+    throw new Error(`Unable to locate @openai/codex-sdk at ${sdkPackageRoot}`)
+  }
+  return realpathSync(sdkPackageRoot)
+}
 
 const resolveCodexBin = () => {
-  const sdkEntryPath = moduleRequire.resolve('@openai/codex-sdk')
-  const sdkRequire = createRequire(sdkEntryPath)
+  const sdkPackageRoot = resolveCodexSdkPackageRoot()
+  const sdkRequire = createRequire(resolve(sdkPackageRoot, 'package.json'))
   return sdkRequire.resolve('@openai/codex/bin/codex.js')
 }
 
