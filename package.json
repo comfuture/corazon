@@ -7,6 +7,7 @@
     "build": "nuxt build",
     "dev": "nuxt dev",
     "chroma:run": "node scripts/chroma-run.mjs",
+    "chatgpt:compact:smoke": "node scripts/chatgpt-codex-compaction-smoke.ts",
     "chatgpt:smoke": "node scripts/chatgpt-codex-responses-smoke.ts",
     "types:codex-app-server": "node scripts/generate-codex-app-server-types.mjs",
     "preview": "nuxt preview",

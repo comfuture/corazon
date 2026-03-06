@@ -4,10 +4,12 @@ import { join } from 'node:path'
 import { ensureAgentBootstrap } from '../server/utils/agent-bootstrap.ts'
 
 const CHATGPT_CODEX_RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses'
+const CHATGPT_CODEX_COMPACT_URL = 'https://chatgpt.com/backend-api/codex/responses/compact'
 const CHATGPT_RESPONSES_TIMEOUT_MS = 60_000
 
 type JsonPrimitive = string | number | boolean | null
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
+type JsonObject = { [key: string]: JsonValue }
 
 export type ChatgptCodexTextVerbosity = 'low' | 'medium' | 'high'
 export type ChatgptCodexReasoningEffort = 'low' | 'medium' | 'high'
@@ -17,19 +19,41 @@ export type ChatgptCodexInputTextPart = {
   text: string
 }
 
+export type ChatgptCodexOutputTextPart = {
+  type: 'output_text'
+  text: string
+}
+
+export type ChatgptCodexMessageContentPart = ChatgptCodexInputTextPart
+  | ChatgptCodexOutputTextPart
+
 export type ChatgptCodexInputMessage = {
   type: 'message'
   role: 'user' | 'assistant' | 'system'
-  content: ChatgptCodexInputTextPart[]
+  content: ChatgptCodexMessageContentPart[]
 }
+
+export type ChatgptCodexOpaqueInputItem = JsonObject & {
+  type: string
+}
+
+export type ChatgptCodexInputItem = ChatgptCodexInputMessage
+  | ChatgptCodexOpaqueInputItem
 
 export type ChatgptCodexResponsesRequest = {
   model: string
   instructions: string
-  input: ChatgptCodexInputMessage[]
+  input: ChatgptCodexInputItem[]
   authPath?: string
   reasoningEffort?: ChatgptCodexReasoningEffort
   textVerbosity?: ChatgptCodexTextVerbosity
+}
+
+export type ChatgptCodexCompactRequest = {
+  model: string
+  instructions: string
+  input: ChatgptCodexInputItem[]
+  authPath?: string
 }
 
 export type ChatgptCodexSseEvent = {
@@ -46,6 +70,14 @@ export type ChatgptCodexTextResponse = {
   completedAt: number
   firstEventAt: number | null
   firstTextAt: number | null
+}
+
+export type ChatgptCodexCompactionResponse = {
+  id: string
+  object: 'response.compaction'
+  createdAt: number
+  output: ChatgptCodexInputItem[]
+  usage: JsonObject | null
 }
 
 const toErrorMessage = (error: unknown) =>
@@ -67,6 +99,58 @@ const readChatgptAccessToken = (authPath = getDefaultAuthPath()) => {
     throw new Error(`Missing tokens.access_token in ${authPath}`)
   }
   return accessToken.trim()
+}
+
+const requestChatgptCodexJson = async <T>(input: {
+  url: string
+  payload: JsonObject
+  authPath?: string
+}) => {
+  const accessToken = readChatgptAccessToken(input.authPath)
+  const url = new URL(input.url)
+  const payload = JSON.stringify(input.payload)
+
+  return new Promise<T>((resolve, reject) => {
+    const request = httpsRequest({
+      protocol: url.protocol,
+      hostname: url.hostname,
+      path: `${url.pathname}${url.search}`,
+      method: 'POST',
+      family: 4,
+      headers: {
+        'authorization': `Bearer ${accessToken}`,
+        'accept': 'application/json',
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(payload)
+      }
+    }, (response) => {
+      let raw = ''
+      response.setEncoding('utf8')
+      response.on('data', (chunk) => {
+        raw += chunk
+      })
+      response.on('end', () => {
+        const statusCode = response.statusCode ?? 500
+        if (statusCode >= 400) {
+          reject(new Error(`ChatGPT Codex request failed (${statusCode}): ${raw}`))
+          return
+        }
+
+        try {
+          resolve(JSON.parse(raw) as T)
+        } catch (error) {
+          reject(new Error(`Failed to parse ChatGPT Codex JSON response: ${toErrorMessage(error)}`))
+        }
+      })
+    })
+
+    request.setTimeout(CHATGPT_RESPONSES_TIMEOUT_MS, () => {
+      request.destroy(new Error('ChatGPT Codex request timed out'))
+    })
+    request.on('error', reject)
+    request.write(payload)
+    request.end()
+  })
 }
 
 const buildChatgptCodexPayload = (input: ChatgptCodexResponsesRequest) => ({
@@ -100,6 +184,15 @@ const buildChatgptCodexPayload = (input: ChatgptCodexResponsesRequest) => ({
     : {}),
   store: false,
   stream: true
+})
+
+const buildChatgptCodexCompactPayload = (input: ChatgptCodexCompactRequest) => ({
+  // Mirrors the standalone compaction flow in the public guide:
+  // send the current input window and receive the canonical compacted window
+  // to pass into the next /responses call as-is.
+  model: input.model,
+  instructions: input.instructions,
+  input: input.input
 })
 
 const parseSseData = (value: string) => {
@@ -234,6 +327,43 @@ export async function* streamChatgptCodexResponse(
   }
 }
 
+export const compactChatgptCodexInputWindow = async (
+  input: ChatgptCodexCompactRequest
+): Promise<ChatgptCodexCompactionResponse> => {
+  // The compact endpoint returns an opaque next context window. Do not try to interpret
+  // or prune it here; callers should pass output straight into the next /responses call.
+  const response = await requestChatgptCodexJson<{
+    id?: unknown
+    object?: unknown
+    created_at?: unknown
+    output?: unknown
+    usage?: unknown
+  }>({
+    url: CHATGPT_CODEX_COMPACT_URL,
+    payload: buildChatgptCodexCompactPayload(input),
+    authPath: input.authPath
+  })
+
+  if (
+    typeof response.id !== 'string'
+    || response.object !== 'response.compaction'
+    || typeof response.created_at !== 'number'
+    || !Array.isArray(response.output)
+  ) {
+    throw new Error('Unexpected ChatGPT Codex compaction response shape.')
+  }
+
+  return {
+    id: response.id,
+    object: 'response.compaction',
+    createdAt: response.created_at,
+    output: response.output as ChatgptCodexInputItem[],
+    usage: response.usage && typeof response.usage === 'object' && !Array.isArray(response.usage)
+      ? response.usage as JsonObject
+      : null
+  }
+}
+
 const extractResponseId = (value: JsonValue | string | null) => {
   if (!value || typeof value === 'string' || Array.isArray(value)) {
     return null
@@ -316,3 +446,12 @@ export const createSimpleChatgptCodexInput = (text: string): ChatgptCodexInputMe
     text
   }]
 }]
+
+export const createSimpleChatgptCodexAssistantOutput = (text: string): ChatgptCodexInputMessage => ({
+  type: 'message',
+  role: 'assistant',
+  content: [{
+    type: 'output_text',
+    text
+  }]
+})
