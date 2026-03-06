@@ -282,7 +282,7 @@ export const useCodexChat = () => {
             queueScrollChatToBottom()
           }
 
-          if (isCodexItemPart(part) && part.data?.kind === 'command_execution') {
+          if (isCodexItemPart(part)) {
             const chatInstance = chat.value
             if (!chatInstance) {
               return
