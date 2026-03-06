@@ -237,6 +237,56 @@ const normalizePatchChangeKind = (
   return 'update'
 }
 
+const normalizeDynamicStatus = (status: string): Extract<CodexThreadItem, { type: 'command_execution' }>['status'] => {
+  if (status === 'inProgress') {
+    return 'in_progress'
+  }
+  if (status === 'completed') {
+    return 'completed'
+  }
+  return 'failed'
+}
+
+const normalizeDynamicPatchStatus = (
+  status: string,
+  success: boolean | null
+): Extract<CodexThreadItem, { type: 'file_change' }>['status'] => {
+  if (status === 'failed' || success === false) {
+    return 'failed'
+  }
+  return 'completed'
+}
+
+const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const getStringField = (value: unknown, key: string): string | null => {
+  if (!isObjectRecord(value)) {
+    return null
+  }
+
+  const field = value[key]
+  return typeof field === 'string' ? field : null
+}
+
+const isExecCommandTool = (tool: string) => {
+  const value = tool.trim().toLowerCase()
+  return value === 'exec_command' || value === 'command/exec' || value.endsWith('/exec_command')
+}
+
+const isApplyPatchTool = (tool: string) => {
+  const value = tool.trim().toLowerCase()
+  return value === 'apply_patch' || value.endsWith('/apply_patch')
+}
+
+const toDynamicContentText = (
+  contentItems: Array<{ type: 'inputText', text: string } | { type: 'inputImage', imageUrl: string }> | null
+) =>
+  (contentItems ?? [])
+    .map(item => item.type === 'inputText' ? item.text : `[image] ${item.imageUrl}`)
+    .join('\n')
+    .trim()
+
 const toUsage = (notification: ServerNotification): CodexUsage | null => {
   if (notification.method !== 'thread/tokenUsage/updated') {
     return null
@@ -304,6 +354,67 @@ const toThreadItem = (
             }
           : undefined,
         error: raw.error ? { message: raw.error.message } : undefined,
+        status: normalizeMcpStatus(raw.status)
+      }
+    case 'dynamicToolCall': {
+      if (isExecCommandTool(raw.tool)) {
+        return {
+          id: raw.id,
+          type: 'command_execution',
+          command: getStringField(raw.arguments, 'command')
+            ?? getStringField(raw.arguments, 'cmd')
+            ?? raw.tool,
+          aggregated_output: toDynamicContentText(raw.contentItems)
+            || (previous?.type === 'command_execution' ? previous.aggregated_output : ''),
+          status: normalizeDynamicStatus(raw.status)
+        }
+      }
+
+      if (isApplyPatchTool(raw.tool)) {
+        return {
+          id: raw.id,
+          type: 'file_change',
+          changes: previous?.type === 'file_change' ? previous.changes : [],
+          status: normalizeDynamicPatchStatus(raw.status, raw.success)
+        }
+      }
+
+      return {
+        id: raw.id,
+        type: 'mcp_tool_call',
+        server: 'dynamic',
+        tool: raw.tool,
+        arguments: raw.arguments,
+        result: raw.contentItems
+          ? {
+              content: [],
+              structured_content: {
+                success: raw.success,
+                contentItems: raw.contentItems
+              }
+            }
+          : undefined,
+        error: raw.success === false ? { message: 'Dynamic tool call failed.' } : undefined,
+        status: normalizeMcpStatus(raw.status)
+      }
+    }
+    case 'collabAgentToolCall':
+      return {
+        id: raw.id,
+        type: 'mcp_tool_call',
+        server: 'collab',
+        tool: raw.tool,
+        arguments: {
+          senderThreadId: raw.senderThreadId,
+          receiverThreadIds: raw.receiverThreadIds,
+          prompt: raw.prompt
+        },
+        result: {
+          content: [],
+          structured_content: {
+            agentsStates: raw.agentsStates
+          }
+        },
         status: normalizeMcpStatus(raw.status)
       }
     case 'webSearch':
@@ -477,12 +588,93 @@ class AppServerThreadClient implements CodexThreadClient {
         case 'item/agentMessage/delta':
         case 'item/reasoning/summaryTextDelta':
         case 'item/reasoning/textDelta':
-        case 'item/commandExecution/outputDelta': {
-          const previous = itemState.get(notification.params.itemId)
-          if (!previous) {
+        case 'item/commandExecution/outputDelta':
+        case 'item/fileChange/outputDelta':
+        case 'item/mcpToolCall/progress': {
+          const itemId = notification.params.itemId
+          const previous = itemState.get(itemId)
+          const seed = previous ?? (() => {
+            switch (notification.method) {
+              case 'item/agentMessage/delta':
+                return {
+                  id: itemId,
+                  type: 'agent_message',
+                  text: ''
+                } as CodexThreadItem
+              case 'item/reasoning/summaryTextDelta':
+              case 'item/reasoning/textDelta':
+                return {
+                  id: itemId,
+                  type: 'reasoning',
+                  text: ''
+                } as CodexThreadItem
+              case 'item/commandExecution/outputDelta':
+                return {
+                  id: itemId,
+                  type: 'command_execution',
+                  command: 'command',
+                  aggregated_output: '',
+                  status: 'in_progress'
+                } as CodexThreadItem
+              case 'item/mcpToolCall/progress':
+                return {
+                  id: itemId,
+                  type: 'mcp_tool_call',
+                  server: 'mcp',
+                  tool: 'tool',
+                  arguments: {},
+                  status: 'in_progress'
+                } as CodexThreadItem
+              default:
+                return null
+            }
+          })()
+
+          if (seed && !previous) {
+            itemState.set(seed.id, seed)
+            queue.push({ type: 'item.started', item: seed })
+          }
+
+          const base = itemState.get(itemId)
+          if (!base) {
             return
           }
-          const next = appendItemDelta(previous, notification.params.delta)
+
+          if (notification.method === 'item/fileChange/outputDelta') {
+            if (base.type !== 'file_change') {
+              return
+            }
+            queue.push({ type: 'item.updated', item: base })
+            return
+          }
+
+          if (notification.method === 'item/mcpToolCall/progress') {
+            if (base.type !== 'mcp_tool_call') {
+              return
+            }
+
+            const structured = isObjectRecord(base.result?.structured_content)
+              ? base.result.structured_content
+              : {}
+            const progressLines = Array.isArray(structured.progress) ? structured.progress : []
+            const next: CodexThreadItem = {
+              ...base,
+              result: {
+                content: [],
+                structured_content: {
+                  ...structured,
+                  progress: [...progressLines, notification.params.message]
+                }
+              }
+            }
+
+            itemState.set(next.id, next)
+            queue.push({ type: 'item.updated', item: next })
+            return
+          }
+
+          const delta = notification.params.delta
+          const next = appendItemDelta(base, delta)
           itemState.set(next.id, next)
           queue.push({ type: 'item.updated', item: next })
           return
