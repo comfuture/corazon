@@ -87,6 +87,37 @@ export type CodexChatWorkflowInput = {
   workflowRunId?: string | null
 }
 
+export type CodexChatUserMessagePart
+  = {
+    type: 'text'
+    text: string
+  }
+  | {
+    type: 'file'
+    url: string
+    filename?: string
+    mediaType?: string
+  }
+
+export type CodexChatUserMessage = {
+  id: string
+  role: 'user'
+  parts: CodexChatUserMessagePart[]
+}
+
+export type CodexChatControlRequest
+  = {
+    action: 'interrupt'
+    runId?: string | null
+    threadId?: string | null
+  }
+  | {
+    action: 'steer'
+    runId?: string | null
+    threadId?: string | null
+    message: CodexChatUserMessage
+  }
+
 export type CodexChatHistoryResponse = {
   messages: CodexUIMessage[]
   activeRunId: string | null

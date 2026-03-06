@@ -10,11 +10,24 @@ const asThreadClient = (value: ReturnType<Codex['startThread']>): CodexThreadCli
   get id() {
     return value.id
   },
+  mode: 'sdk',
   run(input, turnOptions) {
     return value.run(input, turnOptions)
   },
   runStreamed(input, turnOptions) {
     return value.runStreamed(input, turnOptions)
+  },
+  async interruptActiveTurn() {
+    return {
+      ok: false,
+      reason: 'unsupported'
+    }
+  },
+  async steerActiveTurn() {
+    return {
+      ok: false,
+      reason: 'unsupported'
+    }
   }
 })
 
@@ -25,6 +38,7 @@ export const createSdkCodexClient = (options: CodexClientInitOptions): CodexClie
   })
 
   return {
+    mode: 'sdk',
     startThread(threadOptions?: CodexThreadOptions) {
       return asThreadClient(sdk.startThread(threadOptions))
     },

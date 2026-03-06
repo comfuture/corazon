@@ -3,6 +3,7 @@ import type { ReasoningUIPart, TextUIPart, UIMessage, UIMessageStreamWriter } fr
 import {
   CODEX_EVENT_PART,
   CODEX_ITEM_PART,
+  type CodexChatUserMessagePart,
   type CodexItemData,
   type CodexThreadEventData,
   type CodexUIMessage
@@ -32,6 +33,13 @@ const asInputText = (value: string) => ({ type: 'text' as const, text: value })
 const asInputImage = (value: string) => ({ type: 'local_image' as const, path: value })
 
 type CodexInputPart = ReturnType<typeof asInputText> | ReturnType<typeof asInputImage>
+type InputMessagePart = {
+  type?: string
+  text?: string
+  url?: string
+  filename?: string
+  mediaType?: string
+}
 
 const getLatestUserMessage = (messages: UIMessage[]) => {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -43,20 +51,12 @@ const getLatestUserMessage = (messages: UIMessage[]) => {
   return undefined
 }
 
-export const buildCodexInput = (messages: UIMessage[]): Input => {
-  const latest = getLatestUserMessage(messages)
-
-  if (!latest) {
-    return emptyInput
-  }
-
-  const parts: CodexInputPart[] = []
-
-  for (const part of latest?.parts ?? []) {
+const appendCodexInputParts = (parts: InputMessagePart[], output: CodexInputPart[]) => {
+  for (const part of parts) {
     if (part?.type === 'text') {
       const text = part.text
       if (isNonEmptyText(text)) {
-        parts.push(asInputText(text))
+        output.push(asInputText(text))
       }
       continue
     }
@@ -66,15 +66,17 @@ export const buildCodexInput = (messages: UIMessage[]): Input => {
       if (typeof fileUrl === 'string' && isLocalFileUrl(fileUrl)) {
         const filePath = stripFileUrl(fileUrl)
         if (part.mediaType?.startsWith('image/')) {
-          parts.push(asInputImage(filePath))
+          output.push(asInputImage(filePath))
         } else {
           const fileLabel = part.filename ? `Attached file: ${part.filename}` : 'Attached file'
-          parts.push(asInputText(`${fileLabel}\n${filePath}`))
+          output.push(asInputText(`${fileLabel}\n${filePath}`))
         }
       }
     }
   }
+}
 
+const toCodexInput = (parts: CodexInputPart[]): Input => {
   if (parts.length === 0) {
     return emptyInput
   }
@@ -85,6 +87,24 @@ export const buildCodexInput = (messages: UIMessage[]): Input => {
   }
 
   return parts
+}
+
+export const buildCodexInput = (messages: UIMessage[]): Input => {
+  const latest = getLatestUserMessage(messages)
+
+  if (!latest) {
+    return emptyInput
+  }
+
+  const parts: CodexInputPart[] = []
+  appendCodexInputParts((latest?.parts ?? []) as InputMessagePart[], parts)
+  return toCodexInput(parts)
+}
+
+export const buildCodexInputFromUserMessage = (message: { parts: CodexChatUserMessagePart[] }): Input => {
+  const parts: CodexInputPart[] = []
+  appendCodexInputParts(message.parts as InputMessagePart[], parts)
+  return toCodexInput(parts)
 }
 
 const createTextState = (): TextState => ({

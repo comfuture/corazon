@@ -15,6 +15,12 @@ export default defineNuxtConfig({
     'katex/dist/katex.min.css'
   ],
 
+  runtimeConfig: {
+    public: {
+      codexClientMode: process.env.CORAZON_CODEX_CLIENT_MODE ?? 'app-server'
+    }
+  },
+
   routeRules: {
     '/': { prerender: true }
   },

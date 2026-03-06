@@ -2,15 +2,18 @@ import type { ServerNotification } from '@@/types/codex-app-server/ServerNotific
 import type { ThreadStartResponse } from '@@/types/codex-app-server/v2/ThreadStartResponse'
 import type { ThreadResumeResponse } from '@@/types/codex-app-server/v2/ThreadResumeResponse'
 import type { ThreadItem as AppServerThreadItem } from '@@/types/codex-app-server/v2/ThreadItem'
+import type { TurnSteerResponse } from '@@/types/codex-app-server/v2/TurnSteerResponse'
 import type { TurnStartResponse } from '@@/types/codex-app-server/v2/TurnStartResponse'
 import type { UserInput as AppServerUserInput } from '@@/types/codex-app-server/v2/UserInput'
-import { AppServerProtocol } from './app-server-protocol.ts'
+import type { AppServerProtocol } from './app-server-protocol.ts'
+import { getSharedAppServerProtocol } from './app-server-protocol.ts'
 import { getNativeDynamicToolSpecs } from './native-tools.ts'
 import type {
   CodexClient,
   CodexClientInitOptions,
   CodexInput,
   CodexThreadClient,
+  CodexThreadControlResult,
   CodexThreadEvent,
   CodexThreadItem,
   CodexThreadOptions,
@@ -492,11 +495,21 @@ const notificationThreadId = (notification: ServerNotification): string | null =
 }
 
 class AppServerThreadClient implements CodexThreadClient {
+  readonly mode = 'app-server' as const
+
   private threadId: string | null
 
   private readonly options: CodexThreadOptions
 
   private readonly protocol: AppServerProtocol
+
+  private activeTurnId: string | null = null
+
+  private turnState: 'idle' | 'starting' | 'active' = 'idle'
+
+  private pendingInterrupt = false
+
+  private pendingSteers: CodexInput[] = []
 
   constructor(protocol: AppServerProtocol, threadId: string | null, options: CodexThreadOptions) {
     this.protocol = protocol
@@ -506,6 +519,93 @@ class AppServerThreadClient implements CodexThreadClient {
 
   get id() {
     return this.threadId
+  }
+
+  async interruptActiveTurn(): Promise<CodexThreadControlResult> {
+    if (this.turnState === 'starting') {
+      this.pendingInterrupt = true
+      this.pendingSteers = []
+      return {
+        ok: true,
+        queued: true
+      }
+    }
+
+    if (!this.threadId || !this.activeTurnId || this.turnState !== 'active') {
+      return {
+        ok: false,
+        reason: 'no_active_turn'
+      }
+    }
+
+    await this.protocol.request('turn/interrupt', {
+      threadId: this.threadId,
+      turnId: this.activeTurnId
+    })
+    return {
+      ok: true,
+      turnId: this.activeTurnId
+    }
+  }
+
+  async steerActiveTurn(input: CodexInput): Promise<CodexThreadControlResult> {
+    if (this.turnState === 'starting') {
+      this.pendingInterrupt = false
+      this.pendingSteers.push(input)
+      return {
+        ok: true,
+        queued: true
+      }
+    }
+
+    if (!this.threadId || !this.activeTurnId || this.turnState !== 'active') {
+      return {
+        ok: false,
+        reason: 'no_active_turn'
+      }
+    }
+
+    const response = await this.protocol.request<TurnSteerResponse>('turn/steer', {
+      threadId: this.threadId,
+      input: toTurnInput(input),
+      expectedTurnId: this.activeTurnId
+    })
+    this.activeTurnId = response.turnId
+    return {
+      ok: true,
+      turnId: response.turnId
+    }
+  }
+
+  private clearActiveTurnState() {
+    this.activeTurnId = null
+    this.turnState = 'idle'
+    this.pendingInterrupt = false
+    this.pendingSteers = []
+  }
+
+  private async flushPendingTurnControls() {
+    if (this.turnState !== 'active') {
+      return
+    }
+
+    if (this.pendingInterrupt) {
+      this.pendingInterrupt = false
+      this.pendingSteers = []
+      await this.interruptActiveTurn()
+      return
+    }
+
+    while (this.pendingSteers.length > 0) {
+      const nextInput = this.pendingSteers.shift()
+      if (!nextInput) {
+        continue
+      }
+      const result = await this.steerActiveTurn(nextInput)
+      if (!result.ok) {
+        break
+      }
+    }
   }
 
   private async ensureThread(queue: AsyncEventQueue<CodexThreadEvent>) {
@@ -548,19 +648,24 @@ class AppServerThreadClient implements CodexThreadClient {
     const queue = new AsyncEventQueue<CodexThreadEvent>()
     const itemState = new Map<string, CodexThreadItem>()
     let lastUsage = emptyUsage()
-    let activeTurnId: string | null = null
     const bufferedNotifications: ServerNotification[] = []
     let abortHandler: (() => void) | null = null
+    this.turnState = 'starting'
+    this.activeTurnId = null
+    this.pendingInterrupt = false
+    this.pendingSteers = []
 
     try {
       await this.ensureThread(queue)
     } catch (error) {
+      this.clearActiveTurnState()
       queue.fail(error)
       return { events: toEventStream(queue) }
     }
 
     const currentThreadId = this.threadId
     if (!currentThreadId) {
+      this.clearActiveTurnState()
       queue.fail(new Error('Failed to resolve thread id for app-server turn.'))
       return { events: toEventStream(queue) }
     }
@@ -570,13 +675,13 @@ class AppServerThreadClient implements CodexThreadClient {
         return
       }
 
-      if (!activeTurnId) {
+      if (!this.activeTurnId) {
         bufferedNotifications.push(notification)
         return
       }
 
       const turnId = notificationTurnId(notification)
-      if (turnId && turnId !== activeTurnId) {
+      if (turnId && turnId !== this.activeTurnId) {
         return
       }
 
@@ -701,12 +806,14 @@ class AppServerThreadClient implements CodexThreadClient {
           return
         }
         case 'error':
+          this.clearActiveTurnState()
           queue.push({
             type: 'error',
             message: notification.params.error.message
           })
           return
         case 'turn/completed':
+          this.clearActiveTurnState()
           if (notification.params.turn.status === 'failed' || notification.params.turn.status === 'interrupted') {
             queue.push({
               type: 'turn.failed',
@@ -731,6 +838,7 @@ class AppServerThreadClient implements CodexThreadClient {
       processNotification(notification)
     })
     const unsubscribeClose = this.protocol.onClose((error) => {
+      this.clearActiveTurnState()
       queue.fail(error)
     })
 
@@ -745,8 +853,11 @@ class AppServerThreadClient implements CodexThreadClient {
         effort: this.options.modelReasoningEffort ?? null
       })
 
-      activeTurnId = turnStart.turn.id
+      this.activeTurnId = turnStart.turn.id
+      this.turnState = 'active'
       queue.push({ type: 'turn.started' })
+
+      await this.flushPendingTurnControls()
 
       if (bufferedNotifications.length > 0) {
         for (const notification of bufferedNotifications.splice(0, bufferedNotifications.length)) {
@@ -756,13 +867,7 @@ class AppServerThreadClient implements CodexThreadClient {
 
       if (turnOptions.signal) {
         abortHandler = () => {
-          if (!this.threadId || !activeTurnId) {
-            return
-          }
-          void this.protocol.request('turn/interrupt', {
-            threadId: this.threadId,
-            turnId: activeTurnId
-          }).catch(() => {})
+          void this.interruptActiveTurn().catch(() => {})
         }
 
         if (turnOptions.signal.aborted) {
@@ -772,6 +877,7 @@ class AppServerThreadClient implements CodexThreadClient {
         }
       }
     } catch (error) {
+      this.clearActiveTurnState()
       unsubscribe()
       unsubscribeClose()
       queue.fail(error)
@@ -779,6 +885,7 @@ class AppServerThreadClient implements CodexThreadClient {
     }
 
     const events = toEventStream(queue, () => {
+      this.clearActiveTurnState()
       if (turnOptions.signal && abortHandler) {
         turnOptions.signal.removeEventListener('abort', abortHandler)
       }
@@ -827,12 +934,13 @@ class AppServerThreadClient implements CodexThreadClient {
 }
 
 export const createAppServerCodexClient = (options: CodexClientInitOptions): CodexClient => {
-  const protocol = new AppServerProtocol({
+  const protocol = getSharedAppServerProtocol({
     env: options.env,
     config: options.config
   })
 
   return {
+    mode: 'app-server',
     startThread(threadOptions: CodexThreadOptions = {}) {
       return new AppServerThreadClient(protocol, null, threadOptions)
     },

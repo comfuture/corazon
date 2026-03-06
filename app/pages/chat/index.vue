@@ -10,7 +10,7 @@ const {
   threadId,
   pendingThreadId,
   sendMessage,
-  regenerate,
+  reload,
   stop,
   clearForNewThread,
   clearInput,
@@ -59,7 +59,7 @@ const onSubmit = async (event?: Event, overrideText?: string, reusePendingMessag
   }
 
   try {
-    const { fileParts, uploadId } = await uploadAttachments(threadId.value)
+    const { fileParts, uploadId } = await uploadAttachments(threadId.value ?? pendingThreadId.value)
     if (overrideText !== undefined) {
       await sendMessage({
         fileParts,
@@ -77,7 +77,7 @@ const onSubmit = async (event?: Event, overrideText?: string, reusePendingMessag
 }
 
 const onReload = () => {
-  void regenerate()
+  void reload()
 }
 
 const trustErrorMessage = computed(() => chat.value?.error?.message ?? '')
