@@ -46,6 +46,7 @@ type CodexPendingSubmission = {
   fileParts: FileUIPart[]
   attachmentUploadId: string | null
   messageId?: string
+  threadId: string | null
 }
 
 const cloneFileParts = (fileParts: FileUIPart[]) =>
@@ -312,6 +313,15 @@ export const useCodexChat = () => {
       clearInput: false,
       messageId: submission.messageId
     })
+  }
+
+  const canResendFailedSubmission = () => {
+    const submission = lastFailedSubmission.value
+    if (!submission) {
+      return false
+    }
+
+    return submission.threadId === (threadId.value ?? null)
   }
 
   if (import.meta.client && !skipGitRepoCheckLoaded.value) {
@@ -616,7 +626,8 @@ export const useCodexChat = () => {
       text: message,
       fileParts: cloneFileParts(fileParts),
       attachmentUploadId: options?.attachmentUploadId ?? null,
-      messageId: resolvedMessageId
+      messageId: resolvedMessageId,
+      threadId: threadId.value ?? null
     }
     const shouldSteer = codexClientMode.value === 'app-server'
       && isChatInFlight(chatInstance.status)
@@ -711,7 +722,7 @@ export const useCodexChat = () => {
   }
 
   const reload = async () => {
-    if (lastFailedSubmission.value) {
+    if (canResendFailedSubmission()) {
       await resendLastFailedSubmission()
       return
     }

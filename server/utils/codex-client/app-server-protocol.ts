@@ -315,12 +315,12 @@ export class AppServerProtocol {
   }
 
   private async ensureStarted() {
-    if (this.process && this.ensureHealthy()) {
+    if (this.startPromise) {
+      await this.startPromise
       return
     }
 
-    if (this.startPromise) {
-      await this.startPromise
+    if (this.process && this.ensureHealthy()) {
       return
     }
 
