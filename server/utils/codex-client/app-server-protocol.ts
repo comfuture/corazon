@@ -1,7 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { existsSync, realpathSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import readline from 'node:readline'
 import type { ServerNotification } from '@@/types/codex-app-server/ServerNotification'
 import type { ServerRequest } from '@@/types/codex-app-server/ServerRequest'
@@ -42,8 +43,15 @@ type ProtocolOptions = {
   config?: Record<string, CodexClientConfigValue>
 }
 
+type AppServerPidFile = {
+  pid: number
+  signature: string
+  startedAt: number
+}
+
 const INTERNAL_ORIGINATOR_ENV = 'CODEX_INTERNAL_ORIGINATOR_OVERRIDE'
 const CORAZON_ORIGINATOR = 'corazon_app_server'
+const DEFAULT_PID_DIR = join(process.cwd(), '.corazon', 'run')
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value != null
@@ -111,6 +119,82 @@ const serializeConfigOverrides = (value?: Record<string, CodexClientConfigValue>
   return output
 }
 
+const normalizeSignatureValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map(item => normalizeSignatureValue(item))
+  }
+
+  if (isPlainObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, normalizeSignatureValue(child)])
+    )
+  }
+
+  return value
+}
+
+const resolveProtocolSignature = (options: ProtocolOptions) =>
+  JSON.stringify(normalizeSignatureValue({
+    codeXHome: options.env?.CODEX_HOME ?? process.env.CODEX_HOME ?? null,
+    config: options.config ?? {}
+  }))
+
+const resolvePidFilePath = (options: ProtocolOptions, signature: string) => {
+  const digest = createHash('sha256').update(signature).digest('hex').slice(0, 16)
+  const baseDir = options.env?.CODEX_HOME
+    ? join(options.env.CODEX_HOME, 'run')
+    : process.env.CODEX_HOME
+      ? join(process.env.CODEX_HOME, 'run')
+      : DEFAULT_PID_DIR
+  return join(baseDir, `codex-app-server-${digest}.pid.json`)
+}
+
+const readPidFile = (path: string): AppServerPidFile | null => {
+  if (!existsSync(path)) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<AppServerPidFile>
+    if (
+      typeof parsed.pid === 'number'
+      && Number.isInteger(parsed.pid)
+      && typeof parsed.signature === 'string'
+      && typeof parsed.startedAt === 'number'
+    ) {
+      return {
+        pid: parsed.pid,
+        signature: parsed.signature,
+        startedAt: parsed.startedAt
+      }
+    }
+  } catch {
+    return null
+  }
+
+  return null
+}
+
+const writePidFile = (path: string, data: AppServerPidFile) => {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, `${JSON.stringify(data)}\n`, 'utf8')
+}
+
+const removePidFile = (path: string) => {
+  rmSync(path, { force: true })
+}
+
+const isProcessAlive = (pid: number) => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
 const toProtocolError = (error: unknown): JsonRpcError => {
   if (isObject(error)) {
     const code = typeof error.code === 'number' ? error.code : -32000
@@ -164,11 +248,17 @@ const asServerRequest = (request: JsonRpcRequest): ServerRequest =>
 export class AppServerProtocol {
   private readonly options: ProtocolOptions
 
+  private readonly signature: string
+
+  private readonly pidFilePath: string
+
   private process: ChildProcessWithoutNullStreams | null = null
 
   private reader: readline.Interface | null = null
 
   private startPromise: Promise<void> | null = null
+
+  private processGeneration = 0
 
   private nextRequestId = 1
 
@@ -178,8 +268,10 @@ export class AppServerProtocol {
 
   private closeListeners = new Set<(error: Error) => void>()
 
-  constructor(options: ProtocolOptions = {}) {
+  constructor(options: ProtocolOptions = {}, signature = resolveProtocolSignature(options)) {
     this.options = options
+    this.signature = signature
+    this.pidFilePath = resolvePidFilePath(options, signature)
   }
 
   subscribe(listener: (notification: ServerNotification) => void) {
@@ -223,7 +315,7 @@ export class AppServerProtocol {
   }
 
   private async ensureStarted() {
-    if (this.process) {
+    if (this.process && this.ensureHealthy()) {
       return
     }
 
@@ -259,8 +351,16 @@ export class AppServerProtocol {
       env,
       stdio: ['pipe', 'pipe', 'pipe']
     })
+    const generation = ++this.processGeneration
 
     this.process = child
+    if (typeof child.pid === 'number') {
+      writePidFile(this.pidFilePath, {
+        pid: child.pid,
+        signature: this.signature,
+        startedAt: Date.now()
+      })
+    }
     this.reader = readline.createInterface({
       input: child.stdout,
       crlfDelay: Infinity
@@ -278,12 +378,12 @@ export class AppServerProtocol {
     })
 
     child.once('error', (error) => {
-      this.handleProcessClosed(error)
+      this.handleProcessClosed(generation, error)
     })
 
     child.once('close', (code, signal) => {
       const detail = signal ? `signal ${signal}` : `code ${code ?? 0}`
-      this.handleProcessClosed(new Error(`Codex app-server exited with ${detail}.`))
+      this.handleProcessClosed(generation, new Error(`Codex app-server exited with ${detail}.`))
     })
 
     await this.request('initialize', {
@@ -301,6 +401,10 @@ export class AppServerProtocol {
   }
 
   private write(payload: Record<string, unknown>) {
+    if (!this.ensureHealthy()) {
+      throw new Error('Codex app-server is not healthy.')
+    }
+
     if (!this.process?.stdin || this.process.stdin.destroyed) {
       throw new Error('Codex app-server stdin is not available.')
     }
@@ -405,7 +509,50 @@ export class AppServerProtocol {
     }
   }
 
-  private handleProcessClosed(error: Error) {
+  private ensureHealthy() {
+    const child = this.process
+    if (!child) {
+      return false
+    }
+
+    if (
+      child.killed
+      || child.exitCode !== null
+      || child.signalCode !== null
+      || !child.stdin
+      || child.stdin.destroyed
+    ) {
+      this.handleProcessClosed(this.processGeneration, new Error('Codex app-server became unavailable.'))
+      return false
+    }
+
+    const pid = child.pid
+    if (typeof pid !== 'number' || !isProcessAlive(pid)) {
+      this.handleProcessClosed(this.processGeneration, new Error('Codex app-server pid is no longer alive.'))
+      return false
+    }
+
+    const pidFile = readPidFile(this.pidFilePath)
+    if (!pidFile || pidFile.pid !== pid || pidFile.signature !== this.signature) {
+      writePidFile(this.pidFilePath, {
+        pid,
+        signature: this.signature,
+        startedAt: Date.now()
+      })
+    }
+
+    return true
+  }
+
+  private handleProcessClosed(generation: number, error: Error) {
+    if (generation !== this.processGeneration) {
+      return
+    }
+
+    if (!this.process && !this.reader) {
+      return
+    }
+
     for (const [id, pending] of this.pending) {
       pending.reject(error)
       this.pending.delete(id)
@@ -434,6 +581,25 @@ export class AppServerProtocol {
       this.reader = null
     }
 
+    const pid = this.process?.pid
     this.process = null
+    const pidFile = readPidFile(this.pidFilePath)
+    if (!pidFile || typeof pid !== 'number' || pidFile.pid === pid) {
+      removePidFile(this.pidFilePath)
+    }
   }
+}
+
+const sharedProtocols = new Map<string, AppServerProtocol>()
+
+export const getSharedAppServerProtocol = (options: ProtocolOptions = {}) => {
+  const signature = resolveProtocolSignature(options)
+  const existing = sharedProtocols.get(signature)
+  if (existing) {
+    return existing
+  }
+
+  const protocol = new AppServerProtocol(options, signature)
+  sharedProtocols.set(signature, protocol)
+  return protocol
 }

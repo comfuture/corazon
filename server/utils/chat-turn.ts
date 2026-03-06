@@ -27,7 +27,15 @@ import {
   setThreadModel,
   setThreadTitle
 } from './db.ts'
-import { getRuntimeThread, hasRuntimeThread, setRuntimeThread } from './runtime.ts'
+import {
+  deleteRuntimeTurnControl,
+  getRuntimeThread,
+  getRuntimeTurnSteeringMessages,
+  hasRuntimeThread,
+  setRuntimeThread,
+  setRuntimeTurnControl,
+  updateRuntimeTurnControlThreadId
+} from './runtime.ts'
 import { buildCodexInput, createThreadEventHandler } from './stream.ts'
 
 const TITLE_MODEL = 'gpt-5.1-codex-mini'
@@ -360,6 +368,14 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
           })
         })()
 
+        if (workflowRunId) {
+          setRuntimeTurnControl({
+            runId: workflowRunId,
+            threadId: resolvedThreadId ?? thread.id,
+            thread
+          })
+        }
+
         const inputMessage = prependRoutingHint(
           buildCodexInput(messages),
           getLatestUserText(messages)
@@ -380,6 +396,7 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
             const workingDirectory = ensureThreadWorkingDirectory(startedThreadId)
             setThreadModel(startedThreadId, requestedModel)
             if (workflowRunId) {
+              updateRuntimeTurnControlThreadId(workflowRunId, startedThreadId)
               setThreadActiveRun(startedThreadId, workflowRunId)
             }
             const resumed = codex.resumeThread(startedThreadId, {
@@ -485,7 +502,10 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
               }
             }
           }
-          let nextMessages = assistantMessage ? [...baseMessages, assistantMessage] : baseMessages
+          const steeringMessages = workflowRunId ? getRuntimeTurnSteeringMessages(workflowRunId) : []
+          let nextMessages = assistantMessage
+            ? [...baseMessages, ...steeringMessages, assistantMessage]
+            : [...baseMessages, ...steeringMessages]
 
           if (assistantMessage && !hasAssistantMessages(baseMessages)) {
             const existingTitle = getThreadTitle(resolvedThreadId)
@@ -514,7 +534,7 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
                       id: eventId,
                       data: titleEvent
                     })
-                    nextMessages = [...baseMessages, assistantMessage]
+                    nextMessages = [...baseMessages, ...steeringMessages, assistantMessage]
                   }
                 } catch (error) {
                   console.error(error)
@@ -550,6 +570,9 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
         }
         if (resolvedThreadId && workflowRunId) {
           clearThreadActiveRun(resolvedThreadId, workflowRunId)
+        }
+        if (workflowRunId) {
+          deleteRuntimeTurnControl(workflowRunId)
         }
       }
     }

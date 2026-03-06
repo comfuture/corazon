@@ -9,7 +9,8 @@ const {
   loadWorkdirRoot,
   setThreadFromRoute,
   sendMessage,
-  regenerate,
+  reload,
+  pendingThreadId,
   stop
 } = useCodexChat()
 const { threads, refreshThreads } = useCodexThreads()
@@ -209,7 +210,7 @@ const onSubmit = async (event?: Event, overrideText?: string, reusePendingMessag
   }
 
   try {
-    const { fileParts, uploadId } = await uploadAttachments(routeThreadId.value)
+    const { fileParts, uploadId } = await uploadAttachments(routeThreadId.value ?? pendingThreadId.value)
     if (overrideText !== undefined) {
       await sendMessage({
         fileParts,
@@ -227,7 +228,7 @@ const onSubmit = async (event?: Event, overrideText?: string, reusePendingMessag
 }
 
 const onReload = () => {
-  void regenerate()
+  void reload()
 }
 
 const onAttachmentInputChange = (event: Event) => {

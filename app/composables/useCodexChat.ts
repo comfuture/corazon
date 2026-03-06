@@ -4,7 +4,9 @@ import type { DataUIPart, FileUIPart } from 'ai'
 import {
   CODEX_EVENT_PART,
   CODEX_ITEM_PART,
+  type CodexChatControlRequest,
   type CodexChatHistoryResponse,
+  type CodexChatUserMessage,
   type CodexThreadEventData,
   type CodexUIDataTypes,
   type CodexUIMessage
@@ -38,6 +40,27 @@ const CHAT_MESSAGES_ROOT_SELECTOR = '.codex-chat-messages-root'
 const CHAT_SCROLL_RETRY_DELAY_MS = 48
 const CHAT_SCROLL_RETRY_COUNT = 4
 const OPTIMISTIC_THREAD_TITLE_MAX_LENGTH = 80
+
+type CodexPendingSubmission = {
+  text: string
+  fileParts: FileUIPart[]
+  attachmentUploadId: string | null
+  messageId?: string
+}
+
+const cloneFileParts = (fileParts: FileUIPart[]) =>
+  fileParts.map(part => ({ ...part }))
+
+const cloneSubmission = (submission: CodexPendingSubmission | null): CodexPendingSubmission | null =>
+  submission
+    ? {
+        ...submission,
+        fileParts: cloneFileParts(submission.fileParts)
+      }
+    : null
+
+const resolvePublicCodexClientMode = (value: unknown): 'sdk' | 'app-server' =>
+  value === 'sdk' ? 'sdk' : 'app-server'
 
 const notifyThreadEnded = () => {
   if (!import.meta.client) {
@@ -131,6 +154,7 @@ const queueScrollChatToBottom = (attempt = 0) => {
 export const useCodexChat = () => {
   const { threads, upsertThread, setThreadTitle, applyTurnUsage } = useCodexThreads()
   const { enableNotifications } = useSettings()
+  const runtimeConfig = useRuntimeConfig()
   const chat = import.meta.client
     ? sharedChat
     : shallowRef<Chat<CodexUIMessage> | null>(null)
@@ -157,6 +181,11 @@ export const useCodexChat = () => {
   const threadRunMap = useState<Record<string, string>>('codex-thread-run-map', () => ({}))
   const pendingWorkflowRunId = useState<string | null>('codex-pending-workflow-run-id', () => null)
   const lastResumedRunId = useState<string | null>('codex-last-resumed-run-id', () => null)
+  const lastSubmittedSubmission = useState<CodexPendingSubmission | null>('codex-last-submission', () => null)
+  const lastFailedSubmission = useState<CodexPendingSubmission | null>('codex-last-failed-submission', () => null)
+  const codexClientMode = computed(() =>
+    resolvePublicCodexClientMode(runtimeConfig.public.codexClientMode)
+  )
 
   const setThreadRunId = (nextThreadId: string, runId: string) => {
     threadRunMap.value = {
@@ -179,6 +208,110 @@ export const useCodexChat = () => {
       return null
     }
     return threadRunMap.value[nextThreadId] ?? null
+  }
+
+  const resolveActiveRunId = () => resolveRunIdForThread(threadId.value) ?? pendingWorkflowRunId.value
+
+  const buildUserMessage = (submission: CodexPendingSubmission): CodexChatUserMessage => {
+    const parts: CodexChatUserMessage['parts'] = []
+    const text = submission.text.trim()
+
+    if (text) {
+      parts.push({
+        type: 'text',
+        text
+      })
+    }
+
+    for (const file of submission.fileParts) {
+      parts.push({
+        type: 'file',
+        url: file.url,
+        filename: file.filename,
+        mediaType: file.mediaType
+      })
+    }
+
+    return {
+      id: submission.messageId ?? crypto.randomUUID(),
+      role: 'user',
+      parts
+    }
+  }
+
+  const appendLocalUserMessage = (message: CodexChatUserMessage) => {
+    const chatInstance = chat.value
+    if (!chatInstance) {
+      return
+    }
+
+    const nextMessage = {
+      id: message.id,
+      role: 'user',
+      parts: message.parts
+    } as CodexUIMessage
+    const messages = [...chatInstance.messages]
+    const lastMessage = messages[messages.length - 1]
+
+    if (lastMessage?.role === 'assistant' && isChatInFlight(chatInstance.status)) {
+      messages.splice(Math.max(0, messages.length - 1), 0, nextMessage)
+      chatInstance.messages = messages
+    } else {
+      chatInstance.messages = [...messages, nextMessage]
+    }
+    queueScrollChatToBottom()
+  }
+
+  const sendChatControlRequest = async (request: CodexChatControlRequest) =>
+    $fetch<{ ok: boolean, queued?: boolean, turnId?: string | null }>('/api/chat/control', {
+      method: 'POST',
+      body: request
+    })
+
+  const steerInFlightTurn = async (submission: CodexPendingSubmission) => {
+    const runId = resolveActiveRunId()
+    if (!runId) {
+      throw new Error('No active app-server run is available for steering.')
+    }
+
+    const message = buildUserMessage(submission)
+    const chatInstance = chat.value
+    const previousMessages = chatInstance ? [...chatInstance.messages] : []
+    appendLocalUserMessage(message)
+
+    try {
+      await sendChatControlRequest({
+        action: 'steer',
+        runId,
+        threadId: threadId.value,
+        message
+      })
+      lastSubmittedSubmission.value = cloneSubmission({
+        ...submission,
+        messageId: message.id
+      })
+      lastFailedSubmission.value = null
+    } catch (error) {
+      if (chatInstance) {
+        chatInstance.messages = previousMessages
+      }
+      throw error
+    }
+  }
+
+  const resendLastFailedSubmission = async () => {
+    const submission = cloneSubmission(lastFailedSubmission.value)
+    if (!submission) {
+      return
+    }
+
+    await sendMessage({
+      fileParts: submission.fileParts,
+      attachmentUploadId: submission.attachmentUploadId,
+      text: submission.text || undefined,
+      clearInput: false,
+      messageId: submission.messageId
+    })
   }
 
   if (import.meta.client && !skipGitRepoCheckLoaded.value) {
@@ -219,6 +352,7 @@ export const useCodexChat = () => {
           pendingWorkflowRunId.value = runId
         },
         onChatEnd() {
+          const chatInstance = chat.value
           const currentThreadId = threadId.value
           if (currentThreadId) {
             const currentRunId = resolveRunIdForThread(currentThreadId)
@@ -228,6 +362,9 @@ export const useCodexChat = () => {
             }
           }
           pendingWorkflowRunId.value = null
+          if (!chatInstance?.error) {
+            lastFailedSubmission.value = null
+          }
         },
         prepareSendMessagesRequest(request) {
           const body: Record<string, unknown> = {
@@ -274,6 +411,7 @@ export const useCodexChat = () => {
         if (isStreamAbortError(error)) {
           return
         }
+        lastFailedSubmission.value = cloneSubmission(lastSubmittedSubmission.value)
         console.error(error)
       },
       onData(part) {
@@ -474,14 +612,47 @@ export const useCodexChat = () => {
     const usedResume = resumeThread.value
     const resolvedMessageId = options?.messageId
       ?? (options?.reusePendingMessageId ? pendingMessageId.value ?? undefined : undefined)
+    const submission: CodexPendingSubmission = {
+      text: message,
+      fileParts: cloneFileParts(fileParts),
+      attachmentUploadId: options?.attachmentUploadId ?? null,
+      messageId: resolvedMessageId
+    }
+    const shouldSteer = codexClientMode.value === 'app-server'
+      && isChatInFlight(chatInstance.status)
+      && !!resolveActiveRunId()
     let caughtError: unknown
-
-    pendingAttachmentUploadId.value = options?.attachmentUploadId ?? null
 
     if (shouldClearInput && message.length > 0) {
       pendingInput.value = message
       input.value = ''
     }
+
+    if (shouldSteer) {
+      try {
+        await steerInFlightTurn({
+          ...submission,
+          messageId: submission.messageId ?? crypto.randomUUID()
+        })
+      } catch (error) {
+        caughtError = error
+        lastFailedSubmission.value = cloneSubmission(submission)
+      }
+
+      if (caughtError && shouldClearInput && pendingInput.value && !input.value) {
+        input.value = pendingInput.value
+      }
+      if (!caughtError) {
+        pendingInput.value = null
+        pendingMessageId.value = null
+      }
+      if (caughtError) {
+        throw caughtError
+      }
+      return
+    }
+
+    pendingAttachmentUploadId.value = options?.attachmentUploadId ?? null
 
     try {
       if (message.length > 0) {
@@ -494,6 +665,15 @@ export const useCodexChat = () => {
     } finally {
       pendingAttachmentUploadId.value = null
     }
+
+    const lastUserMessageId = [...chatInstance.messages]
+      .reverse()
+      .find(messageItem => messageItem.role === 'user')
+      ?.id
+    lastSubmittedSubmission.value = cloneSubmission({
+      ...submission,
+      messageId: lastUserMessageId ?? resolvedMessageId
+    })
 
     const trustError = isTrustErrorMessage(chatInstance.error?.message ?? '') && !skipGitRepoCheck.value
     if (trustError && !pendingMessageId.value) {
@@ -513,6 +693,10 @@ export const useCodexChat = () => {
       pendingMessageId.value = null
     }
     if (caughtError) {
+      lastFailedSubmission.value = cloneSubmission({
+        ...submission,
+        messageId: lastUserMessageId ?? resolvedMessageId
+      })
       throw caughtError
     }
   }
@@ -526,8 +710,38 @@ export const useCodexChat = () => {
     await chatInstance.regenerate()
   }
 
-  const stop = () => {
-    void chat.value?.stop()
+  const reload = async () => {
+    if (lastFailedSubmission.value) {
+      await resendLastFailedSubmission()
+      return
+    }
+
+    await regenerate()
+  }
+
+  const stop = async () => {
+    const chatInstance = chat.value
+    if (!chatInstance) {
+      return
+    }
+
+    if (codexClientMode.value === 'app-server' && isChatInFlight(chatInstance.status)) {
+      const runId = resolveActiveRunId()
+      if (runId) {
+        try {
+          await sendChatControlRequest({
+            action: 'interrupt',
+            runId,
+            threadId: threadId.value
+          })
+          return
+        } catch (error) {
+          console.error(error)
+        }
+      }
+    }
+
+    await chatInstance.stop()
   }
 
   const clearForNewThread = () => {
@@ -540,6 +754,8 @@ export const useCodexChat = () => {
     pendingWorkflowRunId.value = null
     pendingAttachmentUploadId.value = null
     pendingInitialThreadTitle.value = null
+    lastSubmittedSubmission.value = null
+    lastFailedSubmission.value = null
 
     const chatInstance = chat.value
     if (!chatInstance) {
@@ -654,6 +870,7 @@ export const useCodexChat = () => {
     pendingThreadId,
     sendMessage,
     regenerate,
+    reload,
     stop,
     clearForNewThread,
     clearInput,
