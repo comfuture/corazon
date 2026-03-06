@@ -23,9 +23,11 @@ import {
   recordTelegramSessionOutbound,
   setTelegramSessionActiveRun,
   setThreadOrigin,
+  upsertTelegramRecentChat,
   upsertTelegramTransportState
 } from './db.ts'
 import { readTelegramSettings } from './settings-config.ts'
+import { toTelegramChatCandidateFromMessage } from './telegram-chat-discovery.ts'
 import { resolveTelegramSessionRoute } from './telegram-session.ts'
 import {
   formatTelegramApiError,
@@ -659,6 +661,20 @@ const processTelegramUpdate = async (
   settings: ReturnType<typeof readTelegramSettings>,
   update: TelegramUpdate
 ) => {
+  const observedMessage = update.message ?? update.edited_message
+  if (observedMessage && !isTelegramBotMessage(observedMessage)) {
+    const candidate = toTelegramChatCandidateFromMessage(update.update_id, observedMessage)
+    upsertTelegramRecentChat({
+      chatId: candidate.chatId,
+      type: candidate.type,
+      title: candidate.title,
+      subtitle: candidate.subtitle,
+      lastMessageText: candidate.lastMessageText,
+      lastMessageAt: candidate.lastMessageAt,
+      lastUpdateId: candidate.updateId
+    })
+  }
+
   if (isTelegramEditedUpdate(update)) {
     return
   }

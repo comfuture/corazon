@@ -13,6 +13,10 @@ type TelegramApiError = {
 export type TelegramChat = {
   id: number
   type: string
+  title?: string
+  username?: string
+  first_name?: string
+  last_name?: string
 }
 
 export type TelegramUser = {
@@ -49,19 +53,35 @@ const toTelegramApiUrl = (botToken: string, method: string) =>
 const toErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
 
-const requestTelegramApiRaw = (botToken: string, method: string, body: Record<string, unknown>) =>
+const requestTelegramApiRaw = (input: {
+  botToken: string
+  method: string
+  httpMethod?: 'GET' | 'POST'
+  params?: Record<string, unknown>
+  body?: Record<string, unknown>
+}) =>
   new Promise<{ statusCode: number, raw: string }>((resolve, reject) => {
-    const url = new URL(toTelegramApiUrl(botToken, method))
-    const payload = JSON.stringify(body)
+    const url = new URL(toTelegramApiUrl(input.botToken, input.method))
+    for (const [key, value] of Object.entries(input.params ?? {})) {
+      if (value == null) {
+        continue
+      }
+      url.searchParams.set(key, String(value))
+    }
+    const payload = input.httpMethod === 'GET' ? null : JSON.stringify(input.body ?? {})
     const request = httpsRequest({
       protocol: url.protocol,
       hostname: url.hostname,
       path: `${url.pathname}${url.search}`,
-      method: 'POST',
+      method: input.httpMethod ?? 'POST',
       family: 4,
       headers: {
-        'content-type': 'application/json',
-        'content-length': Buffer.byteLength(payload)
+        ...(payload
+          ? {
+              'content-type': 'application/json',
+              'content-length': Buffer.byteLength(payload)
+            }
+          : {})
       }
     }, (response) => {
       let raw = ''
@@ -81,12 +101,20 @@ const requestTelegramApiRaw = (botToken: string, method: string, body: Record<st
       request.destroy(new Error('Telegram API request timed out'))
     })
     request.on('error', reject)
-    request.write(payload)
+    if (payload) {
+      request.write(payload)
+    }
     request.end()
   })
 
-const requestTelegramApi = async <T>(botToken: string, method: string, body: Record<string, unknown>) => {
-  const { statusCode, raw } = await requestTelegramApiRaw(botToken, method, body)
+const requestTelegramApi = async <T>(input: {
+  botToken: string
+  method: string
+  httpMethod?: 'GET' | 'POST'
+  params?: Record<string, unknown>
+  body?: Record<string, unknown>
+}) => {
+  const { statusCode, raw } = await requestTelegramApiRaw(input)
   const payload = JSON.parse(raw) as TelegramApiOk<T> | TelegramApiError
 
   if (statusCode >= 400 || !payload || payload.ok !== true) {
@@ -106,10 +134,16 @@ export const getTelegramUpdates = async (
     timeoutSeconds?: number
   } = {}
 ) => {
-  return requestTelegramApi<TelegramUpdate[]>(botToken, 'getUpdates', {
-    offset: options.offset,
-    timeout: options.timeoutSeconds ?? 20,
-    allowed_updates: ['message', 'edited_message']
+  const allowedUpdates = JSON.stringify(['message', 'edited_message'])
+  return requestTelegramApi<TelegramUpdate[]>({
+    botToken,
+    method: 'getUpdates',
+    httpMethod: 'GET',
+    params: {
+      offset: options.offset,
+      timeout: options.timeoutSeconds ?? 20,
+      allowed_updates: allowedUpdates
+    }
   })
 }
 
@@ -121,13 +155,17 @@ export const sendTelegramMessage = async (input: {
   disableWebPagePreview?: boolean
   replyToMessageId?: number | null
 }) => {
-  return requestTelegramApi<TelegramSendMessageResult>(input.botToken, 'sendMessage', {
-    chat_id: input.chatId,
-    text: input.text,
-    parse_mode: input.parseMode ?? undefined,
-    disable_web_page_preview: input.disableWebPagePreview ?? true,
-    reply_to_message_id: input.replyToMessageId ?? undefined,
-    allow_sending_without_reply: true
+  return requestTelegramApi<TelegramSendMessageResult>({
+    botToken: input.botToken,
+    method: 'sendMessage',
+    body: {
+      chat_id: input.chatId,
+      text: input.text,
+      parse_mode: input.parseMode ?? undefined,
+      disable_web_page_preview: input.disableWebPagePreview ?? true,
+      reply_to_message_id: input.replyToMessageId ?? undefined,
+      allow_sending_without_reply: true
+    }
   })
 }
 
@@ -139,12 +177,16 @@ export const editTelegramMessageText = async (input: {
   parseMode?: 'HTML' | 'MarkdownV2'
   disableWebPagePreview?: boolean
 }) => {
-  return requestTelegramApi<TelegramSendMessageResult>(input.botToken, 'editMessageText', {
-    chat_id: input.chatId,
-    message_id: input.messageId,
-    text: input.text,
-    parse_mode: input.parseMode ?? undefined,
-    disable_web_page_preview: input.disableWebPagePreview ?? true
+  return requestTelegramApi<TelegramSendMessageResult>({
+    botToken: input.botToken,
+    method: 'editMessageText',
+    body: {
+      chat_id: input.chatId,
+      message_id: input.messageId,
+      text: input.text,
+      parse_mode: input.parseMode ?? undefined,
+      disable_web_page_preview: input.disableWebPagePreview ?? true
+    }
   })
 }
 

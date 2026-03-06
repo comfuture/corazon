@@ -32,6 +32,24 @@ export type TelegramSettingsResponse = {
   telegram: TelegramSettings
 }
 
+export type TelegramChatCandidate = {
+  chatId: string
+  type: string
+  title: string
+  subtitle: string | null
+  lastMessageText: string | null
+  lastMessageAt: number | null
+  updateId: number
+}
+
+export type TelegramChatDiscoveryResponse = {
+  chats: TelegramChatCandidate[]
+}
+
+export type TelegramChatDiscoveryRequest = {
+  botToken?: string
+}
+
 export type TelegramSettingsUpdateRequest = {
   telegram: {
     botToken?: string

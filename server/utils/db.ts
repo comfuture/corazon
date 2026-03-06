@@ -68,6 +68,18 @@ export type TelegramSession = {
   updatedAt: number
 }
 
+export type TelegramRecentChat = {
+  chatId: string
+  type: string
+  title: string
+  subtitle: string | null
+  lastMessageText: string | null
+  lastMessageAt: number | null
+  lastUpdateId: number
+  createdAt: number
+  updatedAt: number
+}
+
 type ThreadRow = {
   id: string
   title: string | null
@@ -128,6 +140,18 @@ type TelegramSessionRow = {
   carryover_summary: string | null
   status: string
   last_error: string | null
+  created_at: number
+  updated_at: number
+}
+
+type TelegramRecentChatRow = {
+  chat_id: string
+  type: string
+  title: string
+  subtitle: string | null
+  last_message_text: string | null
+  last_message_at: number | null
+  last_update_id: number
   created_at: number
   updated_at: number
 }
@@ -267,11 +291,24 @@ const getDb = () => {
       updated_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS telegram_recent_chats (
+      chat_id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      subtitle TEXT,
+      last_message_text TEXT,
+      last_message_at INTEGER,
+      last_update_id INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS threads_updated_at_idx ON threads(updated_at DESC);
     CREATE INDEX IF NOT EXISTS messages_thread_seq_idx ON messages(thread_id, seq);
     CREATE INDEX IF NOT EXISTS runs_workflow_started_idx ON runs(workflow_file_slug, started_at DESC);
     CREATE INDEX IF NOT EXISTS runs_started_idx ON runs(started_at DESC);
     CREATE INDEX IF NOT EXISTS telegram_sessions_chat_updated_idx ON telegram_sessions(chat_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS telegram_recent_chats_updated_idx ON telegram_recent_chats(updated_at DESC);
     CREATE UNIQUE INDEX IF NOT EXISTS telegram_sessions_thread_unique_idx
       ON telegram_sessions(thread_id)
       WHERE thread_id IS NOT NULL;
@@ -744,6 +781,18 @@ const toTelegramSession = (row: TelegramSessionRow): TelegramSession => ({
   updatedAt: row.updated_at
 })
 
+const toTelegramRecentChat = (row: TelegramRecentChatRow): TelegramRecentChat => ({
+  chatId: row.chat_id,
+  type: row.type,
+  title: row.title,
+  subtitle: row.subtitle ?? null,
+  lastMessageText: row.last_message_text ?? null,
+  lastMessageAt: row.last_message_at ?? null,
+  lastUpdateId: row.last_update_id,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at
+})
+
 export const loadThreadSummaries = (
   limit = 50,
   cursor: ThreadSummaryCursor | null = null
@@ -864,6 +913,82 @@ export const upsertTelegramTransportState = (input: {
     )
 
   return getTelegramTransportState(key)
+}
+
+export const upsertTelegramRecentChat = (input: {
+  chatId: string
+  type: string
+  title: string
+  subtitle?: string | null
+  lastMessageText?: string | null
+  lastMessageAt?: number | null
+  lastUpdateId: number
+  updatedAt?: number
+}) => {
+  const now = input.updatedAt ?? Date.now()
+  const database = getDb()
+  database
+    .prepare(
+      `
+      INSERT INTO telegram_recent_chats (
+        chat_id,
+        type,
+        title,
+        subtitle,
+        last_message_text,
+        last_message_at,
+        last_update_id,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(chat_id) DO UPDATE SET
+        type = excluded.type,
+        title = excluded.title,
+        subtitle = excluded.subtitle,
+        last_message_text = excluded.last_message_text,
+        last_message_at = excluded.last_message_at,
+        last_update_id = excluded.last_update_id,
+        updated_at = excluded.updated_at
+    `
+    )
+    .run(
+      input.chatId,
+      input.type,
+      input.title,
+      input.subtitle ?? null,
+      input.lastMessageText ?? null,
+      input.lastMessageAt ?? null,
+      input.lastUpdateId,
+      now,
+      now
+    )
+}
+
+export const loadTelegramRecentChats = (limit = 20): TelegramRecentChat[] => {
+  const safeLimit = Math.max(1, Math.min(limit, 100))
+  const database = getDb()
+  const rows = database
+    .prepare(
+      `
+      SELECT
+        chat_id,
+        type,
+        title,
+        subtitle,
+        last_message_text,
+        last_message_at,
+        last_update_id,
+        created_at,
+        updated_at
+      FROM telegram_recent_chats
+      ORDER BY updated_at DESC, chat_id DESC
+      LIMIT ?
+    `
+    )
+    .all(safeLimit) as TelegramRecentChatRow[]
+
+  return rows.map(toTelegramRecentChat)
 }
 
 export const createTelegramSession = (input: {
