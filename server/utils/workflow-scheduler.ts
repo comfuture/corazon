@@ -2,6 +2,7 @@ import { watch, type FSWatcher } from 'node:fs'
 import { AsyncTask, CronJob, SimpleIntervalJob, ToadScheduler } from 'toad-scheduler'
 import rrule from 'rrule'
 import type { WorkflowDefinition, WorkflowTriggerType } from '@@/types/workflow'
+import { ensureWorkflowsDirectory, loadWorkflowDefinitions } from './workflow-definitions.ts'
 
 const { rrulestr } = rrule
 
