@@ -6,16 +6,16 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const outputDir = resolve(repoRoot, 'types', 'codex-app-server')
+const moduleRequire = createRequire(import.meta.url)
 
-const resolveCodexBin = async () => {
-  const sdkEntryUrl = await import.meta.resolve('@openai/codex-sdk')
-  const sdkEntryPath = fileURLToPath(sdkEntryUrl)
+const resolveCodexBin = () => {
+  const sdkEntryPath = moduleRequire.resolve('@openai/codex-sdk')
   const sdkRequire = createRequire(sdkEntryPath)
   return sdkRequire.resolve('@openai/codex/bin/codex.js')
 }
 
 const run = async () => {
-  const codexBin = await resolveCodexBin()
+  const codexBin = resolveCodexBin()
 
   rmSync(outputDir, { recursive: true, force: true })
   mkdirSync(outputDir, { recursive: true })

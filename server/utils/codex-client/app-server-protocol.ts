@@ -1,6 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
 import readline from 'node:readline'
 import type { ServerNotification } from '@@/types/codex-app-server/ServerNotification'
 import type { ServerRequest } from '@@/types/codex-app-server/ServerRequest'
@@ -143,9 +142,10 @@ const buildDefaultEnv = () => {
   return env
 }
 
-const resolveCodexAppServerBin = async () => {
-  const sdkEntryUrl = await import.meta.resolve('@openai/codex-sdk')
-  const sdkEntryPath = fileURLToPath(sdkEntryUrl)
+const moduleRequire = createRequire(import.meta.url)
+
+const resolveCodexAppServerBin = () => {
+  const sdkEntryPath = moduleRequire.resolve('@openai/codex-sdk')
   const sdkRequire = createRequire(sdkEntryPath)
   return sdkRequire.resolve('@openai/codex/bin/codex.js')
 }
@@ -234,7 +234,7 @@ export class AppServerProtocol {
   }
 
   private async startInternal() {
-    const codexBin = await resolveCodexAppServerBin()
+    const codexBin = resolveCodexAppServerBin()
     const args = [codexBin, 'app-server', '--listen', 'stdio://']
 
     for (const configOverride of serializeConfigOverrides(this.options.config)) {
