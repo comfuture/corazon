@@ -135,6 +135,15 @@ const toSandboxMode = (mode: CodexThreadOptions['sandboxMode']) => mode ?? null
 
 const toApprovalPolicy = (policy: CodexThreadOptions['approvalPolicy']) => policy ?? null
 
+const NATIVE_TOOL_PRIORITY_DEVELOPER_INSTRUCTIONS = [
+  '[Corazon native tool priority]',
+  '- Assume Corazon dynamic tools are available in the current thread.',
+  '- For Corazon built-ins, use dynamic tools first and do not use skills unless a dynamic tool call fails.',
+  '- For workflow operations, prefer dynamic tool `manageWorkflow` before the `manage-workflows` skill.',
+  '- For long-term memory operations, prefer dynamic tool `sharedMemory` before the `shared-memory` skill.',
+  '- Do not call `manage-workflows` or `shared-memory` skills preemptively. Use them only as explicit fallback after a dynamic tool failure.'
+].join('\n')
+
 const toThreadConfig = (options: CodexThreadOptions) => {
   const config: Record<string, unknown> = {}
 
@@ -499,6 +508,7 @@ class AppServerThreadClient implements CodexThreadClient {
         approvalPolicy: toApprovalPolicy(this.options.approvalPolicy),
         sandbox: toSandboxMode(this.options.sandboxMode),
         config: toThreadConfig(this.options),
+        developerInstructions: NATIVE_TOOL_PRIORITY_DEVELOPER_INSTRUCTIONS,
         dynamicTools: getNativeDynamicToolSpecs(),
         experimentalRawEvents: false,
         persistExtendedHistory: false
@@ -518,6 +528,7 @@ class AppServerThreadClient implements CodexThreadClient {
       approvalPolicy: toApprovalPolicy(this.options.approvalPolicy),
       sandbox: toSandboxMode(this.options.sandboxMode),
       config: toThreadConfig(this.options),
+      developerInstructions: NATIVE_TOOL_PRIORITY_DEVELOPER_INSTRUCTIONS,
       persistExtendedHistory: false
     })
   }

@@ -20,15 +20,27 @@ const AUTH_FILE = 'auth.json'
 const AGENTS_FILE = 'AGENTS.md'
 const AGENTS_SKELETON_FILE = 'agent-behavior.md'
 const SYSTEM_SKILL_SYNC_NAMES = new Set(['shared-memory', 'manage-workflows'])
-const LEGACY_MEMORY_GUIDANCE_PATTERN = /## Shared memory[\s\S]*?(?=\n## |\n# |$)/i
+const SHARED_MEMORY_GUIDANCE_PATTERN = /## Shared memory[\s\S]*?(?=\n## |\n# |$)/i
+const WORKFLOW_GUIDANCE_PATTERN = /## Workflow management[\s\S]*?(?=\n## |\n# |$)/i
+const LEGACY_SHARED_MEMORY_SKILL_HINT = /for long-term memory,\s*use the `shared-memory` skill\./i
+const LEGACY_WORKFLOW_SKILL_HINT = /use the `manage-workflows` skill for workflow operations\./i
 const UPDATED_SHARED_MEMORY_GUIDANCE = [
   '## Shared memory',
-  '- In app-server mode, prefer native dynamic tool `sharedMemory` for long-term memory (`ensure` -> `search` -> `upsert`).',
+  '- In app-server mode, assume native dynamic tool `sharedMemory` is available and use it first for long-term memory (`ensure` -> `search` -> `upsert`).',
   '- In sdk mode or fallback paths, use the `shared-memory` skill.',
   '- Treat Corazon memory APIs (`/api/memory/*`) as the shared memory interface across all threads.',
   '- Memory backend is `mem0` with ChromaDB vector storage; do not bypass it with direct file edits.',
   '- For memory reads/writes in a task, follow `ensure`, then `search`, then `upsert`.',
   '- Add memory when new stable facts/preferences/decisions emerge; search memory when prior context is needed.'
+].join('\n')
+const UPDATED_WORKFLOW_GUIDANCE = [
+  '## Workflow management',
+  '- In app-server mode, assume native dynamic tool `manageWorkflow` is available and use it first for workflow operations.',
+  '- Use `manageWorkflow` for list/inspect/create/update/delete workflow requests, and prefer `from-text`/`apply-text` for natural-language requests.',
+  '- In sdk mode or fallback paths, use the `manage-workflows` skill.',
+  '- Prefer `rrule` for recurring schedules that are hard to express or maintain with cron, and use cron when it is sufficient.',
+  '- Never use OS-level schedulers (`crontab`, `systemd`, `launchd`) for Corazon workflow requests.',
+  '- When the user asks to create/update/delete a Corazon workflow, route through Corazon workflow tooling before considering generic shell operations.'
 ].join('\n')
 
 let bootstrapDone = false
@@ -140,13 +152,19 @@ const migrateLegacyAgentsFile = (agentHomeDir: string) => {
   }
 
   const previous = readFileSync(destinationPath, 'utf8')
-  if (!previous.includes('${CODEX_HOME}/MEMORY.md')) {
-    return
+  let next = previous
+
+  if (previous.includes('${CODEX_HOME}/MEMORY.md') || LEGACY_SHARED_MEMORY_SKILL_HINT.test(previous)) {
+    next = next.match(SHARED_MEMORY_GUIDANCE_PATTERN)
+      ? next.replace(SHARED_MEMORY_GUIDANCE_PATTERN, `${UPDATED_SHARED_MEMORY_GUIDANCE}\n`)
+      : `${next.trimEnd()}\n\n${UPDATED_SHARED_MEMORY_GUIDANCE}\n`
   }
 
-  const next = previous.match(LEGACY_MEMORY_GUIDANCE_PATTERN)
-    ? previous.replace(LEGACY_MEMORY_GUIDANCE_PATTERN, `${UPDATED_SHARED_MEMORY_GUIDANCE}\n`)
-    : `${previous.trimEnd()}\n\n${UPDATED_SHARED_MEMORY_GUIDANCE}\n`
+  if (LEGACY_WORKFLOW_SKILL_HINT.test(previous)) {
+    next = next.match(WORKFLOW_GUIDANCE_PATTERN)
+      ? next.replace(WORKFLOW_GUIDANCE_PATTERN, `${UPDATED_WORKFLOW_GUIDANCE}\n`)
+      : `${next.trimEnd()}\n\n${UPDATED_WORKFLOW_GUIDANCE}\n`
+  }
 
   if (next !== previous) {
     writeFileSync(destinationPath, next, 'utf8')
