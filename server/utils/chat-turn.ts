@@ -43,7 +43,7 @@ const MODEL_OPTIONS = new Set([
 ])
 const WORKFLOW_ROUTING_INTENT_PATTERN = /(?:\bworkflow\b|워크플로우|workflow[-\s]?dispatch|스케줄|schedule|cron|rrule|interval|자동화|자동 실행|정기 실행|run every|every\s+\d+\s*(?:sec|min|hour|day|week|month))/i
 const WORKFLOW_MANAGEMENT_ACTION_PATTERN = /(?:생성|만들|작성|추가|등록|수정|업데이트|편집|삭제|지워|목록|리스트|조회|보여줘|create|add|update|edit|delete|remove|list|show|inspect|write)/i
-const WORKFLOW_NATIVE_TOOL = 'corazon/manageWorkflow'
+const WORKFLOW_NATIVE_TOOL = 'manageWorkflow'
 const WORKFLOW_ROUTING_MODE = resolveCodexClientMode(process.env.CORAZON_CODEX_CLIENT_MODE)
 const WORKFLOW_ROUTING_PREAMBLE = [
   '[Corazon workflow routing policy]',

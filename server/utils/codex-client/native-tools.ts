@@ -55,8 +55,8 @@ type ParsedWorkflowIntent = {
   }
 }
 
-const SHARED_MEMORY_TOOL_NAME = 'corazon/sharedMemory'
-const MANAGE_WORKFLOW_TOOL_NAME = 'corazon/manageWorkflow'
+const SHARED_MEMORY_TOOL_NAME = 'sharedMemory'
+const MANAGE_WORKFLOW_TOOL_NAME = 'manageWorkflow'
 const DEFAULT_MEMORY_SEARCH_LIMIT = 5
 const DEFAULT_MEMORY_SECTION = 'Facts'
 const DEFAULT_WORKFLOW_NAME = 'Task Workflow'
@@ -1066,7 +1066,7 @@ const nativeTools: NativeDynamicTool[] = [
   {
     aliases: [
       SHARED_MEMORY_TOOL_NAME,
-      'corazon/shared-memory',
+      'corazonSharedMemory',
       'shared-memory',
       'shared_memory'
     ],
@@ -1080,7 +1080,7 @@ const nativeTools: NativeDynamicTool[] = [
   {
     aliases: [
       MANAGE_WORKFLOW_TOOL_NAME,
-      'corazon/manage-workflows',
+      'corazonManageWorkflow',
       'manage-workflows',
       'manage_workflows'
     ],
