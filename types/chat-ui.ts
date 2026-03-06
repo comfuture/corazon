@@ -83,6 +83,9 @@ export type CodexChatWorkflowInput = {
   attachmentUploadId?: string | null
   skipGitRepoCheck?: boolean
   model?: string | null
+  origin?: 'web' | 'telegram' | null
+  originChannelId?: string | null
+  streamMode?: 'web' | 'telegram' | null
   inputPrefix?: string | null
   messages: CodexUIMessage[]
   workflowRunId?: string | null

@@ -1,20 +1,26 @@
 import { randomUUID } from 'node:crypto'
 import { start, getRun } from 'workflow/api'
 import type { UIMessageChunk } from 'ai'
+import { CODEX_ITEM_PART } from '@@/types/chat-ui'
 import type {
   CodexChatUserMessage,
-  CodexUIMessage,
-  CodexThreadEventData
+  CodexItemData,
+  CodexThreadEventData,
+  CodexUIMessage
 } from '@@/types/chat-ui'
 import { codexChatTurnWorkflow } from '../workflows/chat-turn'
 import {
   assignTelegramSessionThread,
+  clearThreadActiveRun,
   createTelegramSession,
   finalizeTelegramSessionRun,
   getLatestTelegramSession,
+  getTelegramSessionById,
   getTelegramTransportState,
+  getThreadActiveRun,
   loadThreadMessages,
   recordTelegramSessionInbound,
+  recordTelegramSessionOutbound,
   setTelegramSessionActiveRun,
   setThreadOrigin,
   upsertTelegramTransportState
@@ -22,6 +28,7 @@ import {
 import { readTelegramSettings } from './settings-config.ts'
 import { resolveTelegramSessionRoute } from './telegram-session.ts'
 import {
+  editTelegramMessageText,
   formatTelegramApiError,
   getTelegramDisplayName,
   getTelegramUpdates,
@@ -31,14 +38,22 @@ import {
   type TelegramMessage,
   type TelegramUpdate
 } from './telegram-bot.ts'
+import { ensureAgentBootstrap } from './agent-bootstrap.ts'
+import { createCodexClient } from './codex-client/index.ts'
+import type { CodexClient } from './codex-client/types.ts'
 
 const TELEGRAM_POLL_TIMEOUT_SECONDS = 20
 const TELEGRAM_DISABLED_RETRY_MS = 5000
 const TELEGRAM_ERROR_RETRY_MS = 3000
 const TELEGRAM_STATE_KEY = 'default'
+const TELEGRAM_ACTIVITY_MAX_LINES = 6
+const TELEGRAM_TEXT_MAX_LENGTH = 3500
+const CARRYOVER_MODEL = 'gpt-5.1-codex-mini'
+const CARRYOVER_WORKDIR = '/tmp'
 
 let telegramTransportInitialized = false
 let telegramProcessingQueue = Promise.resolve()
+let telegramSummaryCodex: CodexClient | null = null
 
 const sleep = async (ms: number) => {
   await new Promise((resolve) => {
@@ -47,6 +62,16 @@ const sleep = async (ms: number) => {
 }
 
 const normalizeChatId = (value: string | number) => String(value).trim()
+
+const compactWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim()
+
+const truncate = (value: string, max = 180) => {
+  const normalized = compactWhitespace(value)
+  if (normalized.length <= max) {
+    return normalized
+  }
+  return `${normalized.slice(0, Math.max(0, max - 1)).trim()}…`
+}
 
 const formatTelegramUserText = (message: TelegramMessage) => {
   const text = message.text?.trim() ?? ''
@@ -84,9 +109,238 @@ const isEventChunk = (chunk: unknown): chunk is UIMessageChunk & {
   && 'type' in chunk
   && chunk.type === 'data-codex-event'
 
+const isItemChunk = (chunk: unknown): chunk is UIMessageChunk & {
+  type: 'data-codex-item'
+  data: CodexItemData
+} =>
+  typeof chunk === 'object'
+  && chunk !== null
+  && 'type' in chunk
+  && chunk.type === CODEX_ITEM_PART
+
 type TelegramWorkflowRun = {
   runId: string
   readable: ReadableStream<UIMessageChunk>
+}
+
+const getSummaryCodexEnv = () => {
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === 'string') {
+      env[key] = value
+    }
+  }
+  env.CODEX_HOME = ensureAgentBootstrap()
+  return env
+}
+
+const getSummaryCodex = () => {
+  if (telegramSummaryCodex) {
+    return telegramSummaryCodex
+  }
+
+  telegramSummaryCodex = createCodexClient({
+    env: getSummaryCodexEnv(),
+    config: {
+      show_raw_agent_reasoning: true,
+      approval_policy: 'never',
+      sandbox_mode: 'danger-full-access'
+    }
+  })
+
+  return telegramSummaryCodex
+}
+
+const formatTelegramReasoningSummary = (text: string) => {
+  const normalized = truncate(text, 140)
+  return normalized ? `Thinking: ${normalized}` : null
+}
+
+const formatTelegramItemSummary = (data: CodexItemData) => {
+  switch (data.kind) {
+    case 'command_execution': {
+      const command = truncate(data.item.command ?? 'command', 120)
+      return `Command ${data.item.status}: ${command}`
+    }
+    case 'mcp_tool_call': {
+      const server = data.item.server?.trim() || 'mcp'
+      const tool = data.item.tool?.trim() || 'tool'
+      const status = data.item.status || 'completed'
+      return `Tool ${status}: ${server}/${tool}`
+    }
+    case 'file_change': {
+      const changes = data.item.changes ?? []
+      const paths = changes
+        .map(change => change?.path?.trim())
+        .filter((value): value is string => Boolean(value))
+        .slice(0, 3)
+        .join(', ')
+      const detail = paths ? ` (${truncate(paths, 120)})` : ''
+      return `Files ${data.item.status}: ${changes.length} change(s)${detail}`
+    }
+    case 'web_search':
+      return `Web search: ${truncate(data.item.query ?? '', 140)}`
+    case 'todo_list': {
+      const total = data.item.items?.length ?? 0
+      const completed = data.item.items?.filter(item => item?.completed).length ?? 0
+      return `Todo updated: ${completed}/${total}`
+    }
+    case 'error':
+      return `Error: ${truncate(data.item.message ?? '', 160)}`
+    default:
+      return null
+  }
+}
+
+const renderTranscriptLineFromMessage = (message: CodexUIMessage) => {
+  const role = message.role === 'assistant' ? 'Assistant' : 'User'
+  const segments: string[] = []
+
+  for (const part of message.parts ?? []) {
+    if (part.type === 'text' && typeof part.text === 'string') {
+      const text = truncate(part.text, 180)
+      if (text) {
+        segments.push(text)
+      }
+      continue
+    }
+
+    if (part.type === 'reasoning' && typeof part.text === 'string') {
+      const summary = formatTelegramReasoningSummary(part.text)
+      if (summary) {
+        segments.push(summary)
+      }
+      continue
+    }
+
+    if (part.type === CODEX_ITEM_PART && typeof part.data === 'object' && part.data) {
+      const summary = formatTelegramItemSummary(part.data as CodexItemData)
+      if (summary) {
+        segments.push(summary)
+      }
+    }
+  }
+
+  if (segments.length === 0) {
+    return null
+  }
+
+  return `${role}: ${segments.join(' | ')}`
+}
+
+const buildCarryoverTranscript = (messages: CodexUIMessage[]) => {
+  const lines = messages
+    .map(renderTranscriptLineFromMessage)
+    .filter((value): value is string => Boolean(value))
+
+  return lines.slice(-30).join('\n')
+}
+
+const normalizeCarryoverSummary = (value: string) => {
+  const lines = value
+    .split('\n')
+    .map(line => line.replace(/^[-*\d.\s]+/, '').trim())
+    .filter(Boolean)
+    .slice(0, 10)
+  if (lines.length === 0) {
+    return ''
+  }
+  return lines.map(line => `- ${truncate(line, 180)}`).join('\n')
+}
+
+const buildCarryoverInputPrefix = (summary: string) => {
+  return [
+    '[Telegram session carry-over]',
+    'Continue the conversation naturally using this compact context from the previous Telegram thread.',
+    'Do not mention that this summary was injected unless the user asks.',
+    summary
+  ].join('\n')
+}
+
+const generateCarryoverSummary = async (threadId: string) => {
+  const messages = loadThreadMessages(threadId) ?? []
+  if (messages.length === 0) {
+    return null
+  }
+
+  const transcript = buildCarryoverTranscript(messages)
+  if (!transcript) {
+    return null
+  }
+
+  const prompt = [
+    'Summarize this Telegram-origin Corazon thread for seamless continuation.',
+    'Return at most 6 bullet lines.',
+    'Keep only ongoing intent, relevant facts, recent decisions, unfinished work, and user preferences.',
+    'Avoid quoting long passages or mentioning internal tooling unless it matters to the next turn.',
+    '',
+    transcript
+  ].join('\n')
+
+  const thread = getSummaryCodex().startThread({
+    model: CARRYOVER_MODEL,
+    modelReasoningEffort: 'low',
+    workingDirectory: CARRYOVER_WORKDIR,
+    skipGitRepoCheck: true
+  })
+  const result = await thread.run(prompt)
+  const summary = normalizeCarryoverSummary(result.finalResponse ?? '')
+  return summary || null
+}
+
+const resolveSessionReplyToMessageId = (sessionId: string, fallbackReplyToMessageId: number) =>
+  getTelegramSessionById(sessionId)?.lastInboundMessageId ?? fallbackReplyToMessageId
+
+const sendSessionTelegramMessage = async (input: {
+  sessionId: string
+  botToken: string
+  chatId: string
+  text: string
+  fallbackReplyToMessageId: number
+  kind: string
+}) => {
+  const text = input.text.trim()
+  if (!text) {
+    return null
+  }
+
+  const result = await sendTelegramMessage({
+    botToken: input.botToken,
+    chatId: input.chatId,
+    text: truncate(text, TELEGRAM_TEXT_MAX_LENGTH),
+    replyToMessageId: resolveSessionReplyToMessageId(input.sessionId, input.fallbackReplyToMessageId)
+  })
+
+  recordTelegramSessionOutbound({
+    sessionId: input.sessionId,
+    messageId: result.message_id,
+    kind: input.kind
+  })
+
+  return result.message_id
+}
+
+const resolveThreadRunOwnership = async (threadId: string | null, telegramOwnedRunId: string | null) => {
+  if (!threadId) {
+    return { kind: 'none' as const, runId: null }
+  }
+
+  const activeRunId = getThreadActiveRun(threadId)
+  if (!activeRunId) {
+    return { kind: 'none' as const, runId: null }
+  }
+
+  const stillRunning = await resolveActiveRunStillRunning(activeRunId)
+  if (!stillRunning) {
+    clearThreadActiveRun(threadId, activeRunId)
+    return { kind: 'none' as const, runId: null }
+  }
+
+  if (telegramOwnedRunId && activeRunId === telegramOwnedRunId) {
+    return { kind: 'telegram' as const, runId: activeRunId }
+  }
+
+  return { kind: 'other' as const, runId: activeRunId }
 }
 
 const processTelegramWorkflowRun = async (input: {
@@ -94,10 +348,60 @@ const processTelegramWorkflowRun = async (input: {
   sessionId: string
   botToken: string
   chatId: string
-  replyToMessageId: number
+  fallbackReplyToMessageId: number
 }) => {
   const reader = input.run.readable.getReader()
   const textBuffer = new Map<string, string>()
+  const reasoningBuffer = new Map<string, string>()
+  let activityMessageId: number | null = null
+  let activityLines: string[] = []
+  let activityText = ''
+
+  const resetActivity = () => {
+    activityMessageId = null
+    activityLines = []
+    activityText = ''
+  }
+
+  const pushActivityLine = async (line: string) => {
+    const normalized = line.trim()
+    if (!normalized) {
+      return
+    }
+
+    activityLines = [...activityLines, normalized].slice(-TELEGRAM_ACTIVITY_MAX_LINES)
+    const nextText = activityLines.join('\n')
+    if (!nextText || nextText === activityText) {
+      return
+    }
+
+    if (activityMessageId != null) {
+      await editTelegramMessageText({
+        botToken: input.botToken,
+        chatId: input.chatId,
+        messageId: activityMessageId,
+        text: nextText
+      })
+      recordTelegramSessionOutbound({
+        sessionId: input.sessionId,
+        messageId: activityMessageId,
+        kind: 'activity'
+      })
+      activityText = nextText
+      return
+    }
+
+    const messageId = await sendSessionTelegramMessage({
+      sessionId: input.sessionId,
+      botToken: input.botToken,
+      chatId: input.chatId,
+      text: nextText,
+      fallbackReplyToMessageId: input.fallbackReplyToMessageId,
+      kind: 'activity'
+    })
+    activityMessageId = messageId
+    activityText = nextText
+  }
 
   try {
     while (true) {
@@ -117,23 +421,29 @@ const processTelegramWorkflowRun = async (input: {
       }
 
       if (isEventChunk(value) && value.data.kind === 'turn.failed') {
+        resetActivity()
         const message = value.data.error?.message?.trim() || 'Telegram turn failed.'
-        await sendTelegramMessage({
+        await sendSessionTelegramMessage({
+          sessionId: input.sessionId,
           botToken: input.botToken,
           chatId: input.chatId,
           text: `Error: ${message}`,
-          replyToMessageId: input.replyToMessageId
+          fallbackReplyToMessageId: input.fallbackReplyToMessageId,
+          kind: 'error'
         })
         continue
       }
 
       if (value.type === 'error') {
+        resetActivity()
         const message = value.errorText?.trim() || 'Telegram turn failed.'
-        await sendTelegramMessage({
+        await sendSessionTelegramMessage({
+          sessionId: input.sessionId,
           botToken: input.botToken,
           chatId: input.chatId,
           text: `Error: ${message}`,
-          replyToMessageId: input.replyToMessageId
+          fallbackReplyToMessageId: input.fallbackReplyToMessageId,
+          kind: 'error'
         })
         continue
       }
@@ -155,12 +465,44 @@ const processTelegramWorkflowRun = async (input: {
         if (!text) {
           continue
         }
-        await sendTelegramMessage({
+        resetActivity()
+        await sendSessionTelegramMessage({
+          sessionId: input.sessionId,
           botToken: input.botToken,
           chatId: input.chatId,
           text,
-          replyToMessageId: input.replyToMessageId
+          fallbackReplyToMessageId: input.fallbackReplyToMessageId,
+          kind: 'text'
         })
+        continue
+      }
+
+      if (value.type === 'reasoning-start') {
+        reasoningBuffer.set(value.id, '')
+        continue
+      }
+
+      if (value.type === 'reasoning-delta') {
+        const previous = reasoningBuffer.get(value.id) ?? ''
+        reasoningBuffer.set(value.id, `${previous}${value.delta}`)
+        continue
+      }
+
+      if (value.type === 'reasoning-end') {
+        const reasoning = reasoningBuffer.get(value.id) ?? ''
+        reasoningBuffer.delete(value.id)
+        const summary = formatTelegramReasoningSummary(reasoning)
+        if (summary) {
+          await pushActivityLine(summary)
+        }
+        continue
+      }
+
+      if (isItemChunk(value)) {
+        const summary = formatTelegramItemSummary(value.data)
+        if (summary) {
+          await pushActivityLine(summary)
+        }
       }
     }
 
@@ -174,11 +516,14 @@ const processTelegramWorkflowRun = async (input: {
       errorMessage: message
     })
     try {
-      await sendTelegramMessage({
+      resetActivity()
+      await sendSessionTelegramMessage({
+        sessionId: input.sessionId,
         botToken: input.botToken,
         chatId: input.chatId,
         text: `Error: ${message}`,
-        replyToMessageId: input.replyToMessageId
+        fallbackReplyToMessageId: input.fallbackReplyToMessageId,
+        kind: 'error'
       })
     } catch (sendError) {
       console.error('[telegram] failed to report run error:', sendError)
@@ -197,26 +542,59 @@ const resolveActiveRunStillRunning = async (runId: string) => {
   }
 }
 
-const handleTelegramTextMessage = async (settings: ReturnType<typeof readTelegramSettings>, message: TelegramMessage) => {
+const handleTelegramTextMessage = async (
+  settings: ReturnType<typeof readTelegramSettings>,
+  message: TelegramMessage
+) => {
   const latestSession = getLatestTelegramSession(settings.chatId)
   const route = resolveTelegramSessionRoute(latestSession, settings.idleTimeoutMinutes)
+  const userMessage = toTelegramUserMessage(message)
 
-  if (route.kind === 'reuse' && route.session.activeRunId) {
-    const stillRunning = await resolveActiveRunStillRunning(route.session.activeRunId)
-    if (stillRunning) {
-      await sendTelegramMessage({
+  if (route.kind === 'reuse') {
+    recordTelegramSessionInbound({
+      sessionId: route.session.id,
+      messageId: message.message_id
+    })
+
+    const ownership = await resolveThreadRunOwnership(route.session.threadId, route.session.activeRunId)
+    if (ownership.kind === 'telegram' && ownership.runId) {
+      try {
+        await steerChatTurnControl({
+          runId: ownership.runId,
+          threadId: route.session.threadId,
+          message: userMessage
+        })
+        return
+      } catch (error) {
+        const errorMessage = formatTelegramApiError(error)
+        await sendSessionTelegramMessage({
+          sessionId: route.session.id,
+          botToken: settings.botToken,
+          chatId: settings.chatId,
+          text: `Busy: ${errorMessage}`,
+          fallbackReplyToMessageId: message.message_id,
+          kind: 'error'
+        })
+        return
+      }
+    }
+
+    if (ownership.kind === 'other') {
+      await sendSessionTelegramMessage({
+        sessionId: route.session.id,
         botToken: settings.botToken,
         chatId: settings.chatId,
-        text: 'A Telegram turn is already running. Wait for it to finish before sending the next message.',
-        replyToMessageId: message.message_id
+        text: 'This thread is currently busy from the web. Wait for completion before sending a Telegram follow-up.',
+        fallbackReplyToMessageId: message.message_id,
+        kind: 'error'
       })
       return
     }
-
-    finalizeTelegramSessionRun({
-      sessionId: route.session.id
-    })
   }
+
+  const carryoverSummary = route.kind === 'rollover' && route.previousSession.threadId
+    ? await generateCarryoverSummary(route.previousSession.threadId)
+    : null
 
   const session = route.kind === 'reuse'
     ? route.session
@@ -225,7 +603,9 @@ const handleTelegramTextMessage = async (settings: ReturnType<typeof readTelegra
         chatId: settings.chatId,
         lastInboundMessageId: message.message_id,
         startedAt: Date.now(),
-        lastInboundAt: Date.now()
+        lastInboundAt: Date.now(),
+        carryoverSummary,
+        status: 'active'
       })
 
   if (!session) {
@@ -240,11 +620,15 @@ const handleTelegramTextMessage = async (settings: ReturnType<typeof readTelegra
   const existingMessages = session.threadId
     ? (loadThreadMessages(session.threadId) ?? [])
     : []
-  const userMessage = toTelegramUserMessage(message)
   const nextMessages = [...existingMessages, userMessage as unknown as CodexUIMessage]
+  const inputPrefix = carryoverSummary ? buildCarryoverInputPrefix(carryoverSummary) : null
   const run = await start(codexChatTurnWorkflow, [{
     threadId: session.threadId,
     resume: Boolean(session.threadId),
+    origin: 'telegram',
+    originChannelId: settings.chatId,
+    streamMode: 'telegram',
+    inputPrefix,
     messages: nextMessages
   }])
 
@@ -255,7 +639,7 @@ const handleTelegramTextMessage = async (settings: ReturnType<typeof readTelegra
     sessionId: session.id,
     botToken: settings.botToken,
     chatId: settings.chatId,
-    replyToMessageId: message.message_id
+    fallbackReplyToMessageId: message.message_id
   })
 }
 

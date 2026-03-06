@@ -15,6 +15,8 @@ export default defineEventHandler(async (event: H3Event) => {
       : null,
     skipGitRepoCheck: body?.skipGitRepoCheck === true,
     model: typeof body?.model === 'string' ? body.model : null,
+    origin: 'web',
+    streamMode: 'web',
     messages: Array.isArray(body?.messages)
       ? (body.messages as CodexUIMessage[])
       : []

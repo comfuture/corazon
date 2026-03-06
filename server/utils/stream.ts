@@ -187,6 +187,7 @@ type ThreadEventHandlerOptions = {
   onTurnCompleted?: (usage: Usage) => void
   buildTurnCompletedData?: (usage: Usage) => CodexThreadEventData
   getReasoningEndMetadata?: (reasoningId: string) => ProviderMetadata | undefined
+  emitProgressItems?: boolean
 }
 
 const isTransientEvent = (data: CodexThreadEventData) =>
@@ -201,6 +202,7 @@ export const createThreadEventHandler = (
   const reasoningState = createTextState()
   const textState = createTextState()
   let eventIndex = 0
+  const emitProgressItems = options.emitProgressItems !== false
 
   const writeThreadEvent = (data: CodexThreadEventData) => {
     eventIndex += 1
@@ -277,6 +279,9 @@ export const createThreadEventHandler = (
 
       const itemData = toItemData(item)
       if (itemData) {
+        if (!emitProgressItems && !done) {
+          return
+        }
         writeItemData(itemData, item.id)
       }
     }

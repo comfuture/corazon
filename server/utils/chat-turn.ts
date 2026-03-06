@@ -18,11 +18,13 @@ import {
   ensureThreadAttachmentsDirectory,
   ensureThreadRootDirectory,
   ensureThreadWorkingDirectory,
+  getThreadOrigin,
   getPendingAttachmentsDirectory,
   getThreadConfig,
   getThreadTitle,
   recordThreadUsage,
   saveThreadMessages,
+  setThreadOrigin,
   setThreadActiveRun,
   setThreadModel,
   setThreadTitle
@@ -184,6 +186,26 @@ const prependRoutingHint = (input: CodexInput, userText: string): CodexInput => 
   return input
 }
 
+const prependInputPrefix = (input: CodexInput, prefix: string): CodexInput => {
+  const normalizedPrefix = prefix.trim()
+  if (!normalizedPrefix) {
+    return input
+  }
+
+  if (typeof input === 'string') {
+    return `${normalizedPrefix}\n\n${input}`
+  }
+
+  if (Array.isArray(input)) {
+    return [
+      { type: 'text', text: `${normalizedPrefix}\n\nCurrent user message follows:` },
+      ...input
+    ]
+  }
+
+  return input
+}
+
 const isFileUrl = (value: string) => value.startsWith('file://')
 
 const stripFileUrl = (value: string) => value.replace(/^file:\/\//, '')
@@ -314,6 +336,12 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
     : null
   const skipGitRepoCheck = input.skipGitRepoCheck === true
   const requestedModel = resolveModel(input.model)
+  const inputPrefix = typeof input.inputPrefix === 'string' ? input.inputPrefix : ''
+  const origin = input.origin === 'telegram' || input.origin === 'web' ? input.origin : null
+  const originChannelId = typeof input.originChannelId === 'string' && input.originChannelId.trim()
+    ? input.originChannelId.trim()
+    : null
+  const streamMode = input.streamMode === 'telegram' ? 'telegram' : 'web'
   const messages = Array.isArray(input.messages) ? input.messages : []
   const workflowRunId = typeof input.workflowRunId === 'string' && input.workflowRunId.length > 0
     ? input.workflowRunId
@@ -377,7 +405,7 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
         }
 
         const inputMessage = prependRoutingHint(
-          buildCodexInput(messages),
+          prependInputPrefix(buildCodexInput(messages), inputPrefix),
           getLatestUserText(messages)
         )
 
@@ -395,6 +423,12 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
             ensureThread(startedThreadId)
             const workingDirectory = ensureThreadWorkingDirectory(startedThreadId)
             setThreadModel(startedThreadId, requestedModel)
+            const existingOrigin = getThreadOrigin(startedThreadId)
+            if (origin === 'telegram') {
+              setThreadOrigin(startedThreadId, 'telegram', originChannelId)
+            } else if (origin === 'web' && !existingOrigin?.origin) {
+              setThreadOrigin(startedThreadId, 'web')
+            }
             if (workflowRunId) {
               updateRuntimeTurnControlThreadId(workflowRunId, startedThreadId)
               setThreadActiveRun(startedThreadId, workflowRunId)
@@ -434,7 +468,8 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
             return {
               thinkingDurationMs: { value: duration }
             }
-          }
+          },
+          emitProgressItems: streamMode !== 'telegram'
         })
 
         const { events } = await thread.runStreamed(inputMessage)
