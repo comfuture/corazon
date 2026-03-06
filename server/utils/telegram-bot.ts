@@ -1,3 +1,5 @@
+import { request as httpsRequest } from 'node:https'
+
 type TelegramApiOk<T> = {
   ok: true
   result: T
@@ -47,22 +49,51 @@ const toTelegramApiUrl = (botToken: string, method: string) =>
 const toErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
 
-const requestTelegramApi = async <T>(botToken: string, method: string, body: Record<string, unknown>) => {
-  const response = await fetch(toTelegramApiUrl(botToken, method), {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify(body)
+const requestTelegramApiRaw = (botToken: string, method: string, body: Record<string, unknown>) =>
+  new Promise<{ statusCode: number, raw: string }>((resolve, reject) => {
+    const url = new URL(toTelegramApiUrl(botToken, method))
+    const payload = JSON.stringify(body)
+    const request = httpsRequest({
+      protocol: url.protocol,
+      hostname: url.hostname,
+      path: `${url.pathname}${url.search}`,
+      method: 'POST',
+      family: 4,
+      headers: {
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(payload)
+      }
+    }, (response) => {
+      let raw = ''
+      response.setEncoding('utf8')
+      response.on('data', (chunk) => {
+        raw += chunk
+      })
+      response.on('end', () => {
+        resolve({
+          statusCode: response.statusCode ?? 500,
+          raw
+        })
+      })
+    })
+
+    request.setTimeout(30_000, () => {
+      request.destroy(new Error('Telegram API request timed out'))
+    })
+    request.on('error', reject)
+    request.write(payload)
+    request.end()
   })
 
-  const payload = await response.json() as TelegramApiOk<T> | TelegramApiError
+const requestTelegramApi = async <T>(botToken: string, method: string, body: Record<string, unknown>) => {
+  const { statusCode, raw } = await requestTelegramApiRaw(botToken, method, body)
+  const payload = JSON.parse(raw) as TelegramApiOk<T> | TelegramApiError
 
-  if (!response.ok || !payload || payload.ok !== true) {
+  if (statusCode >= 400 || !payload || payload.ok !== true) {
     const description = !payload || payload.ok === true
-      ? `Telegram API request failed: ${response.status}`
+      ? `Telegram API request failed: ${statusCode}`
       : payload.description
-    throw new Error(description || `Telegram API request failed: ${response.status}`)
+    throw new Error(description || `Telegram API request failed: ${statusCode}`)
   }
 
   return payload.result
