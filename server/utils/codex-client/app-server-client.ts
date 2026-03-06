@@ -151,6 +151,13 @@ const NATIVE_TOOL_PRIORITY_DEVELOPER_INSTRUCTIONS = [
   '- Do not call `manage-workflows` or `shared-memory` skills preemptively. Use them only as explicit fallback after a dynamic tool failure.'
 ].join('\n')
 
+const mergeDeveloperInstructions = (value?: string | null) => {
+  const custom = typeof value === 'string' ? value.trim() : ''
+  return custom
+    ? `${NATIVE_TOOL_PRIORITY_DEVELOPER_INSTRUCTIONS}\n\n${custom}`
+    : NATIVE_TOOL_PRIORITY_DEVELOPER_INSTRUCTIONS
+}
+
 const toThreadConfig = (options: CodexThreadOptions) => {
   const config: Record<string, unknown> = {}
 
@@ -616,7 +623,7 @@ class AppServerThreadClient implements CodexThreadClient {
         approvalPolicy: toApprovalPolicy(this.options.approvalPolicy),
         sandbox: toSandboxMode(this.options.sandboxMode),
         config: toThreadConfig(this.options),
-        developerInstructions: NATIVE_TOOL_PRIORITY_DEVELOPER_INSTRUCTIONS,
+        developerInstructions: mergeDeveloperInstructions(this.options.developerInstructions),
         dynamicTools: getNativeDynamicToolSpecs(),
         experimentalRawEvents: false,
         persistExtendedHistory: false
@@ -636,7 +643,7 @@ class AppServerThreadClient implements CodexThreadClient {
       approvalPolicy: toApprovalPolicy(this.options.approvalPolicy),
       sandbox: toSandboxMode(this.options.sandboxMode),
       config: toThreadConfig(this.options),
-      developerInstructions: NATIVE_TOOL_PRIORITY_DEVELOPER_INSTRUCTIONS,
+      developerInstructions: mergeDeveloperInstructions(this.options.developerInstructions),
       persistExtendedHistory: false
     })
   }

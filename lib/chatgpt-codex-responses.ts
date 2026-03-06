@@ -364,6 +364,20 @@ export const compactChatgptCodexInputWindow = async (
   }
 }
 
+const normalizeRecoveredSummary = (value: string, maxLines = 6) => {
+  const lines = value
+    .split('\n')
+    .map(line => line.replace(/^[-*\d.\s]+/, '').trim())
+    .filter(Boolean)
+    .slice(0, maxLines)
+
+  if (lines.length === 0) {
+    return ''
+  }
+
+  return lines.map(line => `- ${line}`).join('\n')
+}
+
 const extractResponseId = (value: JsonValue | string | null) => {
   if (!value || typeof value === 'string' || Array.isArray(value)) {
     return null
@@ -434,6 +448,56 @@ export const runChatgptCodexTextResponse = async (
     firstEventAt,
     firstTextAt
   }
+}
+
+export const recoverChatgptCodexCompactionSummary = async (input: {
+  model: string
+  compactedWindow: ChatgptCodexInputItem[]
+  authPath?: string
+  maxBulletLines?: number
+}) => {
+  const result = await runChatgptCodexTextResponse({
+    model: input.model,
+    authPath: input.authPath,
+    instructions: [
+      'You are generating a short carry-over memory for a different agent runtime.',
+      'Summarize the important prior conversation context into concise bullet lines.',
+      'Keep only ongoing intent, key constraints, prior decisions, user preferences, and unfinished work.',
+      'Do not mention compaction, hidden context, encryption, or implementation details unless they matter.',
+      'Reply in plain text bullets only.'
+    ].join('\n'),
+    input: [
+      ...input.compactedWindow,
+      ...createSimpleChatgptCodexInput(
+        'Summarize the important prior conversation context for handoff to another agent runtime.'
+      )
+    ],
+    reasoningEffort: 'low'
+  })
+
+  const summary = normalizeRecoveredSummary(result.outputText, input.maxBulletLines ?? 6)
+  if (!summary) {
+    throw new Error('Recovered compaction summary was empty.')
+  }
+
+  return {
+    summary,
+    response: result
+  }
+}
+
+export const buildRecoveredConversationDeveloperInstructions = (summary: string) => {
+  const normalized = summary.trim()
+  if (!normalized) {
+    return ''
+  }
+
+  return [
+    '[Recovered prior conversation summary]',
+    'The following summary comes from a previous conversation and should be treated as carry-over context for this new harness.',
+    'Use it when interpreting the next user request, but do not mention this summary unless the user asks or it is necessary for correctness.',
+    normalized
+  ].join('\n')
 }
 
 export const formatChatgptCodexResponsesError = (error: unknown) => toErrorMessage(error)

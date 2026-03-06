@@ -206,6 +206,12 @@ const prependInputPrefix = (input: CodexInput, prefix: string): CodexInput => {
   return input
 }
 
+const mergeInputPrefixes = (...prefixes: Array<string | null | undefined>) =>
+  prefixes
+    .map(prefix => prefix?.trim() ?? '')
+    .filter(Boolean)
+    .join('\n\n')
+
 const isFileUrl = (value: string) => value.startsWith('file://')
 
 const stripFileUrl = (value: string) => value.replace(/^file:\/\//, '')
@@ -337,6 +343,9 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
   const skipGitRepoCheck = input.skipGitRepoCheck === true
   const requestedModel = resolveModel(input.model)
   const inputPrefix = typeof input.inputPrefix === 'string' ? input.inputPrefix : ''
+  const harnessInstructions = typeof input.harnessInstructions === 'string'
+    ? input.harnessInstructions.trim()
+    : ''
   const origin = input.origin === 'telegram' || input.origin === 'web' ? input.origin : null
   const originChannelId = typeof input.originChannelId === 'string' && input.originChannelId.trim()
     ? input.originChannelId.trim()
@@ -377,6 +386,7 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
 
       try {
         const thread = (() => {
+          const developerInstructions = harnessInstructions || undefined
           if (threadId && hasRuntimeThread(threadId)) {
             return getRuntimeThread(threadId)!
           }
@@ -384,7 +394,8 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
             const resumed = codex.resumeThread(threadId, {
               workingDirectory: existingWorkdir ?? baseWorkdir,
               model: effectiveModel,
-              skipGitRepoCheck
+              skipGitRepoCheck,
+              developerInstructions
             })
             setRuntimeThread(threadId, resumed)
             return resumed
@@ -392,7 +403,8 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
           return codex.startThread({
             workingDirectory: baseWorkdir,
             model: requestedModel,
-            skipGitRepoCheck
+            skipGitRepoCheck,
+            developerInstructions
           })
         })()
 
@@ -404,8 +416,12 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
           })
         }
 
+        const effectiveInputPrefix = codex.mode === 'sdk'
+          ? mergeInputPrefixes(harnessInstructions, inputPrefix)
+          : inputPrefix
+
         const inputMessage = prependRoutingHint(
-          prependInputPrefix(buildCodexInput(messages), inputPrefix),
+          prependInputPrefix(buildCodexInput(messages), effectiveInputPrefix),
           getLatestUserText(messages)
         )
 
@@ -436,7 +452,8 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
             const resumed = codex.resumeThread(startedThreadId, {
               workingDirectory,
               model: requestedModel,
-              skipGitRepoCheck
+              skipGitRepoCheck,
+              developerInstructions: harnessInstructions || undefined
             })
             setRuntimeThread(startedThreadId, resumed)
           },

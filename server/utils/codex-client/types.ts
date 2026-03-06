@@ -12,7 +12,9 @@ export type CodexInput = Input
 export type CodexThreadEvent = ThreadEvent
 export type CodexThreadItem = ThreadItem
 export type CodexUsage = Usage
-export type CodexThreadOptions = ThreadOptions
+export type CodexThreadOptions = ThreadOptions & {
+  developerInstructions?: string | null
+}
 export type CodexTurnOptions = TurnOptions
 export type CodexTurn = RunResult
 export type CodexThreadControlResult = {

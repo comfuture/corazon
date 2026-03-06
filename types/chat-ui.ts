@@ -87,6 +87,7 @@ export type CodexChatWorkflowInput = {
   originChannelId?: string | null
   streamMode?: 'web' | 'telegram' | null
   inputPrefix?: string | null
+  harnessInstructions?: string | null
   messages: CodexUIMessage[]
   workflowRunId?: string | null
 }

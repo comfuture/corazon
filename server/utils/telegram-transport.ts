@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { start, getRun } from 'workflow/api'
 import type { UIMessageChunk } from 'ai'
 import {
+  buildRecoveredConversationDeveloperInstructions,
   createSimpleChatgptCodexInput,
   runChatgptCodexTextResponse
 } from '@@/lib/chatgpt-codex-responses'
@@ -327,15 +328,6 @@ const normalizeCarryoverSummary = (value: string) => {
     return ''
   }
   return lines.map(line => `- ${truncate(line, 180)}`).join('\n')
-}
-
-const buildCarryoverInputPrefix = (summary: string) => {
-  return [
-    '[Telegram session carry-over]',
-    'Continue the conversation naturally using this compact context from the previous Telegram thread.',
-    'Do not mention that this summary was injected unless the user asks.',
-    summary
-  ].join('\n')
 }
 
 const generateTelegramSessionSummary = async (threadId: string) => {
@@ -1111,7 +1103,9 @@ const handleTelegramTextMessage = async (
     ? (loadThreadMessages(session.threadId) ?? [])
     : []
   const nextMessages = [...existingMessages, userMessage as unknown as CodexUIMessage]
-  const inputPrefix = carryoverSummary ? buildCarryoverInputPrefix(carryoverSummary) : null
+  const harnessInstructions = carryoverSummary
+    ? buildRecoveredConversationDeveloperInstructions(carryoverSummary)
+    : null
   stopTelegramTypingController(settings.chatId)
   const run = await start(codexChatTurnWorkflow, [{
     threadId: session.threadId,
@@ -1119,7 +1113,7 @@ const handleTelegramTextMessage = async (
     origin: 'telegram',
     originChannelId: settings.chatId,
     streamMode: 'telegram',
-    inputPrefix,
+    harnessInstructions,
     messages: nextMessages
   }])
 
