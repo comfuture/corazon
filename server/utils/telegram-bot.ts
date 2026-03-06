@@ -45,6 +45,8 @@ type TelegramSendMessageResult = {
   message_id: number
 }
 
+type TelegramBooleanResult = true
+
 const TELEGRAM_API_BASE = 'https://api.telegram.org'
 
 const toTelegramApiUrl = (botToken: string, method: string) =>
@@ -165,6 +167,21 @@ export const sendTelegramMessage = async (input: {
       disable_web_page_preview: input.disableWebPagePreview ?? true,
       reply_to_message_id: input.replyToMessageId ?? undefined,
       allow_sending_without_reply: true
+    }
+  })
+}
+
+export const sendTelegramChatAction = async (input: {
+  botToken: string
+  chatId: string
+  action: 'typing'
+}) => {
+  return requestTelegramApi<TelegramBooleanResult>({
+    botToken: input.botToken,
+    method: 'sendChatAction',
+    body: {
+      chat_id: input.chatId,
+      action: input.action
     }
   })
 }

@@ -32,6 +32,7 @@ import { resolveTelegramSessionRoute } from './telegram-session.ts'
 import {
   formatTelegramApiError,
   getTelegramDisplayName,
+  sendTelegramChatAction,
   getTelegramUpdates,
   isTelegramBotMessage,
   isTelegramEditedUpdate,
@@ -51,6 +52,7 @@ const TELEGRAM_STATE_KEY = 'default'
 const TELEGRAM_TEXT_MAX_LENGTH = 3500
 const TELEGRAM_STEER_RETRY_ATTEMPTS = 5
 const TELEGRAM_STEER_RETRY_MS = 300
+const TELEGRAM_TYPING_REFRESH_MS = 4000
 const CARRYOVER_MODEL = 'gpt-5.1-codex-mini'
 const CARRYOVER_WORKDIR = '/tmp'
 
@@ -392,6 +394,72 @@ const sendSessionTelegramMessage = async (input: {
   return result.message_id
 }
 
+const createTelegramTypingController = (input: {
+  botToken: string
+  chatId: string
+}) => {
+  let active = false
+  let stopped = false
+  let timer: ReturnType<typeof setTimeout> | null = null
+
+  const clearTimer = () => {
+    if (!timer) {
+      return
+    }
+    clearTimeout(timer)
+    timer = null
+  }
+
+  const scheduleNext = () => {
+    if (!active || stopped) {
+      return
+    }
+
+    clearTimer()
+    timer = setTimeout(() => {
+      void pulse()
+    }, TELEGRAM_TYPING_REFRESH_MS)
+  }
+
+  const pulse = async () => {
+    if (!active || stopped) {
+      return
+    }
+
+    try {
+      await sendTelegramChatAction({
+        botToken: input.botToken,
+        chatId: input.chatId,
+        action: 'typing'
+      })
+    } catch (error) {
+      console.error('[telegram] typing update failed:', formatTelegramApiError(error))
+    } finally {
+      scheduleNext()
+    }
+  }
+
+  return {
+    start() {
+      if (stopped || active) {
+        return
+      }
+
+      active = true
+      void pulse()
+    },
+    stop() {
+      active = false
+      clearTimer()
+    },
+    dispose() {
+      stopped = true
+      active = false
+      clearTimer()
+    }
+  }
+}
+
 const resolveThreadRunOwnership = async (threadId: string | null, telegramOwnedRunId: string | null) => {
   if (!threadId) {
     return { kind: 'none' as const, runId: null }
@@ -424,8 +492,14 @@ const processTelegramWorkflowRun = async (input: {
 }) => {
   const reader = input.run.readable.getReader()
   const textBuffer = new Map<string, string>()
+  const typing = createTelegramTypingController({
+    botToken: input.botToken,
+    chatId: input.chatId
+  })
 
   try {
+    typing.start()
+
     while (true) {
       const { done, value } = await reader.read()
       if (done) {
@@ -442,7 +516,13 @@ const processTelegramWorkflowRun = async (input: {
         continue
       }
 
+      if (isEventChunk(value) && value.data.kind === 'turn.completed') {
+        typing.stop()
+        continue
+      }
+
       if (isEventChunk(value) && value.data.kind === 'turn.failed') {
+        typing.stop()
         const message = value.data.error?.message?.trim() || 'Telegram turn failed.'
         await sendSessionTelegramMessage({
           sessionId: input.sessionId,
@@ -456,6 +536,7 @@ const processTelegramWorkflowRun = async (input: {
       }
 
       if (value.type === 'error') {
+        typing.stop()
         const message = value.errorText?.trim() || 'Telegram turn failed.'
         await sendSessionTelegramMessage({
           sessionId: input.sessionId,
@@ -485,6 +566,7 @@ const processTelegramWorkflowRun = async (input: {
         if (!text) {
           continue
         }
+        typing.stop()
         await sendSessionTelegramMessage({
           sessionId: input.sessionId,
           botToken: input.botToken,
@@ -501,18 +583,22 @@ const processTelegramWorkflowRun = async (input: {
         || value.type === 'reasoning-delta'
         || value.type === 'reasoning-end'
       ) {
+        typing.start()
         continue
       }
 
       if (isItemChunk(value)) {
+        typing.start()
         continue
       }
     }
 
+    typing.stop()
     finalizeTelegramSessionRun({
       sessionId: input.sessionId
     })
   } catch (error) {
+    typing.stop()
     const message = formatTelegramApiError(error)
     finalizeTelegramSessionRun({
       sessionId: input.sessionId,
@@ -531,6 +617,7 @@ const processTelegramWorkflowRun = async (input: {
       console.error('[telegram] failed to report run error:', sendError)
     }
   } finally {
+    typing.dispose()
     reader.releaseLock()
   }
 }
