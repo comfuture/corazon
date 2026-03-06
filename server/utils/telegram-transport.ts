@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { start, getRun } from 'workflow/api'
 import type { UIMessageChunk } from 'ai'
+import {
+  createSimpleChatgptCodexInput,
+  runChatgptCodexTextResponse
+} from '@@/lib/chatgpt-codex-responses'
 import { CODEX_ITEM_PART } from '@@/types/chat-ui'
 import type {
   CodexChatUserMessage,
@@ -60,6 +64,7 @@ const TELEGRAM_STEER_RETRY_ATTEMPTS = 5
 const TELEGRAM_STEER_RETRY_MS = 300
 const TELEGRAM_TYPING_REFRESH_MS = 4000
 const TELEGRAM_ROUTE_CANDIDATE_LIMIT = 5
+const TELEGRAM_ROUTE_TRANSCRIPT_LINE_LIMIT = 12
 const TELEGRAM_RESUME_CONFIDENCE_THRESHOLD = 0.72
 const TELEGRAM_CARRYOVER_CONFIDENCE_THRESHOLD = 0.55
 const TELEGRAM_NEW_CONFIDENCE_THRESHOLD = 0.65
@@ -304,12 +309,12 @@ const renderTranscriptLineFromMessage = (message: CodexUIMessage) => {
   return `${role}: ${segments.join(' | ')}`
 }
 
-const buildCarryoverTranscript = (messages: CodexUIMessage[]) => {
+const buildCarryoverTranscript = (messages: CodexUIMessage[], lineLimit = 30) => {
   const lines = messages
     .map(renderTranscriptLineFromMessage)
     .filter((value): value is string => Boolean(value))
 
-  return lines.slice(-30).join('\n')
+  return lines.slice(-lineLimit).join('\n')
 }
 
 const normalizeCarryoverSummary = (value: string) => {
@@ -419,6 +424,11 @@ type TelegramRouteClassification = {
   reason: string
 }
 
+type TelegramRouteCandidate = {
+  session: TelegramSession
+  transcript: string
+}
+
 const normalizeTelegramRouteConfidence = (value: unknown) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return null
@@ -471,11 +481,7 @@ const parseTelegramRouteClassification = (value: string): TelegramRouteClassific
 
 const classifyTelegramSessionRoute = async (input: {
   messageText: string
-  candidates: Array<{
-    sessionId: string
-    summary: string
-    updatedAt: number
-  }>
+  candidates: TelegramRouteCandidate[]
 }) => {
   if (input.candidates.length === 0) {
     return null
@@ -484,37 +490,39 @@ const classifyTelegramSessionRoute = async (input: {
   const candidatesText = input.candidates
     .map((candidate, index) => [
       `Candidate ${index + 1}`,
-      `sessionId: ${candidate.sessionId}`,
-      `updatedAt: ${new Date(candidate.updatedAt).toISOString()}`,
-      'summary:',
-      candidate.summary
+      `sessionId: ${candidate.session.id}`,
+      `updatedAt: ${new Date(candidate.session.updatedAt).toISOString()}`,
+      'recent transcript:',
+      candidate.transcript
     ].join('\n'))
     .join('\n\n')
 
-  const prompt = [
-    'You route a resumed Telegram conversation for Corazon.',
-    'Decide whether the new message should resume one previous session, start a new session with carry-over from one previous session, or start a brand new unrelated session.',
-    'Choose "resume" only when the new message clearly depends on the previous session context or unfinished work.',
-    'Choose "new" when the message starts an unrelated topic.',
-    'Choose "carryover" when it is probably related, but starting a fresh session with a prepended compact summary is safer than resuming the old session directly.',
-    'Return JSON only.',
-    'Schema:',
-    '{"decision":"resume"|"carryover"|"new"|"unsure","sessionId":"<candidate session id or null>","confidence":0.0,"reason":"short explanation"}',
-    '',
-    'New message:',
-    input.messageText,
-    '',
-    candidatesText
-  ].join('\n')
-
-  const thread = getSummaryCodex().startThread({
-    model: CARRYOVER_MODEL,
-    modelReasoningEffort: 'low',
-    workingDirectory: CARRYOVER_WORKDIR,
-    skipGitRepoCheck: true
-  })
-  const result = await thread.run(prompt)
-  return parseTelegramRouteClassification(result.finalResponse ?? '')
+  try {
+    const result = await runChatgptCodexTextResponse({
+      model: CARRYOVER_MODEL,
+      instructions: [
+        'You route resumed Telegram conversations for Corazon.',
+        'Compare the new user message against each candidate session transcript.',
+        'Choose "resume" only when the new message clearly depends on the exact same prior context or unfinished work.',
+        'Choose "carryover" when the message is probably related, but starting a fresh session with a prepended compact summary is safer than resuming the old session directly.',
+        'Choose "new" when the message starts an unrelated topic.',
+        'Reply with JSON only and no markdown.',
+        'Schema:',
+        '{"decision":"resume"|"carryover"|"new"|"unsure","sessionId":"<candidate session id or null>","confidence":0.0,"reason":"short explanation"}'
+      ].join('\n'),
+      input: createSimpleChatgptCodexInput([
+        'New message:',
+        input.messageText,
+        '',
+        candidatesText
+      ].join('\n')),
+      reasoningEffort: 'low'
+    })
+    return parseTelegramRouteClassification(result.outputText)
+  } catch (error) {
+    console.warn('[telegram] semantic route classification failed:', formatTelegramApiError(error))
+    return null
+  }
 }
 
 const resolveSemanticTelegramSessionRoute = async (input: {
@@ -548,24 +556,28 @@ const resolveSemanticTelegramSessionRoute = async (input: {
     .filter(session => Boolean(session.threadId))
     .slice(0, TELEGRAM_ROUTE_CANDIDATE_LIMIT)
 
-  const candidates = await Promise.all(candidateSessions.map(async (session) => {
-    const summary = await ensureTelegramSessionSummary(session)
-    return summary
-      ? {
-          session,
-          summary
-        }
-      : null
-  }))
+  const resolvedCandidates = candidateSessions
+    .map((session) => {
+      if (!session.threadId) {
+        return null
+      }
 
-  const resolvedCandidates = candidates.filter((value): value is NonNullable<typeof value> => Boolean(value))
+      const messages = loadThreadMessages(session.threadId) ?? []
+      const transcript = buildCarryoverTranscript(messages, TELEGRAM_ROUTE_TRANSCRIPT_LINE_LIMIT)
+      if (!transcript) {
+        return null
+      }
+
+      return {
+        session,
+        transcript
+      }
+    })
+    .filter((value): value is TelegramRouteCandidate => Boolean(value))
+
   const classification = await classifyTelegramSessionRoute({
     messageText: input.messageText,
-    candidates: resolvedCandidates.map(candidate => ({
-      sessionId: candidate.session.id,
-      summary: candidate.summary,
-      updatedAt: candidate.session.updatedAt
-    }))
+    candidates: resolvedCandidates
   })
 
   const matchedCandidate = classification?.sessionId
