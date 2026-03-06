@@ -83,6 +83,7 @@ export type CodexChatWorkflowInput = {
   attachmentUploadId?: string | null
   skipGitRepoCheck?: boolean
   model?: string | null
+  inputPrefix?: string | null
   messages: CodexUIMessage[]
   workflowRunId?: string | null
 }
