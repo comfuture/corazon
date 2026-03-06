@@ -4,7 +4,7 @@ import { Cron } from 'croner'
 import { rrulestr } from 'rrule'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import type { WorkflowDefinition, WorkflowFrontmatter, WorkflowTriggerConfig } from '@@/types/workflow'
-import { resolveCorazonRootDir } from './agent-home'
+import { resolveCorazonRootDir } from './agent-home.ts'
 
 const WORKFLOWS_DIRECTORY = 'workflows'
 const WORKFLOW_FILE_EXTENSION = '.md'
