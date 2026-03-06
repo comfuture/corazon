@@ -62,6 +62,10 @@ export type TelegramSession = {
   lastInboundAt: number
   lastCompletedAt: number | null
   carryoverSummary: string | null
+  sessionSummary: string | null
+  summaryUpdatedAt: number | null
+  resumedFromSessionId: string | null
+  resumeConfidence: number | null
   status: string
   lastError: string | null
   createdAt: number
@@ -138,6 +142,10 @@ type TelegramSessionRow = {
   last_inbound_at: number
   last_completed_at: number | null
   carryover_summary: string | null
+  session_summary: string | null
+  summary_updated_at: number | null
+  resumed_from_session_id: string | null
+  resume_confidence: number | null
   status: string
   last_error: string | null
   created_at: number
@@ -285,6 +293,10 @@ const getDb = () => {
       last_inbound_at INTEGER NOT NULL,
       last_completed_at INTEGER,
       carryover_summary TEXT,
+      session_summary TEXT,
+      summary_updated_at INTEGER,
+      resumed_from_session_id TEXT,
+      resume_confidence REAL,
       status TEXT NOT NULL DEFAULT 'active',
       last_error TEXT,
       created_at INTEGER NOT NULL,
@@ -319,6 +331,9 @@ const getDb = () => {
 
   const columns = db.prepare('PRAGMA table_info(threads)').all() as { name: string }[]
   const hasColumn = (name: string) => columns.some(column => column.name === name)
+  const telegramSessionColumns = db.prepare('PRAGMA table_info(telegram_sessions)').all() as { name: string }[]
+  const hasTelegramSessionColumn = (name: string) =>
+    telegramSessionColumns.some(column => column.name === name)
 
   if (!hasColumn('model')) {
     db.exec('ALTER TABLE threads ADD COLUMN model TEXT')
@@ -354,6 +369,22 @@ const getDb = () => {
 
   if (!hasColumn('memory_sync_error')) {
     db.exec('ALTER TABLE threads ADD COLUMN memory_sync_error TEXT')
+  }
+
+  if (!hasTelegramSessionColumn('session_summary')) {
+    db.exec('ALTER TABLE telegram_sessions ADD COLUMN session_summary TEXT')
+  }
+
+  if (!hasTelegramSessionColumn('summary_updated_at')) {
+    db.exec('ALTER TABLE telegram_sessions ADD COLUMN summary_updated_at INTEGER')
+  }
+
+  if (!hasTelegramSessionColumn('resumed_from_session_id')) {
+    db.exec('ALTER TABLE telegram_sessions ADD COLUMN resumed_from_session_id TEXT')
+  }
+
+  if (!hasTelegramSessionColumn('resume_confidence')) {
+    db.exec('ALTER TABLE telegram_sessions ADD COLUMN resume_confidence REAL')
   }
 
   return db
@@ -775,6 +806,10 @@ const toTelegramSession = (row: TelegramSessionRow): TelegramSession => ({
   lastInboundAt: row.last_inbound_at,
   lastCompletedAt: row.last_completed_at ?? null,
   carryoverSummary: row.carryover_summary ?? null,
+  sessionSummary: row.session_summary ?? null,
+  summaryUpdatedAt: row.summary_updated_at ?? null,
+  resumedFromSessionId: row.resumed_from_session_id ?? null,
+  resumeConfidence: typeof row.resume_confidence === 'number' ? row.resume_confidence : null,
   status: row.status,
   lastError: row.last_error ?? null,
   createdAt: row.created_at,
@@ -1003,6 +1038,10 @@ export const createTelegramSession = (input: {
   lastInboundAt?: number
   lastCompletedAt?: number | null
   carryoverSummary?: string | null
+  sessionSummary?: string | null
+  summaryUpdatedAt?: number | null
+  resumedFromSessionId?: string | null
+  resumeConfidence?: number | null
   status?: string
   lastError?: string | null
 }) => {
@@ -1025,12 +1064,16 @@ export const createTelegramSession = (input: {
         last_inbound_at,
         last_completed_at,
         carryover_summary,
+        session_summary,
+        summary_updated_at,
+        resumed_from_session_id,
+        resume_confidence,
         status,
         last_error,
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
     )
     .run(
@@ -1045,6 +1088,10 @@ export const createTelegramSession = (input: {
       lastInboundAt,
       input.lastCompletedAt ?? null,
       input.carryoverSummary ?? null,
+      input.sessionSummary ?? null,
+      input.summaryUpdatedAt ?? null,
+      input.resumedFromSessionId ?? null,
+      input.resumeConfidence ?? null,
       status,
       input.lastError ?? null,
       startedAt,
@@ -1071,6 +1118,10 @@ export const getTelegramSessionById = (id: string): TelegramSession | null => {
         last_inbound_at,
         last_completed_at,
         carryover_summary,
+        session_summary,
+        summary_updated_at,
+        resumed_from_session_id,
+        resume_confidence,
         status,
         last_error,
         created_at,
@@ -1101,6 +1152,10 @@ export const getLatestTelegramSession = (chatId: string): TelegramSession | null
         last_inbound_at,
         last_completed_at,
         carryover_summary,
+        session_summary,
+        summary_updated_at,
+        resumed_from_session_id,
+        resume_confidence,
         status,
         last_error,
         created_at,
@@ -1114,6 +1169,43 @@ export const getLatestTelegramSession = (chatId: string): TelegramSession | null
     .get(chatId) as TelegramSessionRow | undefined
 
   return row ? toTelegramSession(row) : null
+}
+
+export const loadRecentTelegramSessions = (chatId: string, limit = 5): TelegramSession[] => {
+  const safeLimit = Math.max(1, Math.min(limit, 20))
+  const database = getDb()
+  const rows = database
+    .prepare(
+      `
+      SELECT
+        id,
+        chat_id,
+        thread_id,
+        active_run_id,
+        last_inbound_message_id,
+        last_outbound_message_id,
+        last_outbound_kind,
+        started_at,
+        last_inbound_at,
+        last_completed_at,
+        carryover_summary,
+        session_summary,
+        summary_updated_at,
+        resumed_from_session_id,
+        resume_confidence,
+        status,
+        last_error,
+        created_at,
+        updated_at
+      FROM telegram_sessions
+      WHERE chat_id = ?
+      ORDER BY updated_at DESC, id DESC
+      LIMIT ?
+    `
+    )
+    .all(chatId, safeLimit) as TelegramSessionRow[]
+
+  return rows.map(toTelegramSession)
 }
 
 export const getTelegramSessionByThreadId = (threadId: string): TelegramSession | null => {
@@ -1133,6 +1225,10 @@ export const getTelegramSessionByThreadId = (threadId: string): TelegramSession 
         last_inbound_at,
         last_completed_at,
         carryover_summary,
+        session_summary,
+        summary_updated_at,
+        resumed_from_session_id,
+        resume_confidence,
         status,
         last_error,
         created_at,
@@ -1165,6 +1261,10 @@ export const getTelegramSessionByActiveRun = (runId: string): TelegramSession | 
         last_inbound_at,
         last_completed_at,
         carryover_summary,
+        session_summary,
+        summary_updated_at,
+        resumed_from_session_id,
+        resume_confidence,
         status,
         last_error,
         created_at,
@@ -1279,6 +1379,43 @@ export const setTelegramSessionCarryoverSummary = (
     `
     )
     .run(summary, now, sessionId)
+  return now
+}
+
+export const setTelegramSessionSummary = (input: {
+  sessionId: string
+  summary: string | null
+  summaryUpdatedAt?: number | null
+  resumedFromSessionId?: string | null
+  resumeConfidence?: number | null
+  updatedAt?: number
+}) => {
+  const now = input.updatedAt ?? Date.now()
+  const summaryUpdatedAt = input.summary == null
+    ? null
+    : (input.summaryUpdatedAt ?? now)
+  const database = getDb()
+  database
+    .prepare(
+      `
+      UPDATE telegram_sessions
+      SET
+        session_summary = ?,
+        summary_updated_at = ?,
+        resumed_from_session_id = COALESCE(?, resumed_from_session_id),
+        resume_confidence = COALESCE(?, resume_confidence),
+        updated_at = ?
+      WHERE id = ?
+    `
+    )
+    .run(
+      input.summary,
+      summaryUpdatedAt,
+      input.resumedFromSessionId ?? null,
+      input.resumeConfidence ?? null,
+      now,
+      input.sessionId
+    )
   return now
 }
 

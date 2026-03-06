@@ -14,21 +14,27 @@ import {
   clearThreadActiveRun,
   createTelegramSession,
   finalizeTelegramSessionRun,
-  getLatestTelegramSession,
   getTelegramSessionById,
   getTelegramTransportState,
   getThreadActiveRun,
+  loadRecentTelegramSessions,
   loadThreadMessages,
   recordTelegramSessionInbound,
   recordTelegramSessionOutbound,
   setTelegramSessionActiveRun,
+  setTelegramSessionSummary,
   setThreadOrigin,
   upsertTelegramRecentChat,
   upsertTelegramTransportState
 } from './db.ts'
+import type { TelegramSession } from './db.ts'
 import { readTelegramSettings } from './settings-config.ts'
 import { toTelegramChatCandidateFromMessage } from './telegram-chat-discovery.ts'
-import { resolveTelegramSessionRoute } from './telegram-session.ts'
+import {
+  hasTelegramContinuationHint,
+  isTelegramSessionImmediatelyReusable,
+  type TelegramSessionRouteDecision
+} from './telegram-session.ts'
 import {
   formatTelegramApiError,
   getTelegramDisplayName,
@@ -53,6 +59,10 @@ const TELEGRAM_TEXT_MAX_LENGTH = 3500
 const TELEGRAM_STEER_RETRY_ATTEMPTS = 5
 const TELEGRAM_STEER_RETRY_MS = 300
 const TELEGRAM_TYPING_REFRESH_MS = 4000
+const TELEGRAM_ROUTE_CANDIDATE_LIMIT = 5
+const TELEGRAM_RESUME_CONFIDENCE_THRESHOLD = 0.72
+const TELEGRAM_CARRYOVER_CONFIDENCE_THRESHOLD = 0.55
+const TELEGRAM_NEW_CONFIDENCE_THRESHOLD = 0.65
 const CARRYOVER_MODEL = 'gpt-5.1-codex-mini'
 const CARRYOVER_WORKDIR = '/tmp'
 
@@ -323,7 +333,7 @@ const buildCarryoverInputPrefix = (summary: string) => {
   ].join('\n')
 }
 
-const generateCarryoverSummary = async (threadId: string) => {
+const generateTelegramSessionSummary = async (threadId: string) => {
   const messages = loadThreadMessages(threadId) ?? []
   if (messages.length === 0) {
     return null
@@ -352,6 +362,266 @@ const generateCarryoverSummary = async (threadId: string) => {
   const result = await thread.run(prompt)
   const summary = normalizeCarryoverSummary(result.finalResponse ?? '')
   return summary || null
+}
+
+const ensureTelegramSessionSummary = async (
+  session: Pick<
+    TelegramSession,
+    'id' | 'threadId' | 'sessionSummary' | 'summaryUpdatedAt' | 'lastCompletedAt' | 'lastInboundAt'
+  >
+) => {
+  const lastActivityAt = session.lastCompletedAt ?? session.lastInboundAt ?? null
+  const summaryText = session.sessionSummary?.trim() ?? ''
+  const summaryIsFresh = Boolean(summaryText)
+    && lastActivityAt != null
+    && session.summaryUpdatedAt != null
+    && session.summaryUpdatedAt >= lastActivityAt
+
+  if (summaryIsFresh) {
+    return summaryText
+  }
+
+  if (!session.threadId) {
+    return null
+  }
+
+  const summary = await generateTelegramSessionSummary(session.threadId)
+  if (!summary) {
+    return null
+  }
+
+  setTelegramSessionSummary({
+    sessionId: session.id,
+    summary
+  })
+
+  return summary
+}
+
+const refreshTelegramSessionSummary = async (sessionId: string) => {
+  const session = getTelegramSessionById(sessionId)
+  if (!session?.threadId) {
+    return null
+  }
+
+  const summary = await generateTelegramSessionSummary(session.threadId)
+  setTelegramSessionSummary({
+    sessionId,
+    summary
+  })
+  return summary
+}
+
+type TelegramRouteClassification = {
+  decision: 'resume' | 'carryover' | 'new' | 'unsure'
+  sessionId: string | null
+  confidence: number | null
+  reason: string
+}
+
+const normalizeTelegramRouteConfidence = (value: unknown) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null
+  }
+  return Math.max(0, Math.min(1, value))
+}
+
+const parseTelegramRouteClassification = (value: string): TelegramRouteClassification | null => {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const match = trimmed.match(/\{[\s\S]*\}/)
+  if (!match) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(match[0]) as {
+      decision?: unknown
+      sessionId?: unknown
+      confidence?: unknown
+      reason?: unknown
+    }
+    const decision = parsed.decision
+    if (
+      decision !== 'resume'
+      && decision !== 'carryover'
+      && decision !== 'new'
+      && decision !== 'unsure'
+    ) {
+      return null
+    }
+
+    return {
+      decision,
+      sessionId: typeof parsed.sessionId === 'string' && parsed.sessionId.trim()
+        ? parsed.sessionId.trim()
+        : null,
+      confidence: normalizeTelegramRouteConfidence(parsed.confidence),
+      reason: typeof parsed.reason === 'string' && parsed.reason.trim()
+        ? parsed.reason.trim()
+        : ''
+    }
+  } catch {
+    return null
+  }
+}
+
+const classifyTelegramSessionRoute = async (input: {
+  messageText: string
+  candidates: Array<{
+    sessionId: string
+    summary: string
+    updatedAt: number
+  }>
+}) => {
+  if (input.candidates.length === 0) {
+    return null
+  }
+
+  const candidatesText = input.candidates
+    .map((candidate, index) => [
+      `Candidate ${index + 1}`,
+      `sessionId: ${candidate.sessionId}`,
+      `updatedAt: ${new Date(candidate.updatedAt).toISOString()}`,
+      'summary:',
+      candidate.summary
+    ].join('\n'))
+    .join('\n\n')
+
+  const prompt = [
+    'You route a resumed Telegram conversation for Corazon.',
+    'Decide whether the new message should resume one previous session, start a new session with carry-over from one previous session, or start a brand new unrelated session.',
+    'Choose "resume" only when the new message clearly depends on the previous session context or unfinished work.',
+    'Choose "new" when the message starts an unrelated topic.',
+    'Choose "carryover" when it is probably related, but starting a fresh session with a prepended compact summary is safer than resuming the old session directly.',
+    'Return JSON only.',
+    'Schema:',
+    '{"decision":"resume"|"carryover"|"new"|"unsure","sessionId":"<candidate session id or null>","confidence":0.0,"reason":"short explanation"}',
+    '',
+    'New message:',
+    input.messageText,
+    '',
+    candidatesText
+  ].join('\n')
+
+  const thread = getSummaryCodex().startThread({
+    model: CARRYOVER_MODEL,
+    modelReasoningEffort: 'low',
+    workingDirectory: CARRYOVER_WORKDIR,
+    skipGitRepoCheck: true
+  })
+  const result = await thread.run(prompt)
+  return parseTelegramRouteClassification(result.finalResponse ?? '')
+}
+
+const resolveSemanticTelegramSessionRoute = async (input: {
+  sessions: TelegramSession[]
+  idleTimeoutMinutes: number
+  messageText: string
+  now?: number
+}): Promise<TelegramSessionRouteDecision> => {
+  const now = input.now ?? Date.now()
+  const recentSessions = input.sessions
+  const latestSession = recentSessions[0] ?? null
+
+  if (!latestSession) {
+    return {
+      kind: 'new',
+      reason: 'No previous Telegram session exists.'
+    }
+  }
+
+  if (isTelegramSessionImmediatelyReusable(latestSession, input.idleTimeoutMinutes, now)) {
+    return {
+      kind: 'reuse',
+      session: latestSession,
+      reason: latestSession.activeRunId
+        ? 'Latest Telegram session still has an active run.'
+        : 'Latest Telegram session is still within the idle timeout.'
+    }
+  }
+
+  const candidateSessions = recentSessions
+    .filter(session => Boolean(session.threadId))
+    .slice(0, TELEGRAM_ROUTE_CANDIDATE_LIMIT)
+
+  const candidates = await Promise.all(candidateSessions.map(async (session) => {
+    const summary = await ensureTelegramSessionSummary(session)
+    return summary
+      ? {
+          session,
+          summary
+        }
+      : null
+  }))
+
+  const resolvedCandidates = candidates.filter((value): value is NonNullable<typeof value> => Boolean(value))
+  const classification = await classifyTelegramSessionRoute({
+    messageText: input.messageText,
+    candidates: resolvedCandidates.map(candidate => ({
+      sessionId: candidate.session.id,
+      summary: candidate.summary,
+      updatedAt: candidate.session.updatedAt
+    }))
+  })
+
+  const matchedCandidate = classification?.sessionId
+    ? resolvedCandidates.find(candidate => candidate.session.id === classification.sessionId) ?? null
+    : null
+  const continuationHint = hasTelegramContinuationHint(input.messageText)
+
+  if (
+    classification?.decision === 'resume'
+    && matchedCandidate
+    && (classification.confidence ?? 0) >= TELEGRAM_RESUME_CONFIDENCE_THRESHOLD
+  ) {
+    return {
+      kind: 'reuse',
+      session: matchedCandidate.session,
+      reason: classification.reason || 'Semantic routing matched the previous Telegram session.',
+      confidence: classification.confidence
+    }
+  }
+
+  if (
+    (classification?.decision === 'carryover' || classification?.decision === 'resume')
+    && matchedCandidate
+    && (classification.confidence ?? 0) >= TELEGRAM_CARRYOVER_CONFIDENCE_THRESHOLD
+  ) {
+    return {
+      kind: 'carryover',
+      previousSession: matchedCandidate.session,
+      reason: classification.reason || 'Semantic routing matched related prior context.',
+      confidence: classification.confidence
+    }
+  }
+
+  if (
+    classification?.decision === 'new'
+    && (classification.confidence ?? 0) >= TELEGRAM_NEW_CONFIDENCE_THRESHOLD
+  ) {
+    return {
+      kind: 'new',
+      reason: classification.reason || 'Semantic routing marked the message as a new topic.'
+    }
+  }
+
+  if (continuationHint && latestSession.threadId) {
+    return {
+      kind: 'carryover',
+      previousSession: latestSession,
+      reason: 'Continuation wording suggests related context, but confidence was not high enough for direct resume.',
+      confidence: classification?.confidence ?? null
+    }
+  }
+
+  return {
+    kind: 'new',
+    reason: classification?.reason || 'Message did not confidently match a previous Telegram session.'
+  }
 }
 
 const resolveSessionReplyToMessageId = (
@@ -535,6 +805,8 @@ const processTelegramWorkflowRun = async (input: {
     botToken: input.botToken,
     chatId: input.chatId
   })
+  let turnCompleted = false
+  let turnFailed = false
 
   try {
     typing.start()
@@ -556,11 +828,13 @@ const processTelegramWorkflowRun = async (input: {
       }
 
       if (isEventChunk(value) && value.data.kind === 'turn.completed') {
+        turnCompleted = true
         typing.stop()
         continue
       }
 
       if (isEventChunk(value) && value.data.kind === 'turn.failed') {
+        turnFailed = true
         typing.stop()
         const message = value.data.error?.message?.trim() || 'Telegram turn failed.'
         await sendSessionTelegramMessage({
@@ -575,6 +849,7 @@ const processTelegramWorkflowRun = async (input: {
       }
 
       if (value.type === 'error') {
+        turnFailed = true
         typing.stop()
         const message = value.errorText?.trim() || 'Telegram turn failed.'
         await sendSessionTelegramMessage({
@@ -636,6 +911,11 @@ const processTelegramWorkflowRun = async (input: {
     finalizeTelegramSessionRun({
       sessionId: input.sessionId
     })
+    if (turnCompleted && !turnFailed) {
+      void refreshTelegramSessionSummary(input.sessionId).catch((error) => {
+        console.error('[telegram] failed to refresh session summary:', formatTelegramApiError(error))
+      })
+    }
   } catch (error) {
     typing.stop()
     const message = formatTelegramApiError(error)
@@ -722,8 +1002,13 @@ const handleTelegramTextMessage = async (
   settings: ReturnType<typeof readTelegramSettings>,
   message: TelegramMessage
 ) => {
-  const latestSession = getLatestTelegramSession(settings.chatId)
-  const route = resolveTelegramSessionRoute(latestSession, settings.idleTimeoutMinutes)
+  const messageText = formatTelegramUserText(message)
+  const recentSessions = loadRecentTelegramSessions(settings.chatId, TELEGRAM_ROUTE_CANDIDATE_LIMIT)
+  const route = await resolveSemanticTelegramSessionRoute({
+    sessions: recentSessions,
+    idleTimeoutMinutes: settings.idleTimeoutMinutes,
+    messageText
+  })
   const userMessage = toTelegramUserMessage(message)
   const fallbackReplyToMessageId = shouldReplyInTelegramChat(message)
     ? message.message_id
@@ -748,6 +1033,7 @@ const handleTelegramTextMessage = async (
       }
 
       if (steerResult.kind === 'error') {
+        stopTelegramTypingController(settings.chatId)
         await sendSessionTelegramMessage({
           sessionId: route.session.id,
           botToken: settings.botToken,
@@ -769,6 +1055,7 @@ const handleTelegramTextMessage = async (
     }
 
     if (ownership.kind === 'other') {
+      stopTelegramTypingController(settings.chatId)
       await sendSessionTelegramMessage({
         sessionId: route.session.id,
         botToken: settings.botToken,
@@ -781,8 +1068,8 @@ const handleTelegramTextMessage = async (
     }
   }
 
-  const carryoverSummary = route.kind === 'rollover' && route.previousSession.threadId
-    ? await generateCarryoverSummary(route.previousSession.threadId)
+  const carryoverSummary = route.kind === 'carryover'
+    ? await ensureTelegramSessionSummary(route.previousSession)
     : null
 
   const session = route.kind === 'reuse'
@@ -794,6 +1081,8 @@ const handleTelegramTextMessage = async (
         startedAt: Date.now(),
         lastInboundAt: Date.now(),
         carryoverSummary,
+        resumedFromSessionId: route.kind === 'carryover' ? route.previousSession.id : null,
+        resumeConfidence: route.kind === 'carryover' ? (route.confidence ?? null) : null,
         status: 'active'
       })
 
