@@ -5,6 +5,7 @@ import type { ThreadItem as AppServerThreadItem } from '@@/types/codex-app-serve
 import type { TurnStartResponse } from '@@/types/codex-app-server/v2/TurnStartResponse'
 import type { UserInput as AppServerUserInput } from '@@/types/codex-app-server/v2/UserInput'
 import { AppServerProtocol } from './app-server-protocol.ts'
+import { getNativeDynamicToolSpecs } from './native-tools.ts'
 import type {
   CodexClient,
   CodexClientInitOptions,
@@ -498,6 +499,7 @@ class AppServerThreadClient implements CodexThreadClient {
         approvalPolicy: toApprovalPolicy(this.options.approvalPolicy),
         sandbox: toSandboxMode(this.options.sandboxMode),
         config: toThreadConfig(this.options),
+        dynamicTools: getNativeDynamicToolSpecs(),
         experimentalRawEvents: false,
         persistExtendedHistory: false
       })
