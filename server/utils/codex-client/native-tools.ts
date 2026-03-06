@@ -1072,7 +1072,7 @@ const nativeTools: NativeDynamicTool[] = [
     ],
     spec: {
       name: SHARED_MEMORY_TOOL_NAME,
-      description: 'Native shared memory manager. Commands: ensure, search, upsert.',
+      description: 'Native shared memory manager. Commands: search, upsert, ensure(optional health check).',
       inputSchema: SHARED_MEMORY_TOOL_SCHEMA
     },
     handle: handleSharedMemoryTool
