@@ -21,6 +21,25 @@ export type AgentHomeInfo = {
   authPath: string
 }
 
+export type TelegramSettings = {
+  botToken: string
+  chatId: string
+  idleTimeoutMinutes: number
+  enabled: boolean
+}
+
+export type TelegramSettingsResponse = {
+  telegram: TelegramSettings
+}
+
+export type TelegramSettingsUpdateRequest = {
+  telegram: {
+    botToken?: string
+    chatId?: string
+    idleTimeoutMinutes?: number
+  }
+}
+
 export type SkillSummary = {
   name: string
   path: string

@@ -17,6 +17,12 @@ const items = computed<NavigationMenuItem[][]>(() => [[
     active: route.path.startsWith('/settings/mcp')
   },
   {
+    label: 'Telegram',
+    icon: 'i-lucide-send',
+    to: '/settings/telegram',
+    active: route.path.startsWith('/settings/telegram')
+  },
+  {
     label: 'Skill',
     icon: 'i-lucide-sparkles',
     to: '/settings/skill',
