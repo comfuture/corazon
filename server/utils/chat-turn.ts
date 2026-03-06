@@ -41,8 +41,8 @@ const MODEL_OPTIONS = new Set([
   'gpt-5.2',
   'gpt-5.1-codex-mini'
 ])
-const WORKFLOW_ROUTING_INTENT_PATTERN = /(?:\bworkflow\b|워크플로우|workflow[-\s]?dispatch|스케줄|schedule|cron|rrule|interval|자동화|자동 실행|정기 실행|run every|every\s+\d+\s*(?:sec|min|hour|day|week|month))/i
-const WORKFLOW_MANAGEMENT_ACTION_PATTERN = /(?:생성|만들|작성|추가|등록|수정|업데이트|편집|삭제|지워|목록|리스트|조회|보여줘|create|add|update|edit|delete|remove|list|show|inspect|write)/i
+const WORKFLOW_ROUTING_INTENT_PATTERN = /(?:\bworkflow\b|워크플로우|workflow[-\s]?dispatch|스케줄|schedule|cron|rrule|interval|자동화|자동 실행|정기 실행|반복 실행|run every|every\s+\d+\s*(?:sec|secs|second|seconds|min|mins|minute|minutes|hour|hours|day|days|week|weeks|month|months)|매(일|주|월|년|시간|분)|[0-9]+\s*(초|분|시간|일|주|개월)\s*마다)/i
+const WORKFLOW_MANAGEMENT_ACTION_PATTERN = /(?:생성|만들|작성|추가|등록|수정|업데이트|편집|삭제|지워|목록|리스트|조회|보여줘|실행|보내|알려|요약|리포트|create|add|update|edit|delete|remove|list|show|inspect|write|run|send|notify|remind|summarize|report)/i
 const WORKFLOW_NATIVE_TOOL = 'manageWorkflow'
 const SHARED_MEMORY_NATIVE_TOOL = 'sharedMemory'
 const WORKFLOW_ROUTING_MODE = resolveCodexClientMode(process.env.CORAZON_CODEX_CLIENT_MODE)
@@ -50,14 +50,20 @@ const APP_SERVER_NATIVE_TOOL_PREAMBLE = [
   '[Corazon native tool priority]',
   '- In this thread, assume Corazon dynamic tools are available.',
   '- For Corazon built-ins, use dynamic tools first and do not use skills unless a dynamic tool call fails.',
-  `- For workflow operations, use dynamic tool \`${WORKFLOW_NATIVE_TOOL}\` (list/inspect/create/update/delete/from-text/apply-text).`,
+  '- Treat recurring or automated requests (e.g. every day/weekly/monthly, 정기 실행, 반복 실행) as workflow operations.',
+  `- For workflow operations, use dynamic tool \`${WORKFLOW_NATIVE_TOOL}\` before skills.`,
+  `- Prefer explicit \`${WORKFLOW_NATIVE_TOOL}\` commands: list/inspect/create/update/delete.`,
+  `- Use \`${WORKFLOW_NATIVE_TOOL}\` apply-text only for natural-language workflow authoring and draft extraction.`,
+  '- Author workflow instructions as executable behavior that fulfills user intent. If needed capability is missing, create/prepare supporting skills/tools first and include them in workflow skills.',
   `- For long-term memory operations, use dynamic tool \`${SHARED_MEMORY_NATIVE_TOOL}\` (search/upsert; \`ensure\` is optional health check).`,
   '- Do not call `manage-workflows` or `shared-memory` skills preemptively. Use them only as explicit fallback after a dynamic tool failure.'
 ].join('\n')
 const SDK_WORKFLOW_ROUTING_PREAMBLE = [
   '[Corazon workflow routing policy]',
-  '- If this request is about Corazon workflow management, use the `manage-workflows` skill.',
-  '- For natural-language workflow requests, prefer `manage-workflows` -> `apply-text` (or `from-text` first when uncertain).',
+  '- Treat recurring or automated requests (e.g. every day/weekly/monthly, 정기 실행, 반복 실행) as workflow-management requests.',
+  '- For Corazon workflow management, use the `manage-workflows` skill.',
+  '- For natural-language workflow authoring, extract a draft first and then apply explicit create/update/delete/list operations.',
+  '- Author workflow instructions as executable behavior that fulfills user intent, not meta instructions.',
   '- Never use OS-level schedulers or external scheduler files (`crontab`, `systemd`, `launchd`) for Corazon workflow requests.',
   '- Apply workflow changes through Corazon workflow definitions (`workflows/*.md`) via Corazon workflow tooling.'
 ].join('\n')
@@ -133,7 +139,10 @@ const isWorkflowManagementIntent = (text: string) => {
   if (!source) {
     return false
   }
-  return WORKFLOW_ROUTING_INTENT_PATTERN.test(source) && WORKFLOW_MANAGEMENT_ACTION_PATTERN.test(source)
+  if (WORKFLOW_ROUTING_INTENT_PATTERN.test(source)) {
+    return true
+  }
+  return /(?:\bworkflow\b|워크플로우)/i.test(source) && WORKFLOW_MANAGEMENT_ACTION_PATTERN.test(source)
 }
 
 const prependTextHint = (input: CodexInput, preamble: string, userText: string): CodexInput => {

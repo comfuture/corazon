@@ -139,7 +139,11 @@ const NATIVE_TOOL_PRIORITY_DEVELOPER_INSTRUCTIONS = [
   '[Corazon native tool priority]',
   '- Assume Corazon dynamic tools are available in the current thread.',
   '- For Corazon built-ins, use dynamic tools first and do not use skills unless a dynamic tool call fails.',
+  '- Treat recurring or automated requests (e.g. every day/weekly/monthly, 정기 실행, 반복 실행) as workflow operations.',
   '- For workflow operations, prefer dynamic tool `manageWorkflow` before the `manage-workflows` skill.',
+  '- Prefer explicit workflow commands: `list`, `inspect`, `create`, `update`, `delete`.',
+  '- Use `apply-text` only for natural-language workflow authoring and draft extraction.',
+  '- When authoring workflows, capture the user intent as executable behavior. If needed capability is missing, create/prepare supporting skills/tools first and include them in workflow skills.',
   '- For long-term memory operations, prefer dynamic tool `sharedMemory` (search/upsert first; `ensure` is optional health check) before the `shared-memory` skill.',
   '- Do not call `manage-workflows` or `shared-memory` skills preemptively. Use them only as explicit fallback after a dynamic tool failure.'
 ].join('\n')
