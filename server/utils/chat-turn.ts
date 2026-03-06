@@ -51,7 +51,7 @@ const APP_SERVER_NATIVE_TOOL_PREAMBLE = [
   '- In this thread, assume Corazon dynamic tools are available.',
   '- For Corazon built-ins, use dynamic tools first and do not use skills unless a dynamic tool call fails.',
   `- For workflow operations, use dynamic tool \`${WORKFLOW_NATIVE_TOOL}\` (list/inspect/create/update/delete/from-text/apply-text).`,
-  `- For long-term memory operations, use dynamic tool \`${SHARED_MEMORY_NATIVE_TOOL}\` (ensure/search/upsert).`,
+  `- For long-term memory operations, use dynamic tool \`${SHARED_MEMORY_NATIVE_TOOL}\` (search/upsert; \`ensure\` is optional health check).`,
   '- Do not call `manage-workflows` or `shared-memory` skills preemptively. Use them only as explicit fallback after a dynamic tool failure.'
 ].join('\n')
 const SDK_WORKFLOW_ROUTING_PREAMBLE = [

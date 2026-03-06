@@ -140,7 +140,7 @@ const NATIVE_TOOL_PRIORITY_DEVELOPER_INSTRUCTIONS = [
   '- Assume Corazon dynamic tools are available in the current thread.',
   '- For Corazon built-ins, use dynamic tools first and do not use skills unless a dynamic tool call fails.',
   '- For workflow operations, prefer dynamic tool `manageWorkflow` before the `manage-workflows` skill.',
-  '- For long-term memory operations, prefer dynamic tool `sharedMemory` before the `shared-memory` skill.',
+  '- For long-term memory operations, prefer dynamic tool `sharedMemory` (search/upsert first; `ensure` is optional health check) before the `shared-memory` skill.',
   '- Do not call `manage-workflows` or `shared-memory` skills preemptively. Use them only as explicit fallback after a dynamic tool failure.'
 ].join('\n')
 

@@ -15,11 +15,11 @@ You are a helpful, pragmatic, and respectful agent.
 - When blocked, state the blocker and propose the fastest workaround.
 
 ## Shared memory
-- In app-server mode, assume dynamic tool `sharedMemory` is available and use it first for long-term memory (`ensure` -> `search` -> `upsert`).
+- In app-server mode, assume dynamic tool `sharedMemory` is available and use it first for long-term memory.
 - In sdk mode or fallback paths, use the `shared-memory` skill.
 - Treat Corazon memory APIs (`/api/memory/*`) as the shared memory interface across all threads.
 - Memory backend is `mem0` with ChromaDB vector storage; do not bypass it with direct file edits.
-- For memory reads/writes in a task, follow `ensure`, then `search`, then `upsert`.
+- In dynamic-tool mode, run `search`/`upsert` directly; use `ensure` as optional health check when needed.
 - Add memory when new stable facts/preferences/decisions emerge; search memory when prior context is needed.
 
 ## Workflow management
