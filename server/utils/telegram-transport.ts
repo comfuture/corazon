@@ -59,6 +59,7 @@ const CARRYOVER_WORKDIR = '/tmp'
 let telegramTransportInitialized = false
 let telegramProcessingQueue = Promise.resolve()
 let telegramSummaryCodex: CodexClient | null = null
+const telegramTypingControllers = new Map<string, ReturnType<typeof createTelegramTypingControllerInternal>>()
 
 const sleep = async (ms: number) => {
   await new Promise((resolve) => {
@@ -394,7 +395,7 @@ const sendSessionTelegramMessage = async (input: {
   return result.message_id
 }
 
-const createTelegramTypingController = (input: {
+const createTelegramTypingControllerInternal = (input: {
   botToken: string
   chatId: string
 }) => {
@@ -460,6 +461,44 @@ const createTelegramTypingController = (input: {
   }
 }
 
+const getTelegramTypingController = (input: {
+  botToken: string
+  chatId: string
+}) => {
+  const existing = telegramTypingControllers.get(input.chatId)
+  if (existing) {
+    return existing
+  }
+
+  const controller = createTelegramTypingControllerInternal(input)
+  telegramTypingControllers.set(input.chatId, controller)
+  return controller
+}
+
+const stopTelegramTypingController = (chatId: string) => {
+  const existing = telegramTypingControllers.get(chatId)
+  if (!existing) {
+    return
+  }
+
+  existing.dispose()
+  telegramTypingControllers.delete(chatId)
+}
+
+const releaseTelegramTypingController = (
+  chatId: string,
+  controller: ReturnType<typeof createTelegramTypingControllerInternal>
+) => {
+  const existing = telegramTypingControllers.get(chatId)
+  if (existing === controller) {
+    existing.dispose()
+    telegramTypingControllers.delete(chatId)
+    return
+  }
+
+  controller.dispose()
+}
+
 const resolveThreadRunOwnership = async (threadId: string | null, telegramOwnedRunId: string | null) => {
   if (!threadId) {
     return { kind: 'none' as const, runId: null }
@@ -492,7 +531,7 @@ const processTelegramWorkflowRun = async (input: {
 }) => {
   const reader = input.run.readable.getReader()
   const textBuffer = new Map<string, string>()
-  const typing = createTelegramTypingController({
+  const typing = getTelegramTypingController({
     botToken: input.botToken,
     chatId: input.chatId
   })
@@ -617,7 +656,7 @@ const processTelegramWorkflowRun = async (input: {
       console.error('[telegram] failed to report run error:', sendError)
     }
   } finally {
-    typing.dispose()
+    releaseTelegramTypingController(input.chatId, typing)
     reader.releaseLock()
   }
 }
@@ -725,6 +764,7 @@ const handleTelegramTextMessage = async (
         clearThreadActiveRun(route.session.threadId, ownership.runId)
       }
       deleteRuntimeTurnControl(ownership.runId)
+      stopTelegramTypingController(settings.chatId)
       setTelegramSessionActiveRun(route.session.id, null)
     }
 
@@ -771,6 +811,7 @@ const handleTelegramTextMessage = async (
     : []
   const nextMessages = [...existingMessages, userMessage as unknown as CodexUIMessage]
   const inputPrefix = carryoverSummary ? buildCarryoverInputPrefix(carryoverSummary) : null
+  stopTelegramTypingController(settings.chatId)
   const run = await start(codexChatTurnWorkflow, [{
     threadId: session.threadId,
     resume: Boolean(session.threadId),
