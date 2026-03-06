@@ -28,7 +28,6 @@ import {
 import { readTelegramSettings } from './settings-config.ts'
 import { resolveTelegramSessionRoute } from './telegram-session.ts'
 import {
-  editTelegramMessageText,
   formatTelegramApiError,
   getTelegramDisplayName,
   getTelegramUpdates,
@@ -46,7 +45,6 @@ const TELEGRAM_POLL_TIMEOUT_SECONDS = 20
 const TELEGRAM_DISABLED_RETRY_MS = 5000
 const TELEGRAM_ERROR_RETRY_MS = 3000
 const TELEGRAM_STATE_KEY = 'default'
-const TELEGRAM_ACTIVITY_MAX_LINES = 6
 const TELEGRAM_TEXT_MAX_LENGTH = 3500
 const CARRYOVER_MODEL = 'gpt-5.1-codex-mini'
 const CARRYOVER_WORKDIR = '/tmp'
@@ -71,6 +69,63 @@ const truncate = (value: string, max = 180) => {
     return normalized
   }
   return `${normalized.slice(0, Math.max(0, max - 1)).trim()}…`
+}
+
+const normalizeTelegramText = (value: string) =>
+  value
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
+const truncateTelegramText = (value: string, max = TELEGRAM_TEXT_MAX_LENGTH) => {
+  if (value.length <= max) {
+    return value
+  }
+  return `${value.slice(0, Math.max(0, max - 1)).trimEnd()}…`
+}
+
+const escapeTelegramHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+
+const escapeTelegramAttribute = (value: string) =>
+  escapeTelegramHtml(value).replace(/"/g, '&quot;')
+
+const renderTelegramHtml = (value: string) => {
+  const placeholders: string[] = []
+  const stash = (html: string) => {
+    const token = `__TG_PLACEHOLDER_${placeholders.length}__`
+    placeholders.push(html)
+    return token
+  }
+
+  let text = truncateTelegramText(normalizeTelegramText(value))
+  if (!text) {
+    return ''
+  }
+
+  text = text.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_match, label: string, url: string) =>
+    stash(`<a href="${escapeTelegramAttribute(url)}">${escapeTelegramHtml(label)}</a>`)
+  )
+
+  text = text.replace(/```(?:[\w#+.-]+)?\n?([\s\S]*?)```/g, (_match, code: string) =>
+    stash(`<pre><code>${escapeTelegramHtml(String(code).replace(/\n$/, ''))}</code></pre>`)
+  )
+
+  text = text.replace(/`([^`\n]+)`/g, (_match, code: string) =>
+    stash(`<code>${escapeTelegramHtml(code)}</code>`)
+  )
+
+  text = escapeTelegramHtml(text)
+  text = text.replace(/^#{1,6}\s+(.+)$/gm, '<b>$1</b>')
+  text = text.replace(/\*\*([^\n]+?)\*\*/g, '<b>$1</b>')
+
+  return text.replace(/__TG_PLACEHOLDER_(\d+)__/g, (_match, index: string) => {
+    return placeholders[Number(index)] ?? ''
+  })
 }
 
 const formatTelegramUserText = (message: TelegramMessage) => {
@@ -310,7 +365,7 @@ const sendSessionTelegramMessage = async (input: {
   fallbackReplyToMessageId?: number | null
   kind: string
 }) => {
-  const text = input.text.trim()
+  const text = normalizeTelegramText(input.text)
   if (!text) {
     return null
   }
@@ -318,7 +373,8 @@ const sendSessionTelegramMessage = async (input: {
   const result = await sendTelegramMessage({
     botToken: input.botToken,
     chatId: input.chatId,
-    text: truncate(text, TELEGRAM_TEXT_MAX_LENGTH),
+    text: renderTelegramHtml(text),
+    parseMode: 'HTML',
     replyToMessageId: resolveSessionReplyToMessageId(input.sessionId, input.fallbackReplyToMessageId)
   })
 
@@ -363,56 +419,6 @@ const processTelegramWorkflowRun = async (input: {
 }) => {
   const reader = input.run.readable.getReader()
   const textBuffer = new Map<string, string>()
-  const reasoningBuffer = new Map<string, string>()
-  let activityMessageId: number | null = null
-  let activityLines: string[] = []
-  let activityText = ''
-
-  const resetActivity = () => {
-    activityMessageId = null
-    activityLines = []
-    activityText = ''
-  }
-
-  const pushActivityLine = async (line: string) => {
-    const normalized = line.trim()
-    if (!normalized) {
-      return
-    }
-
-    activityLines = [...activityLines, normalized].slice(-TELEGRAM_ACTIVITY_MAX_LINES)
-    const nextText = activityLines.join('\n')
-    if (!nextText || nextText === activityText) {
-      return
-    }
-
-    if (activityMessageId != null) {
-      await editTelegramMessageText({
-        botToken: input.botToken,
-        chatId: input.chatId,
-        messageId: activityMessageId,
-        text: nextText
-      })
-      recordTelegramSessionOutbound({
-        sessionId: input.sessionId,
-        messageId: activityMessageId,
-        kind: 'activity'
-      })
-      activityText = nextText
-      return
-    }
-
-    const messageId = await sendSessionTelegramMessage({
-      sessionId: input.sessionId,
-      botToken: input.botToken,
-      chatId: input.chatId,
-      text: nextText,
-      fallbackReplyToMessageId: input.fallbackReplyToMessageId,
-      kind: 'activity'
-    })
-    activityMessageId = messageId
-    activityText = nextText
-  }
 
   try {
     while (true) {
@@ -432,7 +438,6 @@ const processTelegramWorkflowRun = async (input: {
       }
 
       if (isEventChunk(value) && value.data.kind === 'turn.failed') {
-        resetActivity()
         const message = value.data.error?.message?.trim() || 'Telegram turn failed.'
         await sendSessionTelegramMessage({
           sessionId: input.sessionId,
@@ -446,7 +451,6 @@ const processTelegramWorkflowRun = async (input: {
       }
 
       if (value.type === 'error') {
-        resetActivity()
         const message = value.errorText?.trim() || 'Telegram turn failed.'
         await sendSessionTelegramMessage({
           sessionId: input.sessionId,
@@ -476,7 +480,6 @@ const processTelegramWorkflowRun = async (input: {
         if (!text) {
           continue
         }
-        resetActivity()
         await sendSessionTelegramMessage({
           sessionId: input.sessionId,
           botToken: input.botToken,
@@ -488,32 +491,16 @@ const processTelegramWorkflowRun = async (input: {
         continue
       }
 
-      if (value.type === 'reasoning-start') {
-        reasoningBuffer.set(value.id, '')
-        continue
-      }
-
-      if (value.type === 'reasoning-delta') {
-        const previous = reasoningBuffer.get(value.id) ?? ''
-        reasoningBuffer.set(value.id, `${previous}${value.delta}`)
-        continue
-      }
-
-      if (value.type === 'reasoning-end') {
-        const reasoning = reasoningBuffer.get(value.id) ?? ''
-        reasoningBuffer.delete(value.id)
-        const summary = formatTelegramReasoningSummary(reasoning)
-        if (summary) {
-          await pushActivityLine(summary)
-        }
+      if (
+        value.type === 'reasoning-start'
+        || value.type === 'reasoning-delta'
+        || value.type === 'reasoning-end'
+      ) {
         continue
       }
 
       if (isItemChunk(value)) {
-        const summary = formatTelegramItemSummary(value.data)
-        if (summary) {
-          await pushActivityLine(summary)
-        }
+        continue
       }
     }
 
@@ -527,7 +514,6 @@ const processTelegramWorkflowRun = async (input: {
       errorMessage: message
     })
     try {
-      resetActivity()
       await sendSessionTelegramMessage({
         sessionId: input.sessionId,
         botToken: input.botToken,

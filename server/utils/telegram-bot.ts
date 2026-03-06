@@ -117,11 +117,15 @@ export const sendTelegramMessage = async (input: {
   botToken: string
   chatId: string
   text: string
+  parseMode?: 'HTML' | 'MarkdownV2'
+  disableWebPagePreview?: boolean
   replyToMessageId?: number | null
 }) => {
   return requestTelegramApi<TelegramSendMessageResult>(input.botToken, 'sendMessage', {
     chat_id: input.chatId,
     text: input.text,
+    parse_mode: input.parseMode ?? undefined,
+    disable_web_page_preview: input.disableWebPagePreview ?? true,
     reply_to_message_id: input.replyToMessageId ?? undefined,
     allow_sending_without_reply: true
   })
@@ -132,11 +136,15 @@ export const editTelegramMessageText = async (input: {
   chatId: string
   messageId: number
   text: string
+  parseMode?: 'HTML' | 'MarkdownV2'
+  disableWebPagePreview?: boolean
 }) => {
   return requestTelegramApi<TelegramSendMessageResult>(input.botToken, 'editMessageText', {
     chat_id: input.chatId,
     message_id: input.messageId,
-    text: input.text
+    text: input.text,
+    parse_mode: input.parseMode ?? undefined,
+    disable_web_page_preview: input.disableWebPagePreview ?? true
   })
 }
 
