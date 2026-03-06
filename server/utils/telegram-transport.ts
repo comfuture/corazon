@@ -48,6 +48,8 @@ const TELEGRAM_DISABLED_RETRY_MS = 5000
 const TELEGRAM_ERROR_RETRY_MS = 3000
 const TELEGRAM_STATE_KEY = 'default'
 const TELEGRAM_TEXT_MAX_LENGTH = 3500
+const TELEGRAM_STEER_RETRY_ATTEMPTS = 5
+const TELEGRAM_STEER_RETRY_MS = 300
 const CARRYOVER_MODEL = 'gpt-5.1-codex-mini'
 const CARRYOVER_WORKDIR = '/tmp'
 
@@ -541,6 +543,54 @@ const resolveActiveRunStillRunning = async (runId: string) => {
   }
 }
 
+const isMissingActiveTurnControlError = (message: string) =>
+  message.includes('No active chat turn was found to control.')
+
+const steerTelegramActiveRun = async (input: {
+  runId: string
+  threadId: string | null
+  message: CodexChatUserMessage
+}) => {
+  let lastErrorMessage: string | null = null
+
+  for (let attempt = 0; attempt < TELEGRAM_STEER_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      await steerChatTurnControl({
+        runId: input.runId,
+        threadId: input.threadId,
+        message: input.message
+      })
+      return { kind: 'steered' as const }
+    } catch (error) {
+      const errorMessage = formatTelegramApiError(error)
+      lastErrorMessage = errorMessage
+      if (!isMissingActiveTurnControlError(errorMessage)) {
+        return {
+          kind: 'error' as const,
+          message: errorMessage
+        }
+      }
+
+      if (attempt < TELEGRAM_STEER_RETRY_ATTEMPTS - 1) {
+        await sleep(TELEGRAM_STEER_RETRY_MS)
+      }
+    }
+  }
+
+  const stillRunning = await resolveActiveRunStillRunning(input.runId)
+  if (stillRunning) {
+    return {
+      kind: 'detached' as const,
+      message: lastErrorMessage ?? 'No active chat turn was found to control.'
+    }
+  }
+
+  return {
+    kind: 'stale' as const,
+    message: lastErrorMessage ?? 'No active chat turn was found to control.'
+  }
+}
+
 const handleTelegramTextMessage = async (
   settings: ReturnType<typeof readTelegramSettings>,
   message: TelegramMessage
@@ -560,25 +610,32 @@ const handleTelegramTextMessage = async (
 
     const ownership = await resolveThreadRunOwnership(route.session.threadId, route.session.activeRunId)
     if (ownership.kind === 'telegram' && ownership.runId) {
-      try {
-        await steerChatTurnControl({
-          runId: ownership.runId,
-          threadId: route.session.threadId,
-          message: userMessage
-        })
+      const steerResult = await steerTelegramActiveRun({
+        runId: ownership.runId,
+        threadId: route.session.threadId,
+        message: userMessage
+      })
+
+      if (steerResult.kind === 'steered') {
         return
-      } catch (error) {
-        const errorMessage = formatTelegramApiError(error)
+      }
+
+      if (steerResult.kind === 'error') {
         await sendSessionTelegramMessage({
           sessionId: route.session.id,
           botToken: settings.botToken,
           chatId: settings.chatId,
-          text: `Busy: ${errorMessage}`,
+          text: `Busy: ${steerResult.message}`,
           fallbackReplyToMessageId,
           kind: 'error'
         })
         return
       }
+
+      if (route.session.threadId) {
+        clearThreadActiveRun(route.session.threadId, ownership.runId)
+      }
+      setTelegramSessionActiveRun(route.session.id, null)
     }
 
     if (ownership.kind === 'other') {
