@@ -8,6 +8,10 @@ import {
 } from '../../types/chat-ui.ts'
 import type { InferUIMessageChunk } from 'ai'
 import { createUIMessageStream } from 'ai'
+import {
+  createSimpleChatgptCodexInput,
+  runChatgptCodexTextResponse
+} from '@@/lib/chatgpt-codex-responses'
 import { ensureAgentBootstrap } from './agent-bootstrap.ts'
 import { createCodexClient, resolveCodexClientMode } from './codex-client/index.ts'
 import type { CodexClient, CodexInput } from './codex-client/types.ts'
@@ -43,7 +47,6 @@ import { buildCodexInput, createThreadEventHandler } from './stream.ts'
 const TITLE_MODEL = 'gpt-5.1-codex-mini'
 const TITLE_REASONING_EFFORT = 'low'
 const TITLE_MAX_LENGTH = 80
-const TITLE_WORKDIR = '/tmp'
 const DEFAULT_MODEL = 'gpt-5.3-codex'
 const MODEL_OPTIONS = new Set([
   'gpt-5.3-codex',
@@ -309,21 +312,22 @@ const normalizeTitle = (value: string) => {
 }
 
 const generateThreadTitle = async (
-  codex: CodexClient,
   userText: string,
-  assistantText: string,
-  skipGitRepoCheck: boolean
+  assistantText: string
 ) => {
-  const prompt = buildTitlePrompt(userText, assistantText)
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const titleThread = codex.startThread({
+    const result = await runChatgptCodexTextResponse({
       model: TITLE_MODEL,
-      modelReasoningEffort: TITLE_REASONING_EFFORT,
-      workingDirectory: TITLE_WORKDIR,
-      skipGitRepoCheck
+      instructions: [
+        'You are a concise title generator for chat threads.',
+        'Create a short title based on the first user message and first assistant response.',
+        'Use the same language as the user.',
+        'Return only the title, with no quotes, bullets, or extra text.'
+      ].join('\n'),
+      input: createSimpleChatgptCodexInput(buildTitlePrompt(userText, assistantText)),
+      reasoningEffort: TITLE_REASONING_EFFORT
     })
-    const result = await titleThread.run(prompt)
-    const title = normalizeTitle(result.finalResponse ?? '')
+    const title = normalizeTitle(result.outputText ?? '')
     if (title) {
       return title
     }
@@ -566,7 +570,7 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
               const assistantText = extractTextFromMessage(assistantMessage) || firstAssistantText
               if (userText && assistantText) {
                 try {
-                  const title = await generateThreadTitle(codex, userText, assistantText, skipGitRepoCheck)
+                  const title = await generateThreadTitle(userText, assistantText)
                   if (title) {
                     const updatedAt = setThreadTitle(resolvedThreadId, title)
                     const titleEvent: CodexThreadEventData = {
