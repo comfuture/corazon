@@ -233,6 +233,10 @@ const normalizeMcpStatus = (status: string): Extract<CodexThreadItem, { type: 'm
 }
 
 const normalizeFileChangeStatus = (status: string): Extract<CodexThreadItem, { type: 'file_change' }>['status'] => {
+  if (status === 'inProgress') {
+    // The app-server reports non-terminal patch state before the SDK file-change types catch up.
+    return 'in_progress' as Extract<CodexThreadItem, { type: 'file_change' }>['status']
+  }
   if (status === 'completed') {
     return 'completed'
   }
@@ -703,11 +707,14 @@ class AppServerThreadClient implements CodexThreadClient {
           })
           return
         case 'turn/completed':
-          if (notification.params.turn.status === 'failed') {
+          if (notification.params.turn.status === 'failed' || notification.params.turn.status === 'interrupted') {
             queue.push({
               type: 'turn.failed',
               error: {
-                message: notification.params.turn.error?.message ?? 'Codex turn failed.'
+                message: notification.params.turn.error?.message
+                  ?? (notification.params.turn.status === 'interrupted'
+                    ? 'Codex turn was interrupted.'
+                    : 'Codex turn failed.')
               }
             })
           } else {
