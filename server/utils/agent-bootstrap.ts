@@ -23,10 +23,11 @@ const SYSTEM_SKILL_SYNC_NAMES = new Set(['shared-memory', 'manage-workflows'])
 const LEGACY_MEMORY_GUIDANCE_PATTERN = /## Shared memory[\s\S]*?(?=\n## |\n# |$)/i
 const UPDATED_SHARED_MEMORY_GUIDANCE = [
   '## Shared memory',
-  '- For long-term memory, use the `shared-memory` skill.',
+  '- In app-server mode, prefer native dynamic tool `corazon/sharedMemory` for long-term memory (`ensure` -> `search` -> `upsert`).',
+  '- In sdk mode or fallback paths, use the `shared-memory` skill.',
   '- Treat Corazon memory APIs (`/api/memory/*`) as the shared memory interface across all threads.',
   '- Memory backend is `mem0` with ChromaDB vector storage; do not bypass it with direct file edits.',
-  '- For memory reads/writes in a task, follow the skill workflow: `ensure`, then `search`, then `upsert`.',
+  '- For memory reads/writes in a task, follow `ensure`, then `search`, then `upsert`.',
   '- Add memory when new stable facts/preferences/decisions emerge; search memory when prior context is needed.'
 ].join('\n')
 

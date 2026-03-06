@@ -9,7 +9,7 @@ import {
 import type { InferUIMessageChunk } from 'ai'
 import { createUIMessageStream } from 'ai'
 import { ensureAgentBootstrap } from './agent-bootstrap.ts'
-import { createCodexClient } from './codex-client/index.ts'
+import { createCodexClient, resolveCodexClientMode } from './codex-client/index.ts'
 import type { CodexClient, CodexInput } from './codex-client/types.ts'
 import { createCodexAssistantBuilder } from './message-builder.ts'
 import {
@@ -43,12 +43,21 @@ const MODEL_OPTIONS = new Set([
 ])
 const WORKFLOW_ROUTING_INTENT_PATTERN = /(?:\bworkflow\b|워크플로우|workflow[-\s]?dispatch|스케줄|schedule|cron|rrule|interval|자동화|자동 실행|정기 실행|run every|every\s+\d+\s*(?:sec|min|hour|day|week|month))/i
 const WORKFLOW_MANAGEMENT_ACTION_PATTERN = /(?:생성|만들|작성|추가|등록|수정|업데이트|편집|삭제|지워|목록|리스트|조회|보여줘|create|add|update|edit|delete|remove|list|show|inspect|write)/i
+const WORKFLOW_NATIVE_TOOL = 'corazon/manageWorkflow'
+const WORKFLOW_ROUTING_MODE = resolveCodexClientMode(process.env.CORAZON_CODEX_CLIENT_MODE)
 const WORKFLOW_ROUTING_PREAMBLE = [
   '[Corazon workflow routing policy]',
-  '- If this request is about Corazon workflow management, use the `manage-workflows` skill.',
-  '- For natural-language workflow requests, prefer `manage-workflows` -> `apply-text` (or `from-text` first when uncertain).',
+  ...(WORKFLOW_ROUTING_MODE === 'app-server'
+    ? [
+        `- If this request is about Corazon workflow management, use dynamic tool \`${WORKFLOW_NATIVE_TOOL}\`.`,
+        `- For natural-language workflow requests, prefer \`${WORKFLOW_NATIVE_TOOL}\` command \`apply-text\` (or \`from-text\` first when uncertain).`
+      ]
+    : [
+        '- If this request is about Corazon workflow management, use the `manage-workflows` skill.',
+        '- For natural-language workflow requests, prefer `manage-workflows` -> `apply-text` (or `from-text` first when uncertain).'
+      ]),
   '- Never use OS-level schedulers or external scheduler files (`crontab`, `systemd`, `launchd`) for Corazon workflow requests.',
-  '- Apply workflow changes through Corazon workflow definitions (`workflows/*.md`) via the skill tooling.'
+  '- Apply workflow changes through Corazon workflow definitions (`workflows/*.md`) via Corazon workflow tooling.'
 ].join('\n')
 
 let codexInstance: CodexClient | null = null
