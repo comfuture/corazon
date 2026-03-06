@@ -89,6 +89,9 @@ const formatTelegramUserText = (message: TelegramMessage) => {
   return text
 }
 
+const shouldReplyInTelegramChat = (message: TelegramMessage) =>
+  message.chat.type === 'group' || message.chat.type === 'supergroup'
+
 const toTelegramUserMessage = (message: TelegramMessage): CodexChatUserMessage => {
   return {
     id: `telegram-${message.chat.id}-${message.message_id}`,
@@ -288,15 +291,23 @@ const generateCarryoverSummary = async (threadId: string) => {
   return summary || null
 }
 
-const resolveSessionReplyToMessageId = (sessionId: string, fallbackReplyToMessageId: number) =>
-  getTelegramSessionById(sessionId)?.lastInboundMessageId ?? fallbackReplyToMessageId
+const resolveSessionReplyToMessageId = (
+  sessionId: string,
+  fallbackReplyToMessageId?: number | null
+) => {
+  if (typeof fallbackReplyToMessageId !== 'number') {
+    return null
+  }
+
+  return getTelegramSessionById(sessionId)?.lastInboundMessageId ?? fallbackReplyToMessageId
+}
 
 const sendSessionTelegramMessage = async (input: {
   sessionId: string
   botToken: string
   chatId: string
   text: string
-  fallbackReplyToMessageId: number
+  fallbackReplyToMessageId?: number | null
   kind: string
 }) => {
   const text = input.text.trim()
@@ -348,7 +359,7 @@ const processTelegramWorkflowRun = async (input: {
   sessionId: string
   botToken: string
   chatId: string
-  fallbackReplyToMessageId: number
+  fallbackReplyToMessageId?: number | null
 }) => {
   const reader = input.run.readable.getReader()
   const textBuffer = new Map<string, string>()
@@ -549,6 +560,9 @@ const handleTelegramTextMessage = async (
   const latestSession = getLatestTelegramSession(settings.chatId)
   const route = resolveTelegramSessionRoute(latestSession, settings.idleTimeoutMinutes)
   const userMessage = toTelegramUserMessage(message)
+  const fallbackReplyToMessageId = shouldReplyInTelegramChat(message)
+    ? message.message_id
+    : null
 
   if (route.kind === 'reuse') {
     recordTelegramSessionInbound({
@@ -572,7 +586,7 @@ const handleTelegramTextMessage = async (
           botToken: settings.botToken,
           chatId: settings.chatId,
           text: `Busy: ${errorMessage}`,
-          fallbackReplyToMessageId: message.message_id,
+          fallbackReplyToMessageId,
           kind: 'error'
         })
         return
@@ -585,7 +599,7 @@ const handleTelegramTextMessage = async (
         botToken: settings.botToken,
         chatId: settings.chatId,
         text: 'This thread is currently busy from the web. Wait for completion before sending a Telegram follow-up.',
-        fallbackReplyToMessageId: message.message_id,
+        fallbackReplyToMessageId,
         kind: 'error'
       })
       return
@@ -639,7 +653,7 @@ const handleTelegramTextMessage = async (
     sessionId: session.id,
     botToken: settings.botToken,
     chatId: settings.chatId,
-    fallbackReplyToMessageId: message.message_id
+    fallbackReplyToMessageId
   })
 }
 
@@ -651,7 +665,7 @@ const handleUnsupportedTelegramMessage = async (
     botToken: settings.botToken,
     chatId: settings.chatId,
     text: 'Text messages only are supported in Telegram transport v1.',
-    replyToMessageId: message.message_id
+    replyToMessageId: shouldReplyInTelegramChat(message) ? message.message_id : undefined
   })
 }
 
