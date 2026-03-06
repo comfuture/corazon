@@ -1,10 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Cron } from 'croner'
-import { rrulestr } from 'rrule'
+import rrule from 'rrule'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import type { WorkflowDefinition, WorkflowFrontmatter, WorkflowTriggerConfig } from '@@/types/workflow'
 import { resolveCorazonRootDir } from './agent-home.ts'
+
+const { rrulestr } = rrule
 
 const WORKFLOWS_DIRECTORY = 'workflows'
 const WORKFLOW_FILE_EXTENSION = '.md'
