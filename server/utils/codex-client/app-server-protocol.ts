@@ -6,6 +6,7 @@ import type { ServerNotification } from '@@/types/codex-app-server/ServerNotific
 import type { ServerRequest } from '@@/types/codex-app-server/ServerRequest'
 import type { RequestId } from '@@/types/codex-app-server/RequestId'
 import type { CodexClientConfigValue } from './types.ts'
+import { resolveNativeDynamicToolCall } from './native-tools.ts'
 
 type JsonRpcError = {
   code: number
@@ -364,6 +365,12 @@ export class AppServerProtocol {
       case 'item/tool/requestUserInput':
         return { answers: {} }
       case 'item/tool/call':
+        {
+          const nativeResponse = await resolveNativeDynamicToolCall(request.params)
+          if (nativeResponse) {
+            return nativeResponse
+          }
+        }
         return {
           contentItems: [
             {
