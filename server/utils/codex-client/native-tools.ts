@@ -19,6 +19,7 @@ import {
   validateRRuleExpression,
   writeWorkflowDefinition
 } from '../workflow-definitions.ts'
+import { inferWorkflowDraftWithAI } from '../workflow-ai.ts'
 import { reloadWorkflowScheduler } from '../workflow-scheduler.ts'
 
 type NativeDynamicToolHandler = (input: unknown, params: DynamicToolCallParams) => Promise<DynamicToolCallResponse>
@@ -31,19 +32,9 @@ type NativeDynamicTool = {
 
 type WorkflowTriggerType = 'schedule' | 'interval' | 'rrule'
 
-type ParsedWorkflowIntent = {
-  action: 'create' | 'update' | 'delete' | 'list'
-  confidence: 'low'
+type ParsedWorkflowDraft = {
+  confidence: 'high' | 'low'
   reason: string
-  selector: {
-    slug: string | null
-    query: string | null
-  }
-  listOptions: {
-    runningOnly: boolean
-    activeOnly: boolean
-    query: string | null
-  }
   draft: {
     name: string
     description: string
@@ -60,6 +51,7 @@ const MANAGE_WORKFLOW_TOOL_NAME = 'manageWorkflow'
 const DEFAULT_MEMORY_SEARCH_LIMIT = 5
 const DEFAULT_MEMORY_SECTION = 'Facts'
 const DEFAULT_WORKFLOW_NAME = 'Task Workflow'
+const WORKFLOW_DESCRIPTION_MAX_LENGTH = 180
 const WORKFLOW_NAME_WORD_PATTERN = /^[A-Za-z]+$/
 const WORKFLOW_COMMANDS = new Set([
   'list',
@@ -70,68 +62,6 @@ const WORKFLOW_COMMANDS = new Set([
   'apply-text',
   'inspect'
 ])
-const GENERIC_WORKFLOW_SLUGS = new Set([
-  'workflow',
-  'task-workflow',
-  'workflow-task',
-  'new-workflow'
-])
-const SLUG_STOPWORDS = new Set([
-  'a',
-  'an',
-  'the',
-  'and',
-  'or',
-  'for',
-  'with',
-  'without',
-  'to',
-  'of',
-  'in',
-  'on',
-  'at',
-  'by',
-  'from',
-  'run',
-  'runs',
-  'running',
-  'workflow',
-  'workflows',
-  'task',
-  'tasks',
-  'assistant',
-  'message',
-  'messages',
-  'output',
-  'execute',
-  'execution',
-  'create',
-  'update',
-  'delete',
-  'save'
-])
-const WORKFLOW_SCHEDULE_PATTERN = /\b(cron|rrule|interval|daily|weekly|monthly|every\s+\d+\s*(seconds?|minutes?|hours?|days?|weeks?|months?))\b|매(일|주|월|년|시간|분)|[0-9]+\s*(초|분|시간|일|주|개월)\s*마다/gi
-const WORKFLOW_META_PATTERN = /(워크플로우\s*(생성|등록|수정|저장|작성)|create\s+(a\s+)?workflow|generate\s+(a\s+)?workflow)/gi
-const WORKFLOW_ACTION_META_PATTERN = /(워크플로우\s*(생성|등록|수정|저장|작성|삭제|목록)|create\s+(a\s+)?workflow|generate\s+(a\s+)?workflow|update\s+(a\s+)?workflow|delete\s+(a\s+)?workflow)/gi
-const WORKFLOW_DELETE_PATTERN = /(삭제|지워|remove|delete)/i
-const WORKFLOW_LIST_PATTERN = /(목록|리스트|조회|보여|what|which|list|show)/i
-const WORKFLOW_UPDATE_PATTERN = /(수정|업데이트|변경|edit|update|change)/i
-const WORKFLOW_RUNNING_PATTERN = /(running|실행중|동작중|진행중)/i
-const WORKFLOW_ACTIVE_PATTERN = /(active|활성)/i
-const WORKFLOW_SAY_PATTERN = /(say|print|output|message|말하|출력|메시지|인사)/i
-const WORKFLOW_SUMMARY_PATTERN = /(summary|summarize|report|digest|요약|리포트)/i
-const WORKFLOW_QUOTED_TEXT_PATTERN = /["'“”‘’]([^"'“”‘’]+)["'“”‘’]/
-const WORKFLOW_QUOTED_NAME_PATTERN = /["'“”‘’]([A-Za-z0-9\s-]{2,80})["'“”‘’]/
-const RRULE_PATTERN = /FREQ=[A-Z]+(?:;[A-Z0-9-]+=[A-Z0-9,+:-]+)*/i
-const INTERVAL_COMPACT_PATTERN = /\b([1-9][0-9]*)(s|m|h)\b/i
-const INTERVAL_NATURAL_PATTERNS: Array<{ pattern: RegExp, unit: 's' | 'm' | 'h' }> = [
-  { pattern: /([1-9][0-9]*)\s*(초|seconds?|secs?)\s*마다/i, unit: 's' },
-  { pattern: /(?:every|매)\s*([1-9][0-9]*)\s*(초|seconds?|secs?)\b/i, unit: 's' },
-  { pattern: /([1-9][0-9]*)\s*(분|minutes?|mins?)\s*마다/i, unit: 'm' },
-  { pattern: /(?:every|매)\s*([1-9][0-9]*)\s*(분|minutes?|mins?)\b/i, unit: 'm' },
-  { pattern: /([1-9][0-9]*)\s*(시간|hours?|hrs?)\s*마다/i, unit: 'h' },
-  { pattern: /(?:every|매)\s*([1-9][0-9]*)\s*(시간|hours?|hrs?)\b/i, unit: 'h' }
-]
 
 const SHARED_MEMORY_TOOL_SCHEMA: JsonValue = {
   type: 'object',
@@ -156,6 +86,10 @@ const MANAGE_WORKFLOWS_TOOL_SCHEMA: JsonValue = {
     command: {
       type: 'string',
       enum: ['list', 'create', 'update', 'delete', 'from-text', 'apply-text', 'inspect']
+    },
+    mode: {
+      type: 'string',
+      enum: ['auto', 'create', 'update']
     },
     text: { type: 'string' },
     slug: { type: 'string' },
@@ -316,195 +250,41 @@ const normalizeWorkflowName = (value: string) => {
   return words.slice(0, 3).map(word => `${word.slice(0, 1).toUpperCase()}${word.slice(1).toLowerCase()}`).join(' ')
 }
 
-const deriveWorkflowDescription = (value: string) => {
+const normalizeWorkflowDescription = (value: string) => {
   const normalized = (value ?? '')
-    .replace(WORKFLOW_META_PATTERN, ' ')
-    .replace(WORKFLOW_SCHEDULE_PATTERN, ' ')
     .replace(/\s+/g, ' ')
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, '')
     .trim()
 
   if (!normalized) {
     return '요청된 자동 작업을 수행합니다.'
   }
 
-  return normalized.length > 180
-    ? `${normalized.slice(0, 180).trimEnd()}...`
+  return normalized.length > WORKFLOW_DESCRIPTION_MAX_LENGTH
+    ? `${normalized.slice(0, WORKFLOW_DESCRIPTION_MAX_LENGTH).trimEnd()}...`
     : normalized
 }
 
-const tokenizeSlugSource = (value: string) =>
-  (value ?? '')
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]+/g, ' ')
-    .split(/\s+/)
-    .map(item => item.trim())
-    .filter(item => item.length >= 2 && !SLUG_STOPWORDS.has(item))
-
-const deriveInstructionBasedSlug = (instruction: string) => {
-  const source = asString(instruction)
-  if (!source) {
-    return null
+const resolveValidatedTrigger = (
+  triggerType: 'schedule' | 'interval' | 'rrule' | 'none',
+  triggerValue: string
+): { triggerType: WorkflowTriggerType | null, triggerValue: string | null } => {
+  const value = asString(triggerValue)
+  if (!value) {
+    return { triggerType: null, triggerValue: null }
   }
 
-  const quotedMatch = source.match(WORKFLOW_QUOTED_NAME_PATTERN)
-  const quotedTokens = tokenizeSlugSource(quotedMatch?.[1] ?? '')
-  if (quotedTokens.length > 0 && WORKFLOW_SAY_PATTERN.test(source)) {
-    return `say-${quotedTokens.slice(0, 2).join('-')}`
+  if (triggerType === 'schedule' && validateCronExpression(value)) {
+    return { triggerType: 'schedule', triggerValue: value }
+  }
+  if (triggerType === 'interval' && validateIntervalExpression(value)) {
+    return { triggerType: 'interval', triggerValue: value }
+  }
+  if (triggerType === 'rrule' && validateRRuleExpression(value)) {
+    return { triggerType: 'rrule', triggerValue: value }
   }
 
-  const normalized = source
-    .replace(WORKFLOW_ACTION_META_PATTERN, ' ')
-    .replace(/\b(cron|rrule|interval|daily|weekly|monthly|hourly)\b/gi, ' ')
-    .replace(/\bevery\s+\d+\s*(seconds?|minutes?|hours?|days?|weeks?|months?)\b/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-  const tokens = tokenizeSlugSource(normalized)
-  if (tokens.length > 0) {
-    return tokens.slice(0, 4).join('-')
-  }
-
-  if (WORKFLOW_SAY_PATTERN.test(source)) {
-    return 'say-message'
-  }
-
-  if (WORKFLOW_SUMMARY_PATTERN.test(source)) {
-    return 'summary-report'
-  }
-
-  return null
-}
-
-const deriveFileSlug = (requestedFileSlug: string, workflowName: string, instruction: string) => {
-  const requested = toWorkflowFileSlug(requestedFileSlug)
-  if (requested && !GENERIC_WORKFLOW_SLUGS.has(requested)) {
-    return requested
-  }
-
-  const fromName = toWorkflowFileSlug(workflowName)
-  if (fromName && !GENERIC_WORKFLOW_SLUGS.has(fromName)) {
-    return fromName
-  }
-
-  const fromInstruction = toWorkflowFileSlug(deriveInstructionBasedSlug(instruction) ?? '')
-  if (fromInstruction && !GENERIC_WORKFLOW_SLUGS.has(fromInstruction)) {
-    return fromInstruction
-  }
-
-  if (fromInstruction && fromInstruction !== 'workflow') {
-    return fromInstruction
-  }
-
-  return fromName || requested || 'workflow'
-}
-
-const inferTriggerFromText = (text: string): { type: WorkflowTriggerType | null, value: string | null } => {
-  const source = asString(text)
-  if (!source) {
-    return { type: null, value: null }
-  }
-
-  const rruleMatch = source.match(RRULE_PATTERN)
-  if (rruleMatch) {
-    const candidate = rruleMatch[0].toUpperCase()
-    if (validateRRuleExpression(candidate)) {
-      return { type: 'rrule', value: candidate }
-    }
-  }
-
-  const tokens = source.replace(/\n/g, ' ').split(/\s+/).filter(Boolean)
-  for (let index = 0; index <= tokens.length - 5; index += 1) {
-    const candidate = tokens.slice(index, index + 5).join(' ')
-    if (validateCronExpression(candidate)) {
-      return { type: 'schedule', value: candidate }
-    }
-  }
-
-  const compactInterval = source.match(INTERVAL_COMPACT_PATTERN)
-  if (compactInterval) {
-    const candidate = `${compactInterval[1]}${compactInterval[2]?.toLowerCase()}`
-    if (validateIntervalExpression(candidate)) {
-      return { type: 'interval', value: candidate }
-    }
-  }
-
-  for (const entry of INTERVAL_NATURAL_PATTERNS) {
-    const matched = source.match(entry.pattern)
-    if (!matched) {
-      continue
-    }
-    const candidate = `${matched[1]}${entry.unit}`
-    if (validateIntervalExpression(candidate)) {
-      return { type: 'interval', value: candidate }
-    }
-  }
-
-  return { type: null, value: null }
-}
-
-const deriveInstructionFromText = (text: string) => {
-  const source = asString(text)
-  if (!source) {
-    return ''
-  }
-
-  const quoted = source.match(WORKFLOW_QUOTED_TEXT_PATTERN)?.[1]?.trim() ?? ''
-  if (quoted && WORKFLOW_SAY_PATTERN.test(source)) {
-    return `각 실행에서 assistant 메시지로 정확히 "${quoted}" 한 줄만 출력한다.`
-  }
-
-  const normalized = source
-    .replace(WORKFLOW_ACTION_META_PATTERN, ' ')
-    .replace(WORKFLOW_SCHEDULE_PATTERN, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-  return normalized || source
-}
-
-const inferSelectorFromText = (
-  text: string,
-  workflows: WorkflowDefinition[]
-): { slug: string | null, query: string | null } => {
-  const source = asString(text).toLowerCase()
-  if (!source || workflows.length === 0) {
-    return { slug: null, query: asString(text) || null }
-  }
-
-  let bestSlug: string | null = null
-  let bestScore = 0
-
-  for (const workflow of workflows) {
-    let score = 0
-    const slug = workflow.fileSlug.toLowerCase()
-    const name = workflow.frontmatter.name.toLowerCase()
-    const description = workflow.frontmatter.description.toLowerCase()
-    const instructionHead = workflow.instruction.toLowerCase().slice(0, 96)
-
-    if (slug && source.includes(slug)) {
-      score += 5
-    }
-    if (name && source.includes(name)) {
-      score += 4
-    }
-    if (description && source.includes(description)) {
-      score += 2
-    }
-    if (instructionHead && source.includes(instructionHead)) {
-      score += 1
-    }
-
-    if (score > bestScore) {
-      bestScore = score
-      bestSlug = workflow.fileSlug
-    }
-  }
-
-  if (bestScore <= 0) {
-    return { slug: null, query: asString(text) || null }
-  }
-
-  return { slug: bestSlug, query: null }
+  return { triggerType: null, triggerValue: null }
 }
 
 const listAvailableSkills = () => {
@@ -541,47 +321,49 @@ const listAvailableSkills = () => {
   return [...names].sort((left, right) => left.localeCompare(right))
 }
 
-const parseWorkflowIntentFromText = (
-  text: string,
-  workflows: WorkflowDefinition[],
-  availableSkills: string[]
-): ParsedWorkflowIntent => {
+const parseWorkflowDraftFromText = async (text: string): Promise<ParsedWorkflowDraft> => {
   const source = asString(text)
-  const lowered = source.toLowerCase()
-  const selector = inferSelectorFromText(source, workflows)
-  const trigger = inferTriggerFromText(source)
-  const instruction = deriveInstructionFromText(source)
-  const skills = availableSkills
-    .filter(skill => lowered.includes(skill.toLowerCase()))
-    .slice(0, 5)
+  const availableSkills = listAvailableSkills()
 
-  let action: ParsedWorkflowIntent['action'] = 'create'
-  if (WORKFLOW_DELETE_PATTERN.test(source)) {
-    action = 'delete'
-  } else if (WORKFLOW_LIST_PATTERN.test(source)) {
-    action = 'list'
-  } else if (WORKFLOW_UPDATE_PATTERN.test(source)) {
-    action = 'update'
+  try {
+    const inferred = await inferWorkflowDraftWithAI({
+      text: source,
+      availableSkills
+    })
+
+    if (inferred) {
+      const resolvedTrigger = resolveValidatedTrigger(inferred.triggerType, inferred.triggerValue)
+      return {
+        confidence: inferred.confidence,
+        reason: 'AI workflow draft parser.',
+        draft: {
+          name: normalizeWorkflowName(inferred.suggestedName || source),
+          description: normalizeWorkflowDescription(
+            inferred.suggestedDescription || inferred.enhancedInstruction || source
+          ),
+          instruction: asString(inferred.enhancedInstruction) || source,
+          triggerType: resolvedTrigger.triggerType,
+          triggerValue: resolvedTrigger.triggerValue,
+          workflowDispatch: true,
+          skills: [...new Set(inferred.suggestedSkills.map(item => item.trim()).filter(Boolean))]
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Failed to parse workflow draft with AI:', error)
   }
 
   return {
-    action,
     confidence: 'low',
-    reason: 'Deterministic local parser.',
-    selector,
-    listOptions: {
-      runningOnly: WORKFLOW_RUNNING_PATTERN.test(source),
-      activeOnly: WORKFLOW_ACTIVE_PATTERN.test(source),
-      query: null
-    },
+    reason: 'AI parser unavailable; used conservative fallback.',
     draft: {
-      name: normalizeWorkflowName(instruction || source),
-      description: deriveWorkflowDescription(instruction || source),
-      instruction: instruction || source,
-      triggerType: trigger.type,
-      triggerValue: trigger.value,
+      name: normalizeWorkflowName(source),
+      description: normalizeWorkflowDescription(source),
+      instruction: source,
+      triggerType: null,
+      triggerValue: null,
       workflowDispatch: true,
-      skills
+      skills: []
     }
   }
 }
@@ -595,7 +377,7 @@ const buildWorkflowFrontmatter = (input: {
   skills: string[]
 }): WorkflowFrontmatter => ({
   name: normalizeWorkflowName(input.name),
-  description: deriveWorkflowDescription(input.description),
+  description: normalizeWorkflowDescription(input.description),
   on: {
     ...(input.triggerType === 'schedule' && input.triggerValue
       ? { schedule: input.triggerValue }
@@ -745,14 +527,11 @@ const handleWorkflowCreate = (args: Record<string, unknown>) => {
     skills: asStringList(args.skills)
   })
 
-  const fileSlug = resolveUniqueWorkflowFileSlug(
-    deriveWorkflowFileSlugFromInput({
-      requestedFileSlug: asString(args.fileSlug)
-        || deriveFileSlug(asString(args.fileSlug), frontmatter.name, instruction),
-      workflowName: frontmatter.name,
-      instruction
-    })
-  )
+  const fileSlug = resolveUniqueWorkflowFileSlug(deriveWorkflowFileSlugFromInput({
+    requestedFileSlug: asString(args.fileSlug) || null,
+    workflowName: frontmatter.name,
+    instruction
+  }))
 
   const created = writeWorkflowDefinition(fileSlug, frontmatter, instruction)
   reloadWorkflowScheduler()
@@ -845,61 +624,51 @@ const handleWorkflowDelete = (args: Record<string, unknown>) => {
   }
 }
 
-const handleWorkflowFromText = (args: Record<string, unknown>) => {
+const resolveApplyTextMode = (value: unknown): 'auto' | 'create' | 'update' => {
+  const normalized = normalizeCommand(value)
+  if (normalized === 'create' || normalized === 'update') {
+    return normalized
+  }
+  return 'auto'
+}
+
+const handleWorkflowFromText = async (args: Record<string, unknown>) => {
   const text = asString(args.text)
   if (!text) {
     throw new Error('from-text requires "text".')
   }
 
+  const parsed = await parseWorkflowDraftFromText(text)
+  const hasTarget = Boolean(asString(args.slug) || asString(args.query))
+
   return {
     action: 'from-text',
-    parsed: parseWorkflowIntentFromText(
-      text,
-      loadWorkflowDefinitions(),
-      listAvailableSkills()
-    )
+    parsed,
+    recommendedCommand: hasTarget ? 'update' : 'create'
   }
 }
 
-const handleWorkflowApplyText = (args: Record<string, unknown>) => {
+const handleWorkflowApplyText = async (args: Record<string, unknown>) => {
   const text = asString(args.text)
   if (!text) {
     throw new Error('apply-text requires "text".')
   }
 
-  const parsed = parseWorkflowIntentFromText(
-    text,
-    loadWorkflowDefinitions(),
-    listAvailableSkills()
-  )
+  const parsed = await parseWorkflowDraftFromText(text)
+  const hasTarget = Boolean(asString(args.slug) || asString(args.query))
+  const requestedMode = resolveApplyTextMode(args.mode)
+  const resolvedMode = requestedMode === 'auto'
+    ? (hasTarget ? 'update' : 'create')
+    : requestedMode
 
-  if (parsed.action === 'list') {
-    const result = handleWorkflowList({
-      query: parsed.listOptions.query ?? '',
-      activeOnly: parsed.listOptions.activeOnly,
-      runningOnly: parsed.listOptions.runningOnly
-    })
-    return {
-      ...result,
-      parsed
+  if (resolvedMode === 'update') {
+    if (!hasTarget) {
+      throw new Error('apply-text update mode requires "slug" or "query".')
     }
-  }
 
-  if (parsed.action === 'delete') {
-    const result = handleWorkflowDelete({
-      slug: parsed.selector.slug ?? '',
-      query: parsed.selector.query ?? ''
-    })
-    return {
-      ...result,
-      parsed
-    }
-  }
-
-  if (parsed.action === 'update') {
     const result = handleWorkflowUpdate({
-      slug: parsed.selector.slug ?? '',
-      query: parsed.selector.query ?? '',
+      slug: asString(args.slug),
+      query: asString(args.query),
       name: parsed.draft.name,
       description: parsed.draft.description,
       instruction: parsed.draft.instruction,
@@ -911,12 +680,14 @@ const handleWorkflowApplyText = (args: Record<string, unknown>) => {
     })
     return {
       ...result,
-      parsed
+      parsed,
+      resolvedMode
     }
   }
 
   const result = handleWorkflowCreate({
     instruction: parsed.draft.instruction || text,
+    fileSlug: asString(args.fileSlug),
     name: parsed.draft.name,
     description: parsed.draft.description,
     schedule: parsed.draft.triggerType === 'schedule' ? parsed.draft.triggerValue ?? '' : '',
@@ -927,7 +698,8 @@ const handleWorkflowApplyText = (args: Record<string, unknown>) => {
   })
   return {
     ...result,
-    parsed
+    parsed,
+    resolvedMode
   }
 }
 
@@ -1049,13 +821,13 @@ const handleManageWorkflowsTool: NativeDynamicToolHandler = async (input) => {
     if (command === 'from-text') {
       return toolSuccess({
         tool: MANAGE_WORKFLOW_TOOL_NAME,
-        ...handleWorkflowFromText(args)
+        ...await handleWorkflowFromText(args)
       })
     }
 
     return toolSuccess({
       tool: MANAGE_WORKFLOW_TOOL_NAME,
-      ...handleWorkflowApplyText(args)
+      ...await handleWorkflowApplyText(args)
     })
   } catch (error) {
     return toolFailure(error instanceof Error ? error.message : String(error))
@@ -1086,7 +858,7 @@ const nativeTools: NativeDynamicTool[] = [
     ],
     spec: {
       name: MANAGE_WORKFLOW_TOOL_NAME,
-      description: 'Native workflow definition manager for Corazon workflows/*.md. Commands: list/create/update/delete/from-text/apply-text/inspect.',
+      description: 'Native workflow manager for Corazon workflows/*.md. Prefer explicit commands (list/inspect/create/update/delete). from-text/apply-text use AI draft parsing for natural-language workflow authoring.',
       inputSchema: MANAGE_WORKFLOWS_TOOL_SCHEMA
     },
     handle: handleManageWorkflowsTool
