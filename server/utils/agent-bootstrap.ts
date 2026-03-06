@@ -148,6 +148,11 @@ const ensureDefaultAgentsFile = (agentHomeDir: string) => {
   writeFileSync(destinationPath, '# Corazon Assistant\n', 'utf8')
 }
 
+const updateGuidanceSection = (content: string, pattern: RegExp, guidance: string) =>
+  content.match(pattern)
+    ? content.replace(pattern, `${guidance}\n`)
+    : `${content.trimEnd()}\n\n${guidance}\n`
+
 const migrateLegacyAgentsFile = (agentHomeDir: string) => {
   const destinationPath = join(agentHomeDir, AGENTS_FILE)
   if (!existsSync(destinationPath)) {
@@ -158,15 +163,11 @@ const migrateLegacyAgentsFile = (agentHomeDir: string) => {
   let next = previous
 
   if (previous.includes('${CODEX_HOME}/MEMORY.md') || LEGACY_SHARED_MEMORY_SKILL_HINT.test(previous)) {
-    next = next.match(SHARED_MEMORY_GUIDANCE_PATTERN)
-      ? next.replace(SHARED_MEMORY_GUIDANCE_PATTERN, `${UPDATED_SHARED_MEMORY_GUIDANCE}\n`)
-      : `${next.trimEnd()}\n\n${UPDATED_SHARED_MEMORY_GUIDANCE}\n`
+    next = updateGuidanceSection(next, SHARED_MEMORY_GUIDANCE_PATTERN, UPDATED_SHARED_MEMORY_GUIDANCE)
   }
 
   if (LEGACY_WORKFLOW_SKILL_HINT.test(previous)) {
-    next = next.match(WORKFLOW_GUIDANCE_PATTERN)
-      ? next.replace(WORKFLOW_GUIDANCE_PATTERN, `${UPDATED_WORKFLOW_GUIDANCE}\n`)
-      : `${next.trimEnd()}\n\n${UPDATED_WORKFLOW_GUIDANCE}\n`
+    next = updateGuidanceSection(next, WORKFLOW_GUIDANCE_PATTERN, UPDATED_WORKFLOW_GUIDANCE)
   }
 
   if (next !== previous) {
