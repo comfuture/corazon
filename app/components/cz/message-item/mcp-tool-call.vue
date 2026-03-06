@@ -34,6 +34,30 @@ const callPreview = computed(() => {
 
 const resultText = computed(() => formatPrettyJson(props.item.result))
 
+const progressLines = computed(() => {
+  const structured = props.item.result?.structured_content
+  if (!structured || typeof structured !== 'object' || Array.isArray(structured)) {
+    return []
+  }
+
+  const progress = (structured as { progress?: unknown }).progress
+  if (!Array.isArray(progress)) {
+    return []
+  }
+
+  return progress.map((entry) => {
+    if (typeof entry === 'string') {
+      return entry
+    }
+
+    try {
+      return JSON.stringify(entry)
+    } catch {
+      return String(entry)
+    }
+  })
+})
+
 const toggleOpen = () => {
   open.value = !open.value
 }
@@ -85,6 +109,24 @@ const toggleOpen = () => {
     </UButton>
 
     <template v-if="open">
+      <div
+        v-if="progressLines.length > 0"
+        class="rounded-md border border-muted/60 bg-muted/10 px-3 py-2"
+      >
+        <p class="mb-2 text-xs font-medium text-muted-foreground">
+          Progress
+        </p>
+        <ul class="space-y-1">
+          <li
+            v-for="(line, index) in progressLines"
+            :key="`${item.id}-progress-${index}`"
+            class="font-mono text-xs text-muted-foreground break-words"
+          >
+            {{ line }}
+          </li>
+        </ul>
+      </div>
+
       <div
         v-if="item.result"
         class="rounded-md bg-muted/10 px-3 py-2"
