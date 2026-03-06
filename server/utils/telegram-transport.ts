@@ -42,6 +42,7 @@ import {
 import { ensureAgentBootstrap } from './agent-bootstrap.ts'
 import { createCodexClient } from './codex-client/index.ts'
 import type { CodexClient } from './codex-client/types.ts'
+import { deleteRuntimeThread, deleteRuntimeTurnControl } from './runtime.ts'
 
 const TELEGRAM_POLL_TIMEOUT_SECONDS = 20
 const TELEGRAM_DISABLED_RETRY_MS = 5000
@@ -633,8 +634,10 @@ const handleTelegramTextMessage = async (
       }
 
       if (route.session.threadId) {
+        deleteRuntimeThread(route.session.threadId)
         clearThreadActiveRun(route.session.threadId, ownership.runId)
       }
+      deleteRuntimeTurnControl(ownership.runId)
       setTelegramSessionActiveRun(route.session.id, null)
     }
 
