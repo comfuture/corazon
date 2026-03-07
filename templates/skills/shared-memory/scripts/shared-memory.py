@@ -113,18 +113,6 @@ def request_json(
     raise RuntimeError("Request failed before receiving a response.")
 
 
-def ensure_memory(api_base_url: str) -> dict[str, Any]:
-    payload = request_json(
-        api_base_url=api_base_url,
-        path="/api/memory/health",
-        method="GET",
-    )
-    return {
-        "apiBaseUrl": api_base_url,
-        "health": payload,
-    }
-
-
 def search_memory(api_base_url: str, query: str, limit: int) -> dict[str, Any]:
     payload = request_json(
         api_base_url=api_base_url,
@@ -184,8 +172,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("ensure", help="Check memory API health")
-
     search_parser = subparsers.add_parser("search", help="Search shared memory")
     search_parser.add_argument("--query", required=True)
     search_parser.add_argument("--limit", default=str(DEFAULT_LIMIT))
@@ -232,8 +218,6 @@ def run(argv: list[str]) -> dict[str, Any]:
     args = parser.parse_args(normalized_argv)
     api_base_url = resolve_api_base_url(args.api_base_url)
 
-    if args.command == "ensure":
-        return ensure_memory(api_base_url)
     if args.command == "search":
         query = args.query.strip()
         if not query:

@@ -19,7 +19,7 @@ You are a helpful, pragmatic, and respectful agent.
 - In sdk mode or fallback paths, use the `shared-memory` skill.
 - Treat Corazon memory APIs (`/api/memory/*`) as the shared memory interface across all threads.
 - Memory backend is `mem0` with ChromaDB vector storage; do not bypass it with direct file edits.
-- In dynamic-tool mode, run `search`/`upsert` directly; use `ensure` as optional health check when needed.
+- In dynamic-tool mode, use `search` and `upsert` directly for normal memory operations.
 - Add memory when new stable facts/preferences/decisions emerge; search memory when prior context is needed.
 
 ## Workflow management

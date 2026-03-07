@@ -7,7 +7,7 @@ import type { DynamicToolCallResponse } from '@@/types/codex-app-server/v2/Dynam
 import type { DynamicToolSpec } from '@@/types/codex-app-server/v2/DynamicToolSpec'
 import type { JsonValue } from '@@/types/codex-app-server/serde_json/JsonValue'
 import type { WorkflowDefinition, WorkflowFrontmatter } from '@@/types/workflow'
-import { getMemoryHealth, rememberText, searchMemories } from '../memory.ts'
+import { rememberText, searchMemories } from '../memory.ts'
 import {
   deleteWorkflowDefinitionBySlug,
   deriveWorkflowFileSlugFromInput,
@@ -70,7 +70,7 @@ const SHARED_MEMORY_TOOL_SCHEMA: JsonValue = {
   properties: {
     command: {
       type: 'string',
-      enum: ['ensure', 'search', 'upsert']
+      enum: ['search', 'upsert']
     },
     query: { type: 'string' },
     limit: { type: 'integer', minimum: 1, maximum: 100 },
@@ -714,15 +714,6 @@ const handleSharedMemoryTool: NativeDynamicToolHandler = async (input) => {
   }
 
   try {
-    if (command === 'ensure') {
-      const health = await getMemoryHealth()
-      return toolSuccess({
-        tool: SHARED_MEMORY_TOOL_NAME,
-        command,
-        health
-      })
-    }
-
     if (command === 'search') {
       const query = asString(args.query)
       if (!query) {
@@ -847,7 +838,7 @@ const nativeTools: NativeDynamicTool[] = [
     ],
     spec: {
       name: SHARED_MEMORY_TOOL_NAME,
-      description: 'Native shared memory manager. Commands: search, upsert, ensure(optional health check).',
+      description: 'Native shared memory manager. Commands: search and upsert.',
       inputSchema: SHARED_MEMORY_TOOL_SCHEMA
     },
     handle: handleSharedMemoryTool

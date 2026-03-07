@@ -109,8 +109,6 @@ const summaryText = computed(() => {
         return '메모리 읽음'
       case 'upsert':
         return '메모리 기록'
-      case 'ensure':
-        return '메모리 확인'
       default:
         return '메모리 작업'
     }

@@ -69,7 +69,7 @@ const APP_SERVER_NATIVE_TOOL_PREAMBLE = [
   `- Prefer explicit \`${WORKFLOW_NATIVE_TOOL}\` commands: list/inspect/create/update/delete.`,
   `- Use \`${WORKFLOW_NATIVE_TOOL}\` apply-text only for natural-language workflow authoring and draft extraction.`,
   '- Author workflow instructions as executable behavior that fulfills user intent. If needed capability is missing, create/prepare supporting skills/tools first and include them in workflow skills.',
-  `- For long-term memory operations, use dynamic tool \`${SHARED_MEMORY_NATIVE_TOOL}\` (search/upsert; \`ensure\` is optional health check).`,
+  `- For long-term memory operations, use dynamic tool \`${SHARED_MEMORY_NATIVE_TOOL}\` with \`search\` and \`upsert\` directly.`,
   '- Do not call `manage-workflows` or `shared-memory` skills preemptively. Use them only as explicit fallback after a dynamic tool failure.'
 ].join('\n')
 const SDK_WORKFLOW_ROUTING_PREAMBLE = [

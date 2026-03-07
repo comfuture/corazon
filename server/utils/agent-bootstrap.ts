@@ -26,11 +26,10 @@ const LEGACY_SHARED_MEMORY_SKILL_HINT = /for long-term memory,\s*use the `shared
 const LEGACY_WORKFLOW_SKILL_HINT = /use the `manage-workflows` skill for workflow operations\./i
 const UPDATED_SHARED_MEMORY_GUIDANCE = [
   '## Shared memory',
-  '- In app-server mode, assume native dynamic tool `sharedMemory` is available and use it first for long-term memory (`ensure` -> `search` -> `upsert`).',
+  '- In app-server mode, assume native dynamic tool `sharedMemory` is available and use it first for long-term memory with `search` and `upsert`.',
   '- In sdk mode or fallback paths, use the `shared-memory` skill.',
   '- Treat Corazon memory APIs (`/api/memory/*`) as the shared memory interface across all threads.',
   '- Memory backend is `mem0` with ChromaDB vector storage; do not bypass it with direct file edits.',
-  '- In dynamic-tool mode, run `search`/`upsert` directly; use `ensure` as optional health check when needed.',
   '- Add memory when new stable facts/preferences/decisions emerge; search memory when prior context is needed.'
 ].join('\n')
 const UPDATED_WORKFLOW_GUIDANCE = [
@@ -162,11 +161,15 @@ const migrateLegacyAgentsFile = (agentHomeDir: string) => {
   const previous = readFileSync(destinationPath, 'utf8')
   let next = previous
 
-  if (previous.includes('${CODEX_HOME}/MEMORY.md') || LEGACY_SHARED_MEMORY_SKILL_HINT.test(previous)) {
+  if (
+    previous.match(SHARED_MEMORY_GUIDANCE_PATTERN)
+    || previous.includes('${CODEX_HOME}/MEMORY.md')
+    || LEGACY_SHARED_MEMORY_SKILL_HINT.test(previous)
+  ) {
     next = updateGuidanceSection(next, SHARED_MEMORY_GUIDANCE_PATTERN, UPDATED_SHARED_MEMORY_GUIDANCE)
   }
 
-  if (LEGACY_WORKFLOW_SKILL_HINT.test(previous)) {
+  if (previous.match(WORKFLOW_GUIDANCE_PATTERN) || LEGACY_WORKFLOW_SKILL_HINT.test(previous)) {
     next = updateGuidanceSection(next, WORKFLOW_GUIDANCE_PATTERN, UPDATED_WORKFLOW_GUIDANCE)
   }
 

@@ -24,19 +24,6 @@ All command responses must be parsed as JSON.
 This script is uvx-based and installs runtime dependencies automatically.
 `--api-base-url` is order-insensitive and can be placed before or after the command.
 
-### Ensure Memory API
-
-```bash
-scripts/shared-memory.py ensure \
-  --api-base-url "http://localhost:3000"
-```
-
-Equivalent:
-
-```bash
-scripts/shared-memory.py --api-base-url "http://localhost:3000" ensure
-```
-
 ### Search Memory
 
 ```bash
@@ -73,11 +60,10 @@ scripts/shared-memory.py --api-base-url "http://localhost:3000" upsert \
 
 ## Required Workflow
 
-1. Run `ensure` before memory read/write tasks in the current execution context.
-2. Run `search` before writing when duplicate or near-duplicate risk exists.
-3. Run `upsert` for writes. Do not bypass the API with direct file edits.
-4. Prefer updating an existing near-duplicate memory over creating a new memory.
-5. Loopback fallback (`localhost`, `127.0.0.1`, `::1`) is handled automatically by the script for local development.
+1. Run `search` before writing when duplicate or near-duplicate risk exists.
+2. Run `upsert` for writes. Do not bypass the API with direct file edits.
+3. Prefer updating an existing near-duplicate memory over creating a new memory.
+4. Loopback fallback (`localhost`, `127.0.0.1`, `::1`) is handled automatically by the script for local development.
 
 ## Write Policy
 
