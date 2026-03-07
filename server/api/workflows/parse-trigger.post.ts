@@ -91,7 +91,7 @@ export default defineEventHandler(async (event): Promise<WorkflowTriggerGuessRes
 
       if (inferred) {
         suggestedName = normalizeWorkflowName(inferred.suggestedName)
-        enhancedText = inferred.enhancedInstruction.trim() || text
+        enhancedText = normalizeWorkflowInstructionText(inferred.enhancedInstruction) || normalizeWorkflowInstructionText(text)
         suggestedDescription = normalizeSuggestedDescription(
           inferred.suggestedDescription,
           inferred.enhancedInstruction || text
@@ -124,6 +124,6 @@ export default defineEventHandler(async (event): Promise<WorkflowTriggerGuessRes
     suggestedName,
     suggestedDescription,
     suggestedSkills,
-    enhancedText: enhancedText.trim() || text
+    enhancedText: normalizeWorkflowInstructionText(enhancedText) || normalizeWorkflowInstructionText(text)
   }
 })

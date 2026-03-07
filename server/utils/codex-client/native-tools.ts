@@ -12,6 +12,7 @@ import {
   deleteWorkflowDefinitionBySlug,
   deriveWorkflowFileSlugFromInput,
   loadWorkflowDefinitions,
+  normalizeWorkflowInstructionText,
   resolveUniqueWorkflowFileSlug,
   toWorkflowFileSlug,
   validateCronExpression,
@@ -341,7 +342,9 @@ const parseWorkflowDraftFromText = async (text: string): Promise<ParsedWorkflowD
           description: normalizeWorkflowDescription(
             inferred.suggestedDescription || inferred.enhancedInstruction || source
           ),
-          instruction: asString(inferred.enhancedInstruction) || source,
+          instruction: normalizeWorkflowInstructionText(
+            asString(inferred.enhancedInstruction) || source
+          ),
           triggerType: resolvedTrigger.triggerType,
           triggerValue: resolvedTrigger.triggerValue,
           workflowDispatch: true,
@@ -359,7 +362,7 @@ const parseWorkflowDraftFromText = async (text: string): Promise<ParsedWorkflowD
     draft: {
       name: normalizeWorkflowName(source),
       description: normalizeWorkflowDescription(source),
-      instruction: source,
+      instruction: normalizeWorkflowInstructionText(source),
       triggerType: null,
       triggerValue: null,
       workflowDispatch: true,
@@ -512,7 +515,7 @@ const handleWorkflowInspect = (args: Record<string, unknown>) => {
 }
 
 const handleWorkflowCreate = (args: Record<string, unknown>) => {
-  const instruction = asString(args.instruction)
+  const instruction = normalizeWorkflowInstructionText(asString(args.instruction))
   if (!instruction) {
     throw new Error('create requires "instruction".')
   }
@@ -598,7 +601,7 @@ const handleWorkflowUpdate = (args: Record<string, unknown>) => {
     skills: nextSkills
   })
 
-  const instruction = asString(args.instruction) || target.instruction
+  const instruction = normalizeWorkflowInstructionText(asString(args.instruction)) || target.instruction
   const updated = writeWorkflowDefinition(target.fileSlug, frontmatter, instruction)
   reloadWorkflowScheduler()
 

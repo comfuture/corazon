@@ -68,7 +68,7 @@ export const parseWorkflowUpsertRequest = (body: unknown) => {
 
   const name = asString(raw.name)
   const description = asString(raw.description)
-  const instruction = asString(raw.instruction)
+  const instruction = normalizeWorkflowInstructionText(asString(raw.instruction))
   const skills = asStringArray(raw.skills)
   const triggerType = raw.triggerType === 'schedule' || raw.triggerType === 'interval' || raw.triggerType === 'rrule'
     ? raw.triggerType

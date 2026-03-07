@@ -13,6 +13,18 @@ const WORKFLOW_FILE_EXTENSION = '.md'
 const INTERVAL_PATTERN = /^([1-9][0-9]*)(s|m|h)$/
 const WORKFLOW_NAME_PATTERN = /^[A-Za-z]+(?: [A-Za-z]+){1,2}$/
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/
+const WORKFLOW_CADENCE_CORE = String.raw`(?:매\s*\d+\s*(?:초|분|시간|일|주|개월|달|월|년)마다|(?:\d+\s*(?:초|분|시간|일|주|개월|달|월|년))(?:에)?\s*(?:한\s*번|한번)|매(?:일|주|월|년)|every\s+\d+\s*(?:seconds?|minutes?|hours?|days?|weeks?|months?)|every\s+(?:second|minute|hour|day|week|month)s?|daily|weekly|monthly|hourly)`
+const WORKFLOW_LEADING_CADENCE_PATTERN = new RegExp(
+  String.raw`^\s*${WORKFLOW_CADENCE_CORE}(?:\s+(?:at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|on\s+\w+|오전\s*\d{1,2}(?::\d{2})?\s*시?|오후\s*\d{1,2}(?::\d{2})?\s*시?|[월화수목금토일]요일?))?(?:\s*(?:에|마다))?(?:\s*(?:실행(?:하세요|해라|합니다|됩니다)?|run|execute(?:\s+it)?))?(?:\s*[,;:]\s*|\s+)`,
+  'iu'
+)
+const WORKFLOW_INVOCATION_PREFIX_PATTERN = /^(?:\s*(?:실행할\s*때마다|실행\s*시마다|실행시마다|실행\s*시|각\s*실행(?:에서)?|매번|호출\s*시(?:마다)?|호출시(?:마다)?|트리거(?:될\s*때마다|시(?:마다)?)|on each run|every execution|at each execution|upon invocation|on invocation|per run|when(?:ever)?\s+(?:the workflow is |it is )?(?:run|invoked|triggered)))\s*/iu
+const WORKFLOW_META_TAIL_PATTERN = /(?:워크플로우\s*(?:생성|만들(?:어|어줘|어 주세요|어주세요)?|등록|작성|저장|수정|업데이트)|(?:create|make|generate|set\s+up)(?:\s+me)?\s+(?:a\s+)?workflow)\s*(?:해줘|해주세요|해\s*주세요|please)?$/iu
+const WORKFLOW_CADENCE_ONLY_PATTERN = new RegExp(
+  String.raw`^\s*${WORKFLOW_CADENCE_CORE}(?:\s+(?:at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|on\s+\w+|오전\s*\d{1,2}(?::\d{2})?\s*시?|오후\s*\d{1,2}(?::\d{2})?\s*시?|[월화수목금토일]요일?))?(?:\s*(?:에|마다))?(?:\s*(?:실행(?:하세요|해라|합니다|됩니다)?|run|execute(?:\s+it)?))?\s*$`,
+  'iu'
+)
+const WORKFLOW_INVOCATION_ONLY_PATTERN = /^(?:실행할\s*때마다|실행\s*시마다|실행시마다|실행\s*시|각\s*실행(?:에서)?|매번|호출\s*시(?:마다)?|호출시(?:마다)?|트리거(?:될\s*때마다|시(?:마다)?)|on each run|every execution|at each execution|upon invocation|on invocation|per run)$/iu
 const GENERIC_WORKFLOW_SLUGS = new Set([
   'workflow',
   'task-workflow',
@@ -98,6 +110,78 @@ const normalizeSkills = (value: unknown) => {
     .filter(Boolean)
 
   return [...new Set(normalized)]
+}
+
+const sanitizeWorkflowInstructionSentence = (value: string) => {
+  let sentence = value
+    .replace(/^```(?:text|markdown)?\s*/iu, '')
+    .replace(/\s*```$/iu, '')
+    .trim()
+
+  if (!sentence) {
+    return ''
+  }
+
+  const stripForClassification = (input: string) =>
+    input
+      .replace(/[.,!?;:。！？]+$/gu, '')
+      .replace(/^["'“”‘’`]+|["'“”‘’`]+$/gu, '')
+      .trim()
+
+  sentence = sentence.replace(WORKFLOW_META_TAIL_PATTERN, '').trim()
+
+  let previous = ''
+  while (sentence && previous !== sentence) {
+    previous = sentence
+    const classified = stripForClassification(sentence)
+    if (WORKFLOW_CADENCE_ONLY_PATTERN.test(classified) || WORKFLOW_INVOCATION_ONLY_PATTERN.test(classified)) {
+      return ''
+    }
+
+    sentence = sentence
+      .replace(WORKFLOW_LEADING_CADENCE_PATTERN, '')
+      .replace(WORKFLOW_INVOCATION_PREFIX_PATTERN, '')
+      .replace(/^[,;:.\-)\]]+\s*/u, '')
+      .trim()
+  }
+
+  const classified = stripForClassification(sentence)
+  if (!classified) {
+    return ''
+  }
+  if (WORKFLOW_CADENCE_ONLY_PATTERN.test(classified) || WORKFLOW_INVOCATION_ONLY_PATTERN.test(classified)) {
+    return ''
+  }
+
+  return sentence
+}
+
+export const normalizeWorkflowInstructionText = (value: string) => {
+  const source = value
+    .replace(/\r\n/g, '\n')
+    .trim()
+
+  if (!source) {
+    return ''
+  }
+
+  const lines = source
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => line
+      .split(/(?<=[.!?。！？])\s+/u)
+      .map(sanitizeWorkflowInstructionSentence)
+      .filter(Boolean)
+      .join(' ')
+      .trim())
+    .filter(Boolean)
+
+  return lines
+    .join('\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 const normalizeTriggerConfig = (value: unknown): WorkflowTriggerConfig | null => {
@@ -243,7 +327,7 @@ const tokenizeSlugSource = (value: string) => (value ?? '')
   .filter(item => item.length >= 2 && !SLUG_STOPWORDS.has(item))
 
 const deriveInstructionBasedSlug = (instruction: string) => {
-  const source = instruction.trim()
+  const source = normalizeWorkflowInstructionText(instruction) || instruction.trim()
   if (!source) {
     return null
   }
@@ -337,7 +421,7 @@ export const serializeWorkflowSource = (
     skills: [...new Set(frontmatterInput.skills.map(item => item.trim()).filter(Boolean))]
   }
 
-  const instruction = instructionInput.trim()
+  const instruction = normalizeWorkflowInstructionText(instructionInput)
   const validationError = validateWorkflowRules(frontmatter, instruction)
   if (validationError) {
     throw new Error(validationError)
