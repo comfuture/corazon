@@ -11,7 +11,7 @@ import { createUIMessageStream } from 'ai'
 import {
   createSimpleChatgptCodexInput,
   runChatgptCodexTextResponse
-} from '@@/lib/chatgpt-codex-responses'
+} from '../../lib/chatgpt-codex-responses.ts'
 import { ensureAgentBootstrap } from './agent-bootstrap.ts'
 import { createCodexClient, resolveCodexClientMode } from './codex-client/index.ts'
 import type { CodexClient, CodexInput } from './codex-client/types.ts'
@@ -47,8 +47,9 @@ import { buildCodexInput, createThreadEventHandler } from './stream.ts'
 const TITLE_MODEL = 'gpt-5.1-codex-mini'
 const TITLE_REASONING_EFFORT = 'low'
 const TITLE_MAX_LENGTH = 80
-const DEFAULT_MODEL = 'gpt-5.3-codex'
+const DEFAULT_MODEL = 'gpt-5.4'
 const MODEL_OPTIONS = new Set([
+  'gpt-5.4',
   'gpt-5.3-codex',
   'gpt-5.2-codex',
   'gpt-5.2',

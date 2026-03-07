@@ -5,7 +5,7 @@ import {
   buildRecoveredConversationDeveloperInstructions,
   createSimpleChatgptCodexInput,
   runChatgptCodexTextResponse
-} from '@@/lib/chatgpt-codex-responses'
+} from '../../lib/chatgpt-codex-responses.ts'
 import { CODEX_ITEM_PART } from '@@/types/chat-ui'
 import type {
   CodexChatUserMessage,

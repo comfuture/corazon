@@ -1,3 +1,8 @@
+import {
+  createSimpleChatgptCodexInput,
+  formatChatgptCodexResponsesError,
+  runChatgptCodexTextResponse
+} from '../../lib/chatgpt-codex-responses.ts'
 import { createCodexClient } from './codex-client/index.ts'
 import type { CodexClient } from './codex-client/types.ts'
 
@@ -25,15 +30,9 @@ type WorkflowDraftAiResult = {
   suggestedSkills: string[]
 }
 
-type EnhanceWorkflowInstructionOptions = {
-  availableSkills?: string[]
-  suggestedSkills?: string[]
-  suggestedName?: string | null
-  triggerType?: 'schedule' | 'interval' | 'rrule' | null
-  triggerValue?: string | null
-}
-
 let codexInstance: CodexClient | null = null
+const WORKFLOW_DRAFT_MODEL = 'gpt-5.4'
+const WORKFLOW_DRAFT_REASONING_EFFORT = 'low'
 
 const getCodexEnv = () => {
   const env: Record<string, string> = {}
@@ -105,12 +104,43 @@ const normalizeDraftAiResult = (raw: WorkflowDraftAiResult, availableSkills: str
   return {
     suggestedName: raw.suggestedName.trim(),
     suggestedDescription: raw.suggestedDescription.trim(),
-    enhancedInstruction: raw.enhancedInstruction.trim(),
+    enhancedInstruction: normalizeWorkflowInstructionText(raw.enhancedInstruction),
     triggerType: raw.triggerType,
     triggerValue: raw.triggerValue.trim(),
     confidence: raw.confidence,
     suggestedSkills: [...new Set(suggestedSkills)]
   }
+}
+
+const parseJsonObjectFromText = <T>(value: string) => {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const candidates = [
+    trimmed,
+    trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim() ?? ''
+  ].filter(Boolean)
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate) as T
+    } catch {
+      const startIndex = candidate.indexOf('{')
+      const endIndex = candidate.lastIndexOf('}')
+      if (startIndex === -1 || endIndex <= startIndex) {
+        continue
+      }
+      try {
+        return JSON.parse(candidate.slice(startIndex, endIndex + 1)) as T
+      } catch {
+        continue
+      }
+    }
+  }
+
+  return null
 }
 
 export const inferWorkflowDraftWithAI = async (input: {
@@ -122,99 +152,62 @@ export const inferWorkflowDraftWithAI = async (input: {
     return null
   }
 
-  const prompt = [
-    '다음 사용자 요청을 분석해 워크플로 초안을 JSON으로 생성하세요.',
-    '- suggestedName: 영문 2~3단어 이름.',
-    '- suggestedDescription: 워크플로가 실제로 무엇을 하는지 1문장 요약.',
-    '- enhancedInstruction: 각 실행에서 수행할 실제 작업 지시문.',
-    '- triggerType/triggerValue/confidence: 실행 주기 추론 결과.',
-    '- suggestedSkills: availableSkills 중 필요한 항목만 선택.',
-    '',
-    '중요 규칙:',
-    '- 메타 작업(워크플로우 생성/등록/수정/저장 지시)을 작성하지 마세요.',
-    '- 사용자의 실제 의도를 수행하는 실행 지시를 작성하세요.',
-    '- 실행 주기/시간표현은 enhancedInstruction/suggestedDescription에 포함하지 마세요.',
-    '- 스케줄 정보는 triggerType/triggerValue에만 작성하세요.',
-    '',
-    'triggerType 규칙:',
-    '- schedule: 5-field cron (minute hour day month weekday)',
-    '- interval: 120s, 60m, 2h 형식',
-    '- rrule: RFC 5545 RRULE (DTSTART 제외)',
-    '- 추론 불가 시 triggerType=none, triggerValue=""',
-    '',
-    '예시:',
-    '입력: 2분에 한번 "안녕하세요" 라고 말하는 워크플로우',
-    'enhancedInstruction: 각 실행에서 assistant 메시지로 정확히 "안녕하세요" 한 줄만 출력한다.',
-    'suggestedDescription: 실행 시마다 지정된 인사 메시지를 한 줄로 출력합니다.',
-    '',
-    'availableSkills:',
-    ...input.availableSkills.map(skill => `- ${skill}`),
-    '',
-    `userRequest: ${source}`
-  ].join('\n')
-
-  const thread = getCodex().startThread({
-    model: 'gpt-5.1-codex-mini',
-    workingDirectory: process.cwd()
+  const response = await runChatgptCodexTextResponse({
+    model: WORKFLOW_DRAFT_MODEL,
+    reasoningEffort: WORKFLOW_DRAFT_REASONING_EFFORT,
+    instructions: [
+      'You generate workflow drafts for a lightweight workflow builder.',
+      'Analyze the user request and return JSON only.',
+      'The JSON must match this schema exactly:',
+      JSON.stringify(WORKFLOW_DRAFT_AI_SCHEMA),
+      '',
+      'Rules:',
+      '- suggestedName must be English only, 2 or 3 words, Title Case.',
+      '- suggestedDescription must describe the actual task the workflow performs in one sentence.',
+      '- enhancedInstruction must be the workflow body prompt that directly performs the user intent.',
+      '- Write suggestedDescription and enhancedInstruction in the same language as the user request.',
+      '- Do not tell the workflow to create, register, update, save, or manage a workflow.',
+      '- Do not mention cadence or schedule inside suggestedDescription or enhancedInstruction.',
+      '- If the user request contains cadence or timing language, infer it into trigger fields and remove it completely from enhancedInstruction.',
+      '- Do not use phrases such as "on each run", "every execution", "at each execution", "각 실행에서", or "실행 시마다".',
+      '- The workflow prompt is read only when invoked, so write only the direct task to perform.',
+      '- Put all schedule information only in triggerType and triggerValue.',
+      '- If no trigger can be inferred, return triggerType="none" and triggerValue="".',
+      '- suggestedSkills must contain only exact names from availableSkills.',
+      '- Return valid JSON only with no markdown fence and no explanation.',
+      '',
+      'Trigger rules:',
+      '- schedule: 5-field cron (minute hour day month weekday)',
+      '- interval: 120s, 60m, or 2h',
+      '- rrule: RFC 5545 RRULE without DTSTART',
+      '',
+      'Example:',
+      'User request: 2분에 한번 "안녕하세요" 라고 말하는 워크플로우',
+      'enhancedInstruction: assistant 메시지로 정확히 "안녕하세요" 한 줄만 출력한다.',
+      'suggestedDescription: 지정된 인사 메시지 한 줄을 출력합니다.'
+    ].join('\n'),
+    input: createSimpleChatgptCodexInput([
+      'availableSkills:',
+      ...input.availableSkills.map(skill => `- ${skill}`),
+      '',
+      `userRequest: ${source}`
+    ].join('\n'))
+  }).catch((error) => {
+    console.error('Failed to infer workflow draft with ChatGPT Codex responses:', formatChatgptCodexResponsesError(error))
+    return null
   })
 
-  const result = await thread.run(prompt, {
-    outputSchema: WORKFLOW_DRAFT_AI_SCHEMA
-  })
-
-  const response = result.finalResponse?.trim() ?? ''
-  if (!response) {
+  const output = response?.outputText?.trim() ?? ''
+  if (!output) {
     return null
   }
 
-  try {
-    const parsed = JSON.parse(response) as WorkflowDraftAiResult
-    return normalizeDraftAiResult(parsed, input.availableSkills)
-  } catch {
+  const parsed = parseJsonObjectFromText<WorkflowDraftAiResult>(output)
+  if (!parsed) {
     return null
   }
-}
 
-export const enhanceWorkflowInstruction = async (
-  text: string,
-  options: EnhanceWorkflowInstructionOptions = {}
-) => {
-  const availableSkills = options.availableSkills ?? []
-  const suggestedSkills = options.suggestedSkills ?? []
-  const prompt = [
-    '다음 워크플로 요청 문장을 "각 실행에서 수행할 작업 지시문"으로 개선하세요.',
-    '- 원문 언어를 유지하세요.',
-    '- 사용자의 의도를 직접 수행하도록 작성하세요.',
-    '- "워크플로우를 생성/등록/수정/저장" 같은 메타 작업 지시는 금지합니다.',
-    '- 작업 대상/범위/결과물/완료조건을 더 구체화하세요.',
-    '- 실행 주기/시간표현은 지시문에서 제거하세요. 스케줄은 런타임 run_context가 처리합니다.',
-    '- 사용 가능한 스킬과 추천 스킬을 참고해 실행 가능한 절차를 구체화하세요.',
-    '- 결과는 지시문 본문만 반환하고 설명은 제외하세요.',
-    '',
-    '예시:',
-    '입력: 2분에 한번 "안녕하세요" 라고 말하는 워크플로우',
-    '출력: 각 실행에서 assistant 메시지로 정확히 "안녕하세요" 한 줄만 출력한다.',
-    '',
-    `<suggested-workflow-name>${options.suggestedName ?? ''}</suggested-workflow-name>`,
-    `<suggested-trigger-type>${options.triggerType ?? ''}</suggested-trigger-type>`,
-    `<suggested-trigger-value>${options.triggerValue ?? ''}</suggested-trigger-value>`,
-    '<available-skills>',
-    ...availableSkills.map(skill => `- ${skill}`),
-    '</available-skills>',
-    '<suggested-skills>',
-    ...suggestedSkills.map(skill => `- ${skill}`),
-    '</suggested-skills>',
-    '',
-    text.trim()
-  ].join('\n')
-
-  const thread = getCodex().startThread({
-    model: 'gpt-5.1-codex-mini',
-    workingDirectory: process.cwd()
-  })
-  const result = await thread.run(prompt)
-  const enhanced = result.finalResponse?.trim() ?? ''
-  return enhanced || text.trim()
+  return normalizeDraftAiResult(parsed, input.availableSkills)
 }
 
 const TRIGGER_AI_SCHEMA = {
