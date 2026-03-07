@@ -1,12 +1,12 @@
 import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join, resolve, sep } from 'node:path'
+import { basename, join, relative, resolve, sep } from 'node:path'
 import type { SkillSummary } from '@@/types/settings'
 import { ensureAgentBootstrap } from './agent-bootstrap.ts'
 
 const SKILL_FILE_NAME = 'SKILL.md'
-const SYSTEM_SKILL_NAMES = new Set(['shared-memory'])
+const SYSTEM_SKILL_NAMES = new Set(['shared-memory', 'manage-workflows'])
 
 const isSafeSkillName = (name: string) => /^[A-Za-z0-9._-]+$/.test(name)
 const isSystemSkillName = (name: string) => name.startsWith('.') || SYSTEM_SKILL_NAMES.has(name)
@@ -46,15 +46,48 @@ const isInsideDirectory = (targetPath: string, basePath: string) => {
 
 const getSkillsRootDir = () => join(ensureAgentBootstrap(), 'skills')
 
-const toSkillSummary = (name: string): SkillSummary => {
+const isSystemSkillPath = (path: string, name: string) => {
+  if (isSystemSkillName(name)) {
+    return true
+  }
+
   const skillsRoot = getSkillsRootDir()
-  const path = join(skillsRoot, name)
+  const relativePath = relative(skillsRoot, path)
+  if (!relativePath || relativePath.startsWith('..')) {
+    return false
+  }
+
+  return relativePath
+    .split(/[\\/]+/)
+    .filter(Boolean)
+    .some(segment => segment.startsWith('.'))
+}
+
+const toSkillSummary = (path: string): SkillSummary => {
+  const name = basename(path)
   return {
     name,
     path,
     hasSkillFile: existsSync(join(path, SKILL_FILE_NAME)),
-    isSystem: isSystemSkillName(name)
+    isSystem: isSystemSkillPath(path, name)
   }
+}
+
+const collectInstalledSkillDirectories = (rootDir: string, currentDir = rootDir): string[] => {
+  const skillFilePath = join(currentDir, SKILL_FILE_NAME)
+  if (existsSync(skillFilePath)) {
+    return [currentDir]
+  }
+
+  const directories: string[] = []
+  for (const entry of readdirSync(currentDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue
+    }
+    directories.push(...collectInstalledSkillDirectories(rootDir, join(currentDir, entry.name)))
+  }
+
+  return directories
 }
 
 const collectInstallTargets = (sourceRoot: string, preferredRootName?: string) => {
@@ -141,10 +174,12 @@ export const listInstalledSkills = (): SkillSummary[] => {
   const skillsRoot = getSkillsRootDir()
   mkdirSync(skillsRoot, { recursive: true })
 
-  const skills = readdirSync(skillsRoot, { withFileTypes: true })
-    .filter(entry => entry.isDirectory())
-    .map(entry => toSkillSummary(entry.name))
-    .sort((left, right) => left.name.localeCompare(right.name))
+  const skills = collectInstalledSkillDirectories(skillsRoot)
+    .map(path => toSkillSummary(path))
+    .sort((left, right) =>
+      left.name.localeCompare(right.name)
+      || left.path.localeCompare(right.path)
+    )
 
   return skills
 }
@@ -176,7 +211,7 @@ export const installSkillsFromSource = (source: string): SkillSummary[] => {
         throw new Error(`Skill already exists: ${target.name}`)
       }
       cpSync(target.path, destination, { recursive: true, errorOnExist: true, force: false })
-      installed.push(toSkillSummary(target.name))
+      installed.push(toSkillSummary(destination))
     }
 
     return installed
@@ -190,18 +225,28 @@ export const removeInstalledSkill = (name: string) => {
   if (!normalizedName || !isSafeSkillName(normalizedName)) {
     throw new Error('Invalid skill name.')
   }
-  if (isSystemSkillName(normalizedName)) {
+
+  const skillsRoot = getSkillsRootDir()
+  const matchingSkills = listInstalledSkills().filter(skill => skill.name === normalizedName)
+  if (matchingSkills.length === 0) {
+    throw new Error(`Skill not found: ${normalizedName}`)
+  }
+  if (matchingSkills.length > 1) {
+    throw new Error(`Multiple installed skills match: ${normalizedName}`)
+  }
+
+  const target = matchingSkills[0]!
+  if (target.isSystem) {
     throw new Error('System skills cannot be removed from UI.')
   }
 
-  const skillsRoot = getSkillsRootDir()
-  const target = join(skillsRoot, normalizedName)
-  if (!isInsideDirectory(target, skillsRoot)) {
+  const targetPath = target.path
+  if (!isInsideDirectory(targetPath, skillsRoot)) {
     throw new Error('Invalid skill path.')
   }
-  if (!existsSync(target)) {
+  if (!existsSync(targetPath)) {
     throw new Error(`Skill not found: ${normalizedName}`)
   }
 
-  rmSync(target, { recursive: true, force: false })
+  rmSync(targetPath, { recursive: true, force: false })
 }
