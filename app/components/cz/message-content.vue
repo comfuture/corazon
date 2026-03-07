@@ -18,7 +18,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="space-y-2">
     <MessagePartRenderer
       v-for="(part, index) in message?.parts ?? []"
       :key="`${message?.id}-${part?.type}-${index}`"

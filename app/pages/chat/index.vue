@@ -187,7 +187,15 @@ watch(pendingThreadId, async (value) => {
           <UChatMessages
             :messages="chat?.messages ?? []"
             :status="chat?.status ?? 'ready'"
+            :user="{
+              ui: {
+                root: 'scroll-mt-4 sm:scroll-mt-6',
+                container: 'gap-3 pb-8',
+                content: 'px-4 py-3 rounded-lg min-h-12'
+              }
+            }"
             :ui="{ root: 'codex-chat-messages-root' }"
+            compact
             should-auto-scroll
           >
             <template #content="{ message }">
