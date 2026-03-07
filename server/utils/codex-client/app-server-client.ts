@@ -364,7 +364,8 @@ const toThreadItem = (
         type: 'file_change',
         changes: (raw.changes ?? []).map(change => ({
           path: change.path,
-          kind: normalizePatchChangeKind(change.kind)
+          kind: normalizePatchChangeKind(change.kind),
+          diff: typeof change.diff === 'string' ? change.diff : undefined
         })),
         status: normalizeFileChangeStatus(raw.status)
       }

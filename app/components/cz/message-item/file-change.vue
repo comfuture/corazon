@@ -3,70 +3,179 @@ import type { CodexItemData } from '@@/types/chat-ui'
 
 type FileChangeItem = Extract<CodexItemData, { kind: 'file_change' }>['item']
 
-defineProps<{
+const props = defineProps<{
   item: FileChangeItem
 }>()
 
-const statusColor = (status?: string) => {
-  switch (status) {
-    case 'completed':
-      return 'success'
-    case 'failed':
-      return 'error'
+const open = ref(false)
+
+const changes = computed(() => props.item.changes ?? [])
+
+const hasDiff = (diff?: string | null) => typeof diff === 'string' && diff.trim().length > 0
+
+const hasAnyDiff = computed(() => changes.value.some(change => hasDiff(change?.diff)))
+
+const hasAnyChangeKind = computed(() => changes.value.some(change => typeof change?.kind === 'string' && change.kind.length > 0))
+
+const hasDetails = computed(() => changes.value.length > 1 || hasAnyDiff.value)
+
+const itemStatus = computed(() => String(props.item.status ?? ''))
+
+const badgeLabel = computed(() => (hasAnyDiff.value || hasAnyChangeKind.value ? 'file' : 'file change'))
+
+const filePreview = computed(() => {
+  const [firstChange] = changes.value
+  if (!firstChange?.path) {
+    return 'file change'
+  }
+
+  if (changes.value.length === 1) {
+    return firstChange.path
+  }
+
+  return `${firstChange.path} +${changes.value.length - 1} more`
+})
+
+const statusIconName = computed(() => {
+  switch (itemStatus.value) {
     case 'in_progress':
-      return 'warning'
+      return 'i-lucide-loader-2'
+    case 'completed':
+      return 'i-lucide-check'
+    case 'failed':
+      return 'i-lucide-x'
     default:
-      return 'neutral'
+      return 'i-lucide-circle'
+  }
+})
+
+const statusIconClass = computed(() => {
+  switch (itemStatus.value) {
+    case 'in_progress':
+      return 'h-3.5 w-3.5 animate-spin text-amber-500'
+    case 'completed':
+      return 'h-3.5 w-3.5 text-emerald-500'
+    case 'failed':
+      return 'h-3.5 w-3.5 text-rose-500'
+    default:
+      return 'h-3.5 w-3.5 text-muted'
+  }
+})
+
+const changeKindIcon = (kind?: string) => {
+  switch (kind) {
+    case 'add':
+      return 'i-lucide-plus'
+    case 'delete':
+      return 'i-lucide-minus'
+    case 'update':
+      return 'i-lucide-pencil'
+    default:
+      return 'i-lucide-file'
   }
 }
 
-const changeKindColor = (kind?: string) => {
+const changeKindClass = (kind?: string) => {
   switch (kind) {
     case 'add':
-      return 'success'
+      return 'text-emerald-500'
     case 'delete':
-      return 'error'
+      return 'text-rose-500'
     case 'update':
-      return 'warning'
+      return 'text-amber-500'
     default:
-      return 'neutral'
+      return 'text-muted'
   }
+}
+
+const toggleOpen = () => {
+  if (!hasDetails.value) {
+    return
+  }
+
+  open.value = !open.value
 }
 </script>
 
 <template>
-  <UCard>
-    <template #header>
-      <div class="flex flex-wrap items-center gap-2">
+  <div class="space-y-1.5">
+    <UButton
+      v-if="hasDetails"
+      color="neutral"
+      variant="ghost"
+      size="sm"
+      class="w-full justify-between px-0 py-0.5 text-muted"
+      @click="toggleOpen"
+    >
+      <span class="min-w-0 flex flex-1 items-center gap-2 text-left">
         <UBadge
           color="primary"
           variant="subtle"
+          size="xs"
         >
-          File changes
+          {{ badgeLabel }}
         </UBadge>
-        <UBadge
-          :color="statusColor(item.status)"
-          variant="soft"
-        >
-          {{ item.status }}
-        </UBadge>
-      </div>
-    </template>
+        <span class="block whitespace-pre-wrap break-all font-mono text-xs text-default">{{ filePreview }}</span>
+      </span>
 
-    <ul class="space-y-2 text-sm">
-      <li
-        v-for="(change, changeIndex) in item.changes ?? []"
-        :key="`${item.id}-${change?.path}-${changeIndex}`"
-        class="flex items-center gap-2"
+      <template #trailing>
+        <div class="flex items-center gap-2">
+          <UIcon
+            :name="statusIconName"
+            :class="statusIconClass"
+          />
+          <UIcon
+            name="i-lucide-chevron-right"
+            class="size-3.5 text-muted transition-transform"
+            :class="open ? 'rotate-90' : ''"
+          />
+        </div>
+      </template>
+    </UButton>
+
+    <div
+      v-else
+      class="flex min-w-0 items-center gap-2 py-0.5 text-muted"
+    >
+      <UBadge
+        color="primary"
+        variant="subtle"
+        size="xs"
       >
-        <UBadge
-          :color="changeKindColor(change?.kind)"
-          variant="soft"
+        {{ badgeLabel }}
+      </UBadge>
+      <span class="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-xs text-default">{{ filePreview }}</span>
+      <UIcon
+        :name="statusIconName"
+        :class="statusIconClass"
+      />
+    </div>
+
+    <ul
+      v-if="hasDetails && open"
+      class="space-y-1 pl-1"
+    >
+      <li
+        v-for="(change, changeIndex) in changes"
+        :key="`${item.id}-${change?.path}-${changeIndex}`"
+        class="space-y-1.5"
+      >
+        <div class="flex items-start gap-2 text-xs">
+          <UIcon
+            :name="changeKindIcon(change?.kind)"
+            class="mt-0.5 h-3.5 w-3.5 shrink-0"
+            :class="changeKindClass(change?.kind)"
+          />
+          <span class="font-mono break-all text-default">{{ change?.path }}</span>
+        </div>
+
+        <div
+          v-if="hasDiff(change?.diff)"
+          class="rounded-md bg-muted/10 px-3 py-2"
         >
-          {{ change?.kind }}
-        </UBadge>
-        <span class="font-mono text-xs break-all">{{ change?.path }}</span>
+          <pre class="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-default">{{ change?.diff }}</pre>
+        </div>
       </li>
     </ul>
-  </UCard>
+  </div>
 </template>

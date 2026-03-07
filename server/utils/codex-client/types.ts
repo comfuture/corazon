@@ -1,22 +1,51 @@
 import type {
+  AgentMessageItem,
+  CommandExecutionItem,
+  ErrorItem,
   Input,
+  McpToolCallItem,
+  ReasoningItem,
   RunResult,
-  ThreadEvent,
-  ThreadItem,
+  ThreadErrorEvent,
   ThreadOptions,
+  ThreadStartedEvent,
   TurnOptions,
-  Usage
+  TurnCompletedEvent,
+  TurnFailedEvent,
+  TurnStartedEvent,
+  TodoListItem,
+  Usage,
+  WebSearchItem
 } from '@openai/codex-sdk'
+import type { CodexFileChangeItem } from '@@/types/chat-ui'
 
 export type CodexInput = Input
-export type CodexThreadEvent = ThreadEvent
-export type CodexThreadItem = ThreadItem
+export type CodexThreadItem
+  = AgentMessageItem
+    | ReasoningItem
+    | CommandExecutionItem
+    | CodexFileChangeItem
+    | McpToolCallItem
+    | WebSearchItem
+    | TodoListItem
+    | ErrorItem
+export type CodexThreadEvent
+  = ThreadStartedEvent
+    | TurnStartedEvent
+    | TurnCompletedEvent
+    | TurnFailedEvent
+    | ThreadErrorEvent
+    | { type: 'item.started', item: CodexThreadItem }
+    | { type: 'item.updated', item: CodexThreadItem }
+    | { type: 'item.completed', item: CodexThreadItem }
 export type CodexUsage = Usage
 export type CodexThreadOptions = ThreadOptions & {
   developerInstructions?: string | null
 }
 export type CodexTurnOptions = TurnOptions
-export type CodexTurn = RunResult
+export type CodexTurn = Omit<RunResult, 'items'> & {
+  items: CodexThreadItem[]
+}
 export type CodexThreadControlResult = {
   ok: boolean
   turnId?: string | null

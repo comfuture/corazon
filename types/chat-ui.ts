@@ -1,7 +1,6 @@
 import type {
   CommandExecutionItem,
   ErrorItem,
-  FileChangeItem,
   McpToolCallItem,
   ThreadError,
   TodoListItem,
@@ -9,6 +8,19 @@ import type {
   WebSearchItem
 } from '@openai/codex-sdk'
 import type { UIMessage } from 'ai'
+
+export type CodexFileChange = {
+  path: string
+  kind: 'add' | 'delete' | 'update'
+  diff?: string | null
+}
+
+export type CodexFileChangeItem = {
+  id: string
+  type: 'file_change'
+  changes: CodexFileChange[]
+  status: 'in_progress' | 'completed' | 'failed'
+}
 
 export type CodexThreadEventData
   = {
@@ -51,7 +63,7 @@ export type CodexItemData
   }
   | {
     kind: 'file_change'
-    item: FileChangeItem
+    item: CodexFileChangeItem
   }
   | {
     kind: 'mcp_tool_call'

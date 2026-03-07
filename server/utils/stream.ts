@@ -1,5 +1,5 @@
-import type { Input, ThreadEvent, ThreadItem, Usage } from '@openai/codex-sdk'
 import type { ReasoningUIPart, TextUIPart, UIMessage, UIMessageStreamWriter } from 'ai'
+import type { Input, Usage } from '@openai/codex-sdk'
 import {
   CODEX_EVENT_PART,
   CODEX_ITEM_PART,
@@ -8,6 +8,7 @@ import {
   type CodexThreadEventData,
   type CodexUIMessage
 } from '../../types/chat-ui.ts'
+import type { CodexThreadEvent, CodexThreadItem } from './codex-client/types.ts'
 
 type CodexWriter = UIMessageStreamWriter<CodexUIMessage>
 
@@ -145,7 +146,7 @@ const pushTextDelta = (
   }
 }
 
-const toThreadEventData = (event: ThreadEvent): CodexThreadEventData | null => {
+const toThreadEventData = (event: CodexThreadEvent): CodexThreadEventData | null => {
   switch (event.type) {
     case 'thread.started':
       return { kind: 'thread.started', threadId: event.thread_id }
@@ -162,7 +163,7 @@ const toThreadEventData = (event: ThreadEvent): CodexThreadEventData | null => {
   }
 }
 
-const toItemData = (item: ThreadItem): CodexItemData | null => {
+const toItemData = (item: CodexThreadItem): CodexItemData | null => {
   switch (item.type) {
     case 'command_execution':
       return { kind: 'command_execution', item }
@@ -183,7 +184,7 @@ const toItemData = (item: ThreadItem): CodexItemData | null => {
 
 type ThreadEventHandlerOptions = {
   onThreadStarted?: (threadId: string) => void
-  onItemCompleted?: (item: ThreadItem) => void
+  onItemCompleted?: (item: CodexThreadItem) => void
   onTurnCompleted?: (usage: Usage) => void
   buildTurnCompletedData?: (usage: Usage) => CodexThreadEventData
   getReasoningEndMetadata?: (reasoningId: string) => ProviderMetadata | undefined
@@ -222,7 +223,7 @@ export const createThreadEventHandler = (
     })
   }
 
-  return (event: ThreadEvent) => {
+  return (event: CodexThreadEvent) => {
     const threadEvent = toThreadEventData(event)
     if (threadEvent) {
       if (threadEvent.kind === 'thread.started') {
