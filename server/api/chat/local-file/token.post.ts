@@ -10,6 +10,9 @@ type LocalFileTokenResponse = {
   token: string
   url: string
   expiresAt: number
+  mediaType: string
+  filename: string
+  displayPath: string
 }
 
 const normalizeString = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
@@ -27,10 +30,6 @@ const asHttpError = (error: unknown) => {
 
   if (message === 'Invalid local file path.') {
     return createError({ statusCode: 403, statusMessage: message })
-  }
-
-  if (message === 'Unsupported local file type.') {
-    return createError({ statusCode: 415, statusMessage: message })
   }
 
   if (message === 'Local file not found.') {
@@ -54,7 +53,10 @@ export default defineEventHandler(async (event: H3Event): Promise<LocalFileToken
     return {
       token: created.token,
       url: `/api/chat/local-file/${encodeURIComponent(created.token)}`,
-      expiresAt: created.expiresAt
+      expiresAt: created.expiresAt,
+      mediaType: created.mediaType,
+      filename: created.filename,
+      displayPath: created.displayPath
     }
   } catch (error) {
     throw asHttpError(error)

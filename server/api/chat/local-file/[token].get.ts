@@ -12,8 +12,9 @@ export default defineEventHandler(async (event) => {
   const maxAgeSeconds = Math.max(1, Math.floor((payload.expiresAt - Date.now()) / 1000))
 
   setHeader(event, 'cache-control', `private, max-age=${maxAgeSeconds}`)
+  setHeader(event, 'x-content-type-options', 'nosniff')
   setHeader(event, 'content-type', payload.mediaType)
-  setHeader(event, 'content-disposition', `inline; filename="${payload.filename}"`)
+  setHeader(event, 'content-disposition', `${payload.contentDisposition}; filename="${payload.filename}"`)
 
   return payload.content
 })

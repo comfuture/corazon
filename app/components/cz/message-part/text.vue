@@ -10,7 +10,7 @@ const props = defineProps<{
   } | null
 }>()
 
-const { rewriteContentWithLocalImagePreviews } = useLocalFilePreview()
+const { rewriteContentWithLocalFilePreviews } = useLocalFilePreview()
 const activeThreadId = useState<string | null>('codex-thread-id', () => null)
 const route = useRoute()
 const resolvedThreadId = computed(() => {
@@ -38,7 +38,7 @@ watch(
       cancelled = true
     })
 
-    const rewritten = await rewriteContentWithLocalImagePreviews(sourceText, resolvedThreadId.value)
+    const rewritten = await rewriteContentWithLocalFilePreviews(sourceText, resolvedThreadId.value)
     if (!cancelled) {
       renderedContent.value = rewritten
     }
