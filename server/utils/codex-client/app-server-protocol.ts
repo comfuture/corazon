@@ -7,6 +7,8 @@ import readline from 'node:readline'
 import type { ServerNotification } from '@@/types/codex-app-server/ServerNotification'
 import type { ServerRequest } from '@@/types/codex-app-server/ServerRequest'
 import type { RequestId } from '@@/types/codex-app-server/RequestId'
+import type { DynamicToolCallParams } from '@@/types/codex-app-server/v2/DynamicToolCallParams'
+import type { DynamicToolCallResponse } from '@@/types/codex-app-server/v2/DynamicToolCallResponse'
 import type { CodexClientConfigValue } from './types.ts'
 import { resolveNativeDynamicToolCall } from './native-tools.ts'
 
@@ -48,6 +50,16 @@ type AppServerPidFile = {
   signature: string
   startedAt: number
 }
+
+const buildDynamicToolFailureResponse = (message: string): DynamicToolCallResponse => ({
+  contentItems: [
+    {
+      type: 'inputText',
+      text: message
+    }
+  ],
+  success: false
+})
 
 const INTERNAL_ORIGINATOR_ENV = 'CODEX_INTERNAL_ORIGINATOR_OVERRIDE'
 const CORAZON_ORIGINATOR = 'corazon_app_server'
@@ -477,21 +489,7 @@ export class AppServerProtocol {
       case 'item/tool/requestUserInput':
         return { answers: {} }
       case 'item/tool/call':
-        {
-          const nativeResponse = await resolveNativeDynamicToolCall(request.params)
-          if (nativeResponse) {
-            return nativeResponse
-          }
-        }
-        return {
-          contentItems: [
-            {
-              type: 'inputText',
-              text: `Dynamic tool "${request.params.tool}" is not configured in Corazon.`
-            }
-          ],
-          success: false
-        }
+        return this.resolveDynamicToolCall(request.params)
       case 'applyPatchApproval':
         return { decision: 'denied' }
       case 'execCommandApproval':
@@ -501,6 +499,67 @@ export class AppServerProtocol {
       default:
         throw new Error(`Unsupported server request method: ${(request as { method: string }).method}`)
     }
+  }
+
+  private emitDynamicToolStarted(params: DynamicToolCallParams) {
+    this.emitNotification({
+      method: 'item/started',
+      params: {
+        threadId: params.threadId,
+        turnId: params.turnId,
+        item: {
+          type: 'dynamicToolCall',
+          id: params.callId,
+          tool: params.tool,
+          arguments: params.arguments,
+          status: 'inProgress',
+          contentItems: null,
+          success: null,
+          durationMs: null
+        }
+      }
+    } as ServerNotification)
+  }
+
+  private emitDynamicToolCompleted(
+    params: DynamicToolCallParams,
+    response: DynamicToolCallResponse,
+    durationMs: number
+  ) {
+    this.emitNotification({
+      method: 'item/completed',
+      params: {
+        threadId: params.threadId,
+        turnId: params.turnId,
+        item: {
+          type: 'dynamicToolCall',
+          id: params.callId,
+          tool: params.tool,
+          arguments: params.arguments,
+          status: response.success ? 'completed' : 'failed',
+          contentItems: response.contentItems,
+          success: response.success,
+          durationMs
+        }
+      }
+    } as ServerNotification)
+  }
+
+  private async resolveDynamicToolCall(params: DynamicToolCallParams): Promise<DynamicToolCallResponse> {
+    const startedAt = Date.now()
+    this.emitDynamicToolStarted(params)
+
+    let response: DynamicToolCallResponse
+    try {
+      response = await resolveNativeDynamicToolCall(params) ?? buildDynamicToolFailureResponse(
+        `Dynamic tool "${params.tool}" is not configured in Corazon.`
+      )
+    } catch (error) {
+      response = buildDynamicToolFailureResponse(error instanceof Error ? error.message : String(error))
+    }
+
+    this.emitDynamicToolCompleted(params, response, Date.now() - startedAt)
+    return response
   }
 
   private emitNotification(notification: ServerNotification) {
