@@ -7,6 +7,7 @@ import {
 } from '@@/types/chat-ui'
 import CzMessageItemCommandExecution from '../message-item/command-execution.vue'
 import CzMessageItemFileChange from '../message-item/file-change.vue'
+import CzMessageItemInternalToolCall from '../message-item/internal-tool-call.vue'
 import CzMessageItemMcpToolCall from '../message-item/mcp-tool-call.vue'
 import CzMessageItemWebSearch from '../message-item/web-search.vue'
 import CzMessageItemTodoList from '../message-item/todo-list.vue'
@@ -24,6 +25,19 @@ const asCodexItemPart = (part: unknown) =>
   isPartWithType(part) && part.type === CODEX_ITEM_PART
     ? (part as DataUIPart<CodexUIDataTypes> & { type: typeof CODEX_ITEM_PART, data: CodexItemData })
     : undefined
+
+const normalizeDynamicToolName = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .split('/')
+    .filter(Boolean)
+    .at(-1)
+    ?.replace(/[_\-\s]/g, '') ?? ''
+
+const isDynamicToolCall = (item: Extract<CodexItemData, { kind: 'mcp_tool_call' }>['item']) =>
+  item.server === 'dynamic' || ['sharedmemory', 'corazonsharedmemory', 'manageworkflow', 'corazonmanageworkflow']
+    .includes(normalizeDynamicToolName(item.tool ?? ''))
 
 export default defineComponent({
   name: 'CzMessagePartItem',
@@ -46,6 +60,9 @@ export default defineComponent({
         case 'file_change':
           return h(CzMessageItemFileChange, { item: itemData.item })
         case 'mcp_tool_call':
+          if (isDynamicToolCall(itemData.item)) {
+            return h(CzMessageItemInternalToolCall, { item: itemData.item })
+          }
           return h(CzMessageItemMcpToolCall, { item: itemData.item })
         case 'web_search':
           return h(CzMessageItemWebSearch, { item: itemData.item })
