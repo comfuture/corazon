@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CodexItemData } from '@@/types/chat-ui'
+import CzMessageItemUnifiedDiffViewer from './unified-diff-viewer.vue'
 
 type FileChangeItem = Extract<CodexItemData, { kind: 'file_change' }>['item']
 
@@ -171,9 +172,9 @@ const toggleOpen = () => {
 
         <div
           v-if="hasDiff(change?.diff)"
-          class="rounded-md bg-muted/10 px-3 py-2"
+          class="rounded-md"
         >
-          <pre class="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-default">{{ change?.diff }}</pre>
+          <CzMessageItemUnifiedDiffViewer :diff="change?.diff ?? ''" />
         </div>
       </li>
     </ul>
