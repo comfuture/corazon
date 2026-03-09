@@ -41,7 +41,10 @@ const UPDATED_WORKFLOW_GUIDANCE = [
   '- Author workflow instructions as a detailed execution brief that fulfills user intent.',
   '- Include the goal, required context/resources, concrete execution steps, and expected output or completion criteria in the workflow instruction.',
   '- When the workflow deliverable has no fixed language requirement, follow the user\'s prompt language.',
-  '- If required capability is missing, create/prepare supporting skills/tools first and include them in workflow skills.',
+  '- If reusable helper code, a custom executable, or long-lived operating guidance is required, create/update a supporting skill under `${CODEX_HOME}/skills` with `skill-creator` before finalizing the workflow, then include that skill in the workflow skills list.',
+  '- If a standalone script is still necessary, place reusable scripts under `${CODEX_HOME}/scripts`.',
+  '- Use `${CODEX_HOME}/threads/<threadId>/...` only for thread-local artifacts when the concrete thread directory is known.',
+  '- Never place scripts in `${CODEX_HOME}/threads` itself or in shared directories such as `${CODEX_HOME}/threads/scripts`.',
   '- In sdk mode or fallback paths, use the `manage-workflows` skill.',
   '- Prefer `rrule` for recurring schedules that are hard to express or maintain with cron, and use cron when it is sufficient.',
   '- Never use OS-level schedulers (`crontab`, `systemd`, `launchd`) for Corazon workflow requests.',
@@ -287,6 +290,8 @@ export const ensureAgentBootstrap = () => {
 
   mkdirSync(agentHomeDir, { recursive: true })
   mkdirSync(join(agentHomeDir, 'data'), { recursive: true })
+  mkdirSync(join(agentHomeDir, 'skills'), { recursive: true })
+  mkdirSync(join(agentHomeDir, 'scripts'), { recursive: true })
   mkdirSync(join(agentHomeDir, 'threads'), { recursive: true })
   mkdirSync(join(agentHomeDir, 'workflow-data'), { recursive: true })
 

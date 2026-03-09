@@ -51,19 +51,32 @@ const buildRunContextPrompt = (
   const now = new Date()
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
   const allowedSkills = definition.frontmatter.skills.join(', ')
+  const corazonRootDir = resolveCorazonRootDir()
+  const corazonSkillsDir = resolveCorazonSkillsDir()
+  const corazonScriptsDir = resolveCorazonScriptsDir()
+  const corazonThreadsDir = resolveCorazonThreadsDir()
 
   return [
-    `워크플로 설명: ${definition.frontmatter.description}`,
-    `사용 가능한 스킬: ${allowedSkills}`,
+    `Workflow description: ${definition.frontmatter.description}`,
+    `Allowed skills: ${allowedSkills}`,
     definition.instruction,
     '',
-    '실행 시 아래 실행 콘텍스트를 참조해야 합니다.',
+    'Use the execution context below while running this workflow.',
+    'If reusable helper code, a custom executable, or long-lived operating guidance is required, create or update a supporting skill under the Corazon skills directory with `skill-creator` before relying on ad hoc files.',
+    'If a standalone script is still necessary, place reusable scripts under the Corazon scripts directory.',
+    'Use the Corazon thread-local path pattern only when the concrete thread directory is known.',
+    `Never create scripts in the Corazon threads root itself or in shared directories such as ${corazonThreadsDir}/scripts.`,
     '<run-context>',
     `workflow_name: ${definition.frontmatter.name}`,
     `workflow_description: ${definition.frontmatter.description}`,
     `workflow_file: workflows/${definition.fileSlug}.md`,
     `allowed_skills: ${allowedSkills}`,
     `working_directory: ${process.cwd()}`,
+    `corazon_root_directory: ${corazonRootDir}`,
+    `corazon_skills_directory: ${corazonSkillsDir}`,
+    `corazon_scripts_directory: ${corazonScriptsDir}`,
+    `corazon_threads_directory: ${corazonThreadsDir}`,
+    `thread_local_directory_pattern: ${corazonThreadsDir}/<threadId>`,
     `trigger_type: ${triggerType}`,
     `trigger_value: ${triggerValue ?? ''}`,
     `timezone: ${timezone}`,

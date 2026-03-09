@@ -11,6 +11,9 @@ Use this skill to manage Corazon workflow files in `workflows/*.md`.
 1. Default: edit workflow files directly (without scripts).
 2. Optional: run `scripts/manage-workflows.py` when deterministic CLI automation is necessary.
 3. Do not use OS-level schedulers (`crontab`, `systemd`, `launchd`) for Corazon workflows.
+4. If the workflow needs reusable helper code, a custom executable, or long-lived operating guidance, create or update a supporting skill under `${CODEX_HOME}/skills` with `skill-creator` before finalizing the workflow.
+5. If a standalone script is still necessary, use `${CODEX_HOME}/scripts` for reusable scripts and `${CODEX_HOME}/threads/<threadId>/...` only for thread-local artifacts.
+6. Never place scripts in `${CODEX_HOME}/threads` itself or in shared directories such as `${CODEX_HOME}/threads/scripts`.
 
 ## Workflow File Format
 Each workflow file must be Markdown with YAML frontmatter.
@@ -45,6 +48,7 @@ On each run, output exactly one assistant message: "Hello".
 - Keep schedule/interval settings in `on`; do not duplicate timing details in the instruction body.
 - Write a detailed execution brief, not a one-line summary.
 - Prefer a structured body with goal, context/resources, concrete steps, and expected output or completion criteria.
+- Prefer a supporting skill over ad hoc helper files when the workflow needs reusable executables or detailed reusable operating guidance.
 - State output format, completion criteria, and prohibitions explicitly.
 - Prefer the user's language for generated `description` and `instruction` content unless the user requests a different language.
 
