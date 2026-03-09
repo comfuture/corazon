@@ -1,8 +1,10 @@
 import {
   createSimpleChatgptCodexInput,
+  createJsonSchemaResponseFormat,
   formatChatgptCodexResponsesError,
   runChatgptCodexTextResponse
 } from '../../lib/chatgpt-codex-responses.ts'
+import { z } from 'zod'
 import { createCodexClient } from './codex-client/index.ts'
 import type { CodexClient } from './codex-client/types.ts'
 
@@ -18,16 +20,6 @@ type WorkflowNameAiResult = {
 
 type WorkflowSkillAiResult = {
   skills: string[]
-}
-
-type WorkflowDraftAiResult = {
-  suggestedName: string
-  suggestedDescription: string
-  enhancedInstruction: string
-  triggerType: 'schedule' | 'interval' | 'rrule' | 'none'
-  triggerValue: string
-  confidence: 'high' | 'low'
-  suggestedSkills: string[]
 }
 
 let codexInstance: CodexClient | null = null
@@ -62,37 +54,22 @@ const getCodex = () => {
   return codexInstance
 }
 
-const WORKFLOW_DRAFT_AI_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'suggestedName',
-    'suggestedDescription',
-    'enhancedInstruction',
-    'triggerType',
-    'triggerValue',
-    'confidence',
-    'suggestedSkills'
-  ],
-  properties: {
-    suggestedName: { type: 'string' },
-    suggestedDescription: { type: 'string' },
-    enhancedInstruction: { type: 'string' },
-    triggerType: {
-      type: 'string',
-      enum: ['schedule', 'interval', 'rrule', 'none']
-    },
-    triggerValue: { type: 'string' },
-    confidence: {
-      type: 'string',
-      enum: ['high', 'low']
-    },
-    suggestedSkills: {
-      type: 'array',
-      items: { type: 'string' }
-    }
-  }
-} as const
+const workflowDraftAiResultSchema = z.object({
+  suggestedName: z.string(),
+  suggestedDescription: z.string(),
+  enhancedInstruction: z.string(),
+  triggerType: z.enum(['schedule', 'interval', 'rrule', 'none']),
+  triggerValue: z.string(),
+  confidence: z.enum(['high', 'low']),
+  suggestedSkills: z.array(z.string())
+})
+
+type WorkflowDraftAiResult = z.infer<typeof workflowDraftAiResultSchema>
+
+const WORKFLOW_DRAFT_RESPONSE_FORMAT = createJsonSchemaResponseFormat(
+  'workflow_draft',
+  workflowDraftAiResultSchema
+)
 
 const normalizeDraftAiResult = (raw: WorkflowDraftAiResult, availableSkills: string[]) => {
   const availableSet = new Set(availableSkills)
@@ -104,7 +81,7 @@ const normalizeDraftAiResult = (raw: WorkflowDraftAiResult, availableSkills: str
   return {
     suggestedName: raw.suggestedName.trim(),
     suggestedDescription: raw.suggestedDescription.trim(),
-    enhancedInstruction: normalizeWorkflowInstructionText(raw.enhancedInstruction),
+    enhancedInstruction: ensureDetailedWorkflowInstruction(raw.enhancedInstruction),
     triggerType: raw.triggerType,
     triggerValue: raw.triggerValue.trim(),
     confidence: raw.confidence,
@@ -155,36 +132,54 @@ export const inferWorkflowDraftWithAI = async (input: {
   const response = await runChatgptCodexTextResponse({
     model: WORKFLOW_DRAFT_MODEL,
     reasoningEffort: WORKFLOW_DRAFT_REASONING_EFFORT,
+    textVerbosity: 'low',
+    responseFormat: WORKFLOW_DRAFT_RESPONSE_FORMAT,
     instructions: [
       'You generate workflow drafts for a lightweight workflow builder.',
-      'Analyze the user request and return JSON only.',
-      'The JSON must match this schema exactly:',
-      JSON.stringify(WORKFLOW_DRAFT_AI_SCHEMA),
       '',
-      'Rules:',
-      '- suggestedName must be English only, 2 or 3 words, Title Case.',
-      '- suggestedDescription must describe the actual task the workflow performs in one sentence.',
-      '- enhancedInstruction must be the workflow body prompt that directly performs the user intent.',
+      '<drafting_principles>',
+      '- Keep the draft minimal but complete.',
+      '- Include only details that change execution, output, or completion criteria.',
+      '- Prefer compact, information-dense wording over repetition or boilerplate.',
       '- Write suggestedDescription and enhancedInstruction in the same language as the user request.',
+      '- Do not invent missing recipients, data sources, destinations, or output formats.',
+      '- If important specifics are missing, write the most reliable generic execution brief possible without fabricating details.',
+      '</drafting_principles>',
+      '',
+      '<workflow_instruction_rules>',
+      '- enhancedInstruction must be the workflow body prompt that directly performs the user intent.',
+      '- enhancedInstruction must be detailed enough to execute without re-reading the original request.',
+      '- For simple deterministic tasks, use the shortest instruction that still specifies the exact action and output.',
+      '- For multi-step or long-horizon tasks, make dependencies, required context/resources, ordered steps, recovery behavior, and completion checks explicit.',
+      '- Prefer sections such as <goal>, <context>, <steps>, and <output> when they improve reliability.',
+      '- Include only sections and steps that materially change execution.',
+      '- When the final deliverable has no fixed language requirement, follow the user\'s prompt language.',
       '- Do not tell the workflow to create, register, update, save, or manage a workflow.',
       '- Do not mention cadence or schedule inside suggestedDescription or enhancedInstruction.',
       '- If the user request contains cadence or timing language, infer it into trigger fields and remove it completely from enhancedInstruction.',
-      '- Do not use phrases such as "on each run", "every execution", "at each execution", "각 실행에서", or "실행 시마다".',
-      '- The workflow prompt is read only when invoked, so write only the direct task to perform.',
+      '- Avoid invocation boilerplate such as "on each run", "every execution", "at each execution", or direct equivalents in the user\'s language.',
+      '- The workflow prompt is read only when invoked, so write only runtime behavior.',
+      '</workflow_instruction_rules>',
+      '',
+      '<field_rules>',
+      '- suggestedName must be English only, 2 or 3 words, Title Case.',
+      '- suggestedDescription must describe the actual task the workflow performs in one sentence.',
       '- Put all schedule information only in triggerType and triggerValue.',
       '- If no trigger can be inferred, return triggerType="none" and triggerValue="".',
       '- suggestedSkills must contain only exact names from availableSkills.',
-      '- Return valid JSON only with no markdown fence and no explanation.',
+      '</field_rules>',
       '',
-      'Trigger rules:',
+      '<trigger_rules>',
       '- schedule: 5-field cron (minute hour day month weekday)',
       '- interval: 120s, 60m, or 2h',
       '- rrule: RFC 5545 RRULE without DTSTART',
+      '</trigger_rules>',
       '',
-      'Example:',
-      'User request: 2분에 한번 "안녕하세요" 라고 말하는 워크플로우',
-      'enhancedInstruction: assistant 메시지로 정확히 "안녕하세요" 한 줄만 출력한다.',
-      'suggestedDescription: 지정된 인사 메시지 한 줄을 출력합니다.'
+      '<example>',
+      'User request: Create a workflow that says "Hello" every 2 minutes.',
+      'enhancedInstruction: <goal>\n- Output exactly one assistant message: "Hello".\n</goal>\n\n<context>\n- Do not perform any additional work when no extra requirement is provided.\n</context>\n\n<steps>\n1. Prepare the greeting message without extra lookup or narration.\n2. Output exactly one assistant message containing only "Hello".\n3. Do not add any prefix, explanation, code block, or extra line.\n</steps>\n\n<output>\n- Leave the final output as a single line containing only "Hello".\n</output>',
+      'suggestedDescription: Outputs one configured greeting line.',
+      '</example>'
     ].join('\n'),
     input: createSimpleChatgptCodexInput([
       'availableSkills:',
@@ -202,12 +197,17 @@ export const inferWorkflowDraftWithAI = async (input: {
     return null
   }
 
-  const parsed = parseJsonObjectFromText<WorkflowDraftAiResult>(output)
-  if (!parsed) {
+  const candidate = parseJsonObjectFromText<WorkflowDraftAiResult>(output)
+  if (!candidate) {
     return null
   }
 
-  return normalizeDraftAiResult(parsed, input.availableSkills)
+  const parsed = workflowDraftAiResultSchema.safeParse(candidate)
+  if (!parsed.success) {
+    return null
+  }
+
+  return normalizeDraftAiResult(parsed.data, input.availableSkills)
 }
 
 const TRIGGER_AI_SCHEMA = {

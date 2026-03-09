@@ -23,6 +23,16 @@ DEFAULT_WORKFLOW_NAME = "Task Workflow"
 WORKFLOW_EXTENSION = ".md"
 INTERVAL_PATTERN = re.compile(r"^([1-9][0-9]*)(s|m|h)$")
 FRONTMATTER_PATTERN = re.compile(r"^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$")
+WORKFLOW_DETAIL_SECTION_PATTERNS = [
+    re.compile(r"<goal>[\s\S]*?</goal>", re.IGNORECASE),
+    re.compile(r"<context>[\s\S]*?</context>", re.IGNORECASE),
+    re.compile(r"<steps>[\s\S]*?</steps>", re.IGNORECASE),
+    re.compile(r"<output>[\s\S]*?</output>", re.IGNORECASE),
+]
+WORKFLOW_STEP_LINE_PATTERN = re.compile(r"^(?:[-*]\s+|[0-9]+\.\s+)")
+WORKFLOW_MIN_DETAIL_LENGTH = 140
+WORKFLOW_MIN_DETAIL_LINES = 3
+WORKFLOW_MIN_DETAIL_SENTENCES = 3
 
 CRON_MONTH_NAMES = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
 CRON_WEEKDAY_NAMES = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
@@ -153,6 +163,104 @@ def derive_description(value: str) -> str:
         return "요청된 자동 작업을 수행합니다."
 
     return f"{normalized[:180].rstrip()}..." if len(normalized) > 180 else normalized
+
+
+def normalize_instruction_text(value: str) -> str:
+    source = (value or "").replace("\r\n", "\n").strip()
+    if not source:
+        return ""
+
+    lines = [re.sub(r"[ \t]+", " ", line.strip()) for line in source.split("\n") if line.strip()]
+    return "\n".join(lines).strip()
+
+
+def count_instruction_sections(value: str) -> int:
+    return sum(1 for pattern in WORKFLOW_DETAIL_SECTION_PATTERNS if pattern.search(value))
+
+
+def count_instruction_lines(value: str) -> int:
+    return len([line for line in value.split("\n") if line.strip()])
+
+
+def count_instruction_sentences(value: str) -> int:
+    count = 0
+    for line in value.split("\n"):
+        parts = [part.strip() for part in re.split(r"(?<=[.!?。！？])\s+", line.strip()) if part.strip()]
+        count += len(parts)
+    return count
+
+
+def is_detailed_workflow_instruction(value: str) -> bool:
+    normalized = normalize_instruction_text(value)
+    if not normalized:
+        return False
+
+    if count_instruction_sections(normalized) >= 4:
+        return True
+
+    step_lines = len([
+        line
+        for line in normalized.split("\n")
+        if WORKFLOW_STEP_LINE_PATTERN.match(line.strip())
+    ])
+
+    return len(normalized) >= WORKFLOW_MIN_DETAIL_LENGTH and (
+        count_instruction_lines(normalized) >= WORKFLOW_MIN_DETAIL_LINES
+        or count_instruction_sentences(normalized) >= WORKFLOW_MIN_DETAIL_SENTENCES
+        or step_lines >= 2
+    )
+
+
+def build_detailed_workflow_instruction(value: str) -> str:
+    normalized = normalize_instruction_text(value)
+    if not normalized:
+        return ""
+
+    if is_detailed_workflow_instruction(normalized):
+        return normalized
+
+    goal_text = re.sub(r"\s*\n+\s*", " ", normalized).strip()
+
+    return "\n".join([
+        "<goal>",
+        f"- {goal_text}",
+        "</goal>",
+        "",
+        "<context>",
+        "- Review the latest conversation, shared memory, workflow history, relevant files, and available tool outputs before acting.",
+        "- Recover missing identifiers, preferences, or prerequisites from available context instead of guessing when possible.",
+        "</context>",
+        "",
+        "<steps>",
+        "1. Translate the goal above into a concrete execution plan with a clear completion condition.",
+        "2. Gather the required context, state, references, and prerequisites before taking action.",
+        "3. Perform the actual work using the available tools and allowed skills.",
+        "4. If the first attempt is incomplete, do the obvious follow-up retrieval or recovery step.",
+        "5. Verify completion and leave only precise blockers when the goal cannot be finished.",
+        "</steps>",
+        "",
+        "<output>",
+        "- Deliver the requested result or final action directly.",
+        "- Use the user's requested language for the final deliverable unless the task explicitly requires another language.",
+        "- Keep the final report concise and include only essential validation details or follow-up items.",
+        "</output>",
+    ])
+
+
+def ensure_detailed_workflow_instruction(value: str) -> str:
+    return build_detailed_workflow_instruction(value)
+
+
+def get_workflow_instruction_detail_error(value: str) -> str | None:
+    normalized = normalize_instruction_text(value)
+    if not normalized:
+        return "Workflow instruction is required."
+    if is_detailed_workflow_instruction(normalized):
+        return None
+    return (
+        "Workflow instruction must be a detailed execution brief. Include concrete execution steps, "
+        "required context/resources, and the expected output or completion criteria."
+    )
 
 
 def to_file_slug(value: str) -> str:
@@ -479,11 +587,14 @@ def serialize_workflow_source(frontmatter: WorkflowFrontmatter, instruction: str
         ),
         skills=list(dict.fromkeys([item for item in frontmatter.skills if as_string(item)])),
     )
-    body = as_string(instruction)
+    body = ensure_detailed_workflow_instruction(instruction)
 
     error = validate_workflow(normalized, body)
     if error:
         raise ValueError(error)
+    detail_error = get_workflow_instruction_detail_error(body)
+    if detail_error:
+        raise ValueError(detail_error)
 
     yaml_content = stringify_frontmatter_yaml(normalized)
     return f"---\n{yaml_content}\n---\n{body}\n"
@@ -741,7 +852,7 @@ def derive_instruction_from_text(text: str) -> str:
     quoted = re.search(r"[\"'“”‘’]([^\"'“”‘’]+)[\"'“”‘’]", source)
     quoted_text = as_string(quoted.group(1) if quoted else "")
     if quoted_text and re.search(r"(말하|출력|send|say|print|메시지|인사)", source, flags=re.IGNORECASE):
-        return f'각 실행에서 assistant 메시지로 정확히 "{quoted_text}" 한 줄만 출력한다.'
+        return f'Output exactly one assistant message containing only "{quoted_text}".'
 
     schedule_pattern = re.compile(
         r"\b(cron|rrule|interval|daily|weekly|monthly|every\s+\d+\s*(seconds?|minutes?|hours?|days?|weeks?|months?))\b|"
@@ -800,7 +911,7 @@ def parse_from_text(text: str, workflows: list[WorkflowDefinition], available_sk
 
     slug, query = infer_selector_from_text(source, workflows)
     trigger_type, trigger_value = infer_trigger_from_text(source)
-    instruction = derive_instruction_from_text(source)
+    instruction = ensure_detailed_workflow_instruction(derive_instruction_from_text(source) or source)
     name = normalize_workflow_name(instruction or source)
     description = derive_description(instruction or source)
     skills = [skill for skill in available_skills if skill.lower() in normalized][:5]

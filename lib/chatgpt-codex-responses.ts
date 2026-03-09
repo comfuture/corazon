@@ -1,6 +1,7 @@
 import { request as httpsRequest } from 'node:https'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { z } from 'zod'
 import { ensureAgentBootstrap } from '../server/utils/agent-bootstrap.ts'
 
 const CHATGPT_CODEX_RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses'
@@ -47,6 +48,7 @@ export type ChatgptCodexResponsesRequest = {
   authPath?: string
   reasoningEffort?: ChatgptCodexReasoningEffort
   textVerbosity?: ChatgptCodexTextVerbosity
+  responseFormat?: ChatgptCodexResponseFormat
 }
 
 export type ChatgptCodexCompactRequest = {
@@ -79,6 +81,29 @@ export type ChatgptCodexCompactionResponse = {
   output: ChatgptCodexInputItem[]
   usage: JsonObject | null
 }
+
+export type ChatgptCodexResponseFormat = {
+  type: 'json_schema'
+  name: string
+  schema: JsonObject
+  strict?: boolean
+  description?: string | null
+}
+
+export const createJsonSchemaResponseFormat = (
+  name: string,
+  schema: z.ZodTypeAny,
+  options: {
+    strict?: boolean
+    description?: string | null
+  } = {}
+): ChatgptCodexResponseFormat => ({
+  type: 'json_schema',
+  name,
+  schema: z.toJSONSchema(schema) as JsonObject,
+  strict: options.strict ?? true,
+  description: options.description ?? null
+})
 
 const toErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
@@ -160,8 +185,12 @@ const buildChatgptCodexPayload = (input: ChatgptCodexResponsesRequest) => ({
   // - input must be a message list
   // - store must be false
   // - stream must be true
-  // We also omit optional fields unless explicitly requested because some models reject
-  // otherwise-valid public API parameters such as metadata or low text verbosity.
+  // Verified private-endpoint behavior:
+  // - `text.verbosity` is accepted.
+  // - `text.format.type = "json_schema"` is accepted for structured outputs.
+  // - top-level `response_format` is rejected with "Unsupported parameter: response_format".
+  // We omit optional fields unless explicitly requested because some models reject
+  // otherwise-valid public API parameters such as metadata.
   model: input.model,
   instructions: input.instructions,
   input: input.input,
@@ -172,13 +201,25 @@ const buildChatgptCodexPayload = (input: ChatgptCodexResponsesRequest) => ({
         }
       }
     : {}),
-  ...(input.textVerbosity
+  ...((input.responseFormat || input.textVerbosity)
     ? {
         text: {
-          format: {
-            type: 'text'
-          },
-          verbosity: input.textVerbosity
+          format: input.responseFormat
+            ? {
+                type: 'json_schema' as const,
+                name: input.responseFormat.name,
+                schema: input.responseFormat.schema,
+                strict: input.responseFormat.strict ?? true,
+                description: input.responseFormat.description ?? null
+              }
+            : {
+                type: 'text' as const
+              },
+          ...(input.textVerbosity
+            ? {
+                verbosity: input.textVerbosity
+              }
+            : {})
         }
       }
     : {}),

@@ -64,20 +64,25 @@ const APP_SERVER_NATIVE_TOOL_PREAMBLE = [
   '[Corazon native tool priority]',
   '- In this thread, assume Corazon dynamic tools are available.',
   '- For Corazon built-ins, use dynamic tools first and do not use skills unless a dynamic tool call fails.',
-  '- Treat recurring or automated requests (e.g. every day/weekly/monthly, 정기 실행, 반복 실행) as workflow operations.',
+  '- Treat recurring or automated requests (for example: daily, weekly, monthly, recurring, or scheduled work) as workflow operations.',
   `- For workflow operations, use dynamic tool \`${WORKFLOW_NATIVE_TOOL}\` before skills.`,
   `- Prefer explicit \`${WORKFLOW_NATIVE_TOOL}\` commands: list/inspect/create/update/delete.`,
   `- Use \`${WORKFLOW_NATIVE_TOOL}\` apply-text only for natural-language workflow authoring and draft extraction.`,
-  '- Author workflow instructions as executable behavior that fulfills user intent. If needed capability is missing, create/prepare supporting skills/tools first and include them in workflow skills.',
+  '- Author workflow instructions as a detailed execution brief that fulfills user intent.',
+  '- Include the goal, required context/resources, concrete execution steps, and expected output or completion criteria in the workflow instruction.',
+  '- When the workflow deliverable has no fixed language requirement, follow the user\'s prompt language.',
+  '- If needed capability is missing, create/prepare supporting skills/tools first and include them in workflow skills.',
   `- For long-term memory operations, use dynamic tool \`${SHARED_MEMORY_NATIVE_TOOL}\` with \`search\` and \`upsert\` directly.`,
   '- Do not call `manage-workflows` or `shared-memory` skills preemptively. Use them only as explicit fallback after a dynamic tool failure.'
 ].join('\n')
 const SDK_WORKFLOW_ROUTING_PREAMBLE = [
   '[Corazon workflow routing policy]',
-  '- Treat recurring or automated requests (e.g. every day/weekly/monthly, 정기 실행, 반복 실행) as workflow-management requests.',
+  '- Treat recurring or automated requests (for example: daily, weekly, monthly, recurring, or scheduled work) as workflow-management requests.',
   '- For Corazon workflow management, use the `manage-workflows` skill.',
   '- For natural-language workflow authoring, extract a draft first and then apply explicit create/update/delete/list operations.',
-  '- Author workflow instructions as executable behavior that fulfills user intent, not meta instructions.',
+  '- Author workflow instructions as a detailed execution brief that fulfills user intent, not meta instructions.',
+  '- Include the goal, required context/resources, concrete execution steps, and expected output or completion criteria in the workflow instruction.',
+  '- When the workflow deliverable has no fixed language requirement, follow the user\'s prompt language.',
   '- Never use OS-level schedulers or external scheduler files (`crontab`, `systemd`, `launchd`) for Corazon workflow requests.',
   '- Apply workflow changes through Corazon workflow definitions (`workflows/*.md`) via Corazon workflow tooling.'
 ].join('\n')

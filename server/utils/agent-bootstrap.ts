@@ -34,11 +34,14 @@ const UPDATED_SHARED_MEMORY_GUIDANCE = [
 ].join('\n')
 const UPDATED_WORKFLOW_GUIDANCE = [
   '## Workflow management',
-  '- Treat recurring or automated requests (e.g. every day/weekly/monthly, 정기 실행, 반복 실행) as workflow operations.',
+  '- Treat recurring or automated requests (for example: daily, weekly, monthly, recurring, or scheduled work) as workflow operations.',
   '- In app-server mode, assume native dynamic tool `manageWorkflow` is available and use it first for workflow operations.',
   '- Prefer explicit `manageWorkflow` commands for workflow operations: list/inspect/create/update/delete.',
   '- Use `manageWorkflow` `apply-text` only for natural-language workflow authoring and draft extraction.',
-  '- Author workflow instructions as executable behavior that fulfills user intent. If required capability is missing, create/prepare supporting skills/tools first and include them in workflow skills.',
+  '- Author workflow instructions as a detailed execution brief that fulfills user intent.',
+  '- Include the goal, required context/resources, concrete execution steps, and expected output or completion criteria in the workflow instruction.',
+  '- When the workflow deliverable has no fixed language requirement, follow the user\'s prompt language.',
+  '- If required capability is missing, create/prepare supporting skills/tools first and include them in workflow skills.',
   '- In sdk mode or fallback paths, use the `manage-workflows` skill.',
   '- Prefer `rrule` for recurring schedules that are hard to express or maintain with cron, and use cron when it is sufficient.',
   '- Never use OS-level schedulers (`crontab`, `systemd`, `launchd`) for Corazon workflow requests.',

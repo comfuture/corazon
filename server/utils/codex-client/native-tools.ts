@@ -13,6 +13,7 @@ import {
   deriveWorkflowFileSlugFromInput,
   loadWorkflowDefinitions,
   normalizeWorkflowInstructionText,
+  ensureDetailedWorkflowInstruction,
   resolveUniqueWorkflowFileSlug,
   toWorkflowFileSlug,
   validateCronExpression,
@@ -342,7 +343,7 @@ const parseWorkflowDraftFromText = async (text: string): Promise<ParsedWorkflowD
           description: normalizeWorkflowDescription(
             inferred.suggestedDescription || inferred.enhancedInstruction || source
           ),
-          instruction: normalizeWorkflowInstructionText(
+          instruction: ensureDetailedWorkflowInstruction(
             asString(inferred.enhancedInstruction) || source
           ),
           triggerType: resolvedTrigger.triggerType,
@@ -362,7 +363,7 @@ const parseWorkflowDraftFromText = async (text: string): Promise<ParsedWorkflowD
     draft: {
       name: normalizeWorkflowName(source),
       description: normalizeWorkflowDescription(source),
-      instruction: normalizeWorkflowInstructionText(source),
+      instruction: ensureDetailedWorkflowInstruction(source),
       triggerType: null,
       triggerValue: null,
       workflowDispatch: true,

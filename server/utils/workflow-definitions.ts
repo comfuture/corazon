@@ -25,6 +25,16 @@ const WORKFLOW_CADENCE_ONLY_PATTERN = new RegExp(
   'iu'
 )
 const WORKFLOW_INVOCATION_ONLY_PATTERN = /^(?:실행할\s*때마다|실행\s*시마다|실행시마다|실행\s*시|각\s*실행(?:에서)?|매번|호출\s*시(?:마다)?|호출시(?:마다)?|트리거(?:될\s*때마다|시(?:마다)?)|on each run|every execution|at each execution|upon invocation|on invocation|per run)$/iu
+const WORKFLOW_DETAIL_SECTION_PATTERNS = [
+  /<goal>[\s\S]*?<\/goal>/iu,
+  /<context>[\s\S]*?<\/context>/iu,
+  /<steps>[\s\S]*?<\/steps>/iu,
+  /<output>[\s\S]*?<\/output>/iu
+]
+const WORKFLOW_STEP_LINE_PATTERN = /^(?:[-*]\s+|[0-9]+\.\s+)/u
+const WORKFLOW_MIN_DETAIL_LENGTH = 140
+const WORKFLOW_MIN_DETAIL_LINES = 3
+const WORKFLOW_MIN_DETAIL_SENTENCES = 3
 const GENERIC_WORKFLOW_SLUGS = new Set([
   'workflow',
   'task-workflow',
@@ -184,6 +194,103 @@ export const normalizeWorkflowInstructionText = (value: string) => {
     .trim()
 }
 
+const countWorkflowInstructionSections = (value: string) =>
+  WORKFLOW_DETAIL_SECTION_PATTERNS.filter(pattern => pattern.test(value)).length
+
+const countWorkflowInstructionLines = (value: string) =>
+  value
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .length
+
+const countWorkflowInstructionSentences = (value: string) =>
+  value
+    .split(/\n+/)
+    .flatMap(line => line.split(/(?<=[.!?。！？])\s+/u))
+    .map(sentence => sentence.trim())
+    .filter(Boolean)
+    .length
+
+export const isDetailedWorkflowInstruction = (value: string) => {
+  const normalized = normalizeWorkflowInstructionText(value)
+  if (!normalized) {
+    return false
+  }
+
+  if (countWorkflowInstructionSections(normalized) >= 4) {
+    return true
+  }
+
+  const lines = countWorkflowInstructionLines(normalized)
+  const sentences = countWorkflowInstructionSentences(normalized)
+  const structuredStepLines = normalized
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => WORKFLOW_STEP_LINE_PATTERN.test(line))
+    .length
+
+  return normalized.length >= WORKFLOW_MIN_DETAIL_LENGTH
+    && (
+      lines >= WORKFLOW_MIN_DETAIL_LINES
+      || sentences >= WORKFLOW_MIN_DETAIL_SENTENCES
+      || structuredStepLines >= 2
+    )
+}
+
+export const buildDetailedWorkflowInstruction = (value: string) => {
+  const normalized = normalizeWorkflowInstructionText(value)
+  if (!normalized) {
+    return ''
+  }
+
+  if (isDetailedWorkflowInstruction(normalized)) {
+    return normalized
+  }
+
+  const goalText = normalized.replace(/\s*\n+\s*/g, ' ').trim()
+
+  return [
+    '<goal>',
+    `- ${goalText}`,
+    '</goal>',
+    '',
+    '<context>',
+    '- Review the latest conversation, shared memory, workflow history, relevant files, and available tool outputs before acting.',
+    '- Recover missing identifiers, preferences, or prerequisites from available context instead of guessing when possible.',
+    '</context>',
+    '',
+    '<steps>',
+    '1. Translate the goal above into a concrete execution plan with a clear completion condition.',
+    '2. Gather the required context, state, references, and prerequisites before taking action.',
+    '3. Perform the actual work using the available tools and allowed skills.',
+    '4. If the first attempt is incomplete, do the obvious follow-up retrieval or recovery step.',
+    '5. Verify completion and leave only precise blockers when the goal cannot be finished.',
+    '</steps>',
+    '',
+    '<output>',
+    '- Deliver the requested result or final action directly.',
+    '- Use the user\'s requested language for the final deliverable unless the task explicitly requires another language.',
+    '- Keep the final report concise and include only essential validation details or follow-up items.',
+    '</output>'
+  ].join('\n')
+}
+
+export const ensureDetailedWorkflowInstruction = (value: string) =>
+  buildDetailedWorkflowInstruction(value)
+
+export const getWorkflowInstructionDetailError = (instruction: string) => {
+  const normalized = normalizeWorkflowInstructionText(instruction)
+  if (!normalized) {
+    return 'Workflow instruction body is required.'
+  }
+  if (isDetailedWorkflowInstruction(normalized)) {
+    return null
+  }
+
+  return 'Workflow instruction must be a detailed execution brief. Include concrete execution steps, required context/resources, and the expected output or completion criteria.'
+}
+
 const normalizeTriggerConfig = (value: unknown): WorkflowTriggerConfig | null => {
   const record = asRecord(value)
   if (!record) {
@@ -231,7 +338,11 @@ export const validateRRuleExpression = (value: string) => {
   }
 }
 
-const validateWorkflowRules = (frontmatter: WorkflowFrontmatter, instruction: string) => {
+const validateWorkflowRules = (
+  frontmatter: WorkflowFrontmatter,
+  instruction: string,
+  options: { requireDetailedInstruction?: boolean } = {}
+) => {
   const name = frontmatter.name.trim()
   if (!name) {
     return 'Frontmatter "name" is required.'
@@ -273,6 +384,13 @@ const validateWorkflowRules = (frontmatter: WorkflowFrontmatter, instruction: st
 
   if (!instruction.trim()) {
     return 'Workflow instruction body is required.'
+  }
+
+  if (options.requireDetailedInstruction) {
+    const instructionDetailError = getWorkflowInstructionDetailError(instruction)
+    if (instructionDetailError) {
+      return instructionDetailError
+    }
   }
 
   return null
@@ -421,8 +539,10 @@ export const serializeWorkflowSource = (
     skills: [...new Set(frontmatterInput.skills.map(item => item.trim()).filter(Boolean))]
   }
 
-  const instruction = normalizeWorkflowInstructionText(instructionInput)
-  const validationError = validateWorkflowRules(frontmatter, instruction)
+  const instruction = ensureDetailedWorkflowInstruction(instructionInput)
+  const validationError = validateWorkflowRules(frontmatter, instruction, {
+    requireDetailedInstruction: true
+  })
   if (validationError) {
     throw new Error(validationError)
   }

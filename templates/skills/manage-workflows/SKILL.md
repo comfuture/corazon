@@ -43,11 +43,31 @@ On each run, output exactly one assistant message: "Hello".
 ## Instruction Writing Principles
 - Do not write meta instructions such as "create/update a workflow"; write the **actual run-time behavior**.
 - Keep schedule/interval settings in `on`; do not duplicate timing details in the instruction body.
+- Write a detailed execution brief, not a one-line summary.
+- Prefer a structured body with goal, context/resources, concrete steps, and expected output or completion criteria.
 - State output format, completion criteria, and prohibitions explicitly.
 - Prefer the user's language for generated `description` and `instruction` content unless the user requests a different language.
 
 Good:
-- `On each run, output exactly one assistant message: "Hello".`
+- ````md
+  <goal>
+  - assistant 메시지로 정확히 "Hello" 한 줄을 출력한다.
+  </goal>
+
+  <context>
+  - 추가 조건이 없으면 다른 작업을 수행하지 않는다.
+  </context>
+
+  <steps>
+  1. 실행 시 불필요한 탐색 없이 인사 메시지 한 줄만 준비한다.
+  2. assistant 메시지로 정확히 "Hello"를 한 줄만 출력한다.
+  3. 다른 문장, 머리말, 코드블록, 부연 설명을 추가하지 않는다.
+  </steps>
+
+  <output>
+  - 최종 출력은 "Hello" 한 줄만 남긴다.
+  </output>
+  ````
 
 Bad:
 - `Create a workflow that says hello every 2 minutes.`
