@@ -40,12 +40,9 @@ jobs:
           Host ${{ secrets.DEPLOY_HOST }}
             HostName ${{ secrets.DEPLOY_HOST }}
             User ubuntu
-            IdentitiesOnly yes
             ServerAliveInterval 15
             ServerAliveCountMax 20
             TCPKeepAlive yes
-            ControlMaster auto
-            ControlPersist 10m
           EOF
 
       - name: Create remote Docker context
