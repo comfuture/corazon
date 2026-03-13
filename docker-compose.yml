@@ -1,5 +1,6 @@
 services:
   corazon:
+    image: corazon:latest
     build:
       context: .
       dockerfile: Dockerfile

@@ -45,8 +45,11 @@ jobs:
       - name: Verify remote Docker connectivity
         run: docker --context production info >/dev/null
 
+      - name: Build application image on remote Docker host
+        run: docker --context production build -t corazon:latest .
+
       - name: Deploy on remote Docker host
         run: |
           docker --context production compose pull chroma
-          docker --context production compose up -d --build --remove-orphans
+          docker --context production compose up -d --no-build --remove-orphans
           docker --context production compose ps
