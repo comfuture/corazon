@@ -1,0 +1,13 @@
+.git
+.github
+.nuxt
+.output
+.data
+.workflow-data
+.corazon
+.chroma
+node_modules
+.DS_Store
+.env
+.env.local
+.env.*.local

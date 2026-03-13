@@ -1,0 +1,52 @@
+name: deploy
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      CORAZON_MEMORY_CHROMA_COLLECTION: ${{ secrets.CORAZON_MEMORY_CHROMA_COLLECTION }}
+      CORAZON_MEMORY_SYNC_ENABLED: ${{ secrets.CORAZON_MEMORY_SYNC_ENABLED }}
+      MEM0_TELEMETRY: ${{ secrets.MEM0_TELEMETRY }}
+      CORAZON_MEMORY_CHROMA_API_KEY: ${{ secrets.CORAZON_MEMORY_CHROMA_API_KEY }}
+      CORAZON_MEMORY_CHROMA_TENANT: ${{ secrets.CORAZON_MEMORY_CHROMA_TENANT }}
+      CORAZON_MEMORY_CHROMA_DATABASE: ${{ secrets.CORAZON_MEMORY_CHROMA_DATABASE }}
+      CORAZON_PORT: ${{ secrets.CORAZON_PORT }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Trust deploy host
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Create remote Docker context
+        run: |
+          docker context rm production --force >/dev/null 2>&1 || true
+          docker context create production --docker "host=${{ secrets.DEPLOY_DOCKER_HOST }}"
+
+      - name: Verify remote Docker connectivity
+        run: docker --context production info >/dev/null
+
+      - name: Deploy on remote Docker host
+        run: |
+          docker --context production compose pull chroma
+          docker --context production compose up -d --build --remove-orphans
+          docker --context production compose ps

@@ -1,10 +1,13 @@
 services:
   corazon:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
     depends_on:
       - chroma
     ports:
-      - "3000:3000"
+      - "${CORAZON_PORT:-13000}:3000"
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       NITRO_HOST: 0.0.0.0
@@ -12,11 +15,15 @@ services:
       CORAZON_ROOT_DIR: /root/.corazon
       CODEX_HOME: /root/.corazon
       WORKFLOW_LOCAL_DATA_DIR: /root/.corazon/workflow-data
-      CORAZON_MEMORY_CHROMA_URL: http://chroma:8000
-      CORAZON_MEMORY_CHROMA_COLLECTION: mem0
-      CORAZON_MEMORY_SYNC_ENABLED: "true"
+      CORAZON_MEMORY_CHROMA_URL: ${CORAZON_MEMORY_CHROMA_URL:-http://chroma:8000}
+      CORAZON_MEMORY_CHROMA_COLLECTION: ${CORAZON_MEMORY_CHROMA_COLLECTION:-mem0}
+      CORAZON_MEMORY_SYNC_ENABLED: ${CORAZON_MEMORY_SYNC_ENABLED:-true}
+      MEM0_TELEMETRY: ${MEM0_TELEMETRY:-false}
+      CORAZON_MEMORY_CHROMA_API_KEY: ${CORAZON_MEMORY_CHROMA_API_KEY:-}
+      CORAZON_MEMORY_CHROMA_TENANT: ${CORAZON_MEMORY_CHROMA_TENANT:-}
+      CORAZON_MEMORY_CHROMA_DATABASE: ${CORAZON_MEMORY_CHROMA_DATABASE:-}
     volumes:
-      - ./.corazon:/root/.corazon
+      - corazon-data:/root/.corazon
     networks:
       - corazon-internal
 
@@ -27,10 +34,14 @@ services:
       IS_PERSISTENT: "TRUE"
       PERSIST_DIRECTORY: /chroma/chroma
     volumes:
-      - ./.chroma:/chroma/chroma
+      - chroma-data:/chroma/chroma
     networks:
       - corazon-internal
 
 networks:
   corazon-internal:
     name: corazon-internal
+
+volumes:
+  corazon-data:
+  chroma-data:
