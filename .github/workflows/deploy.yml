@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
     env:
@@ -45,8 +45,19 @@ jobs:
       - name: Verify remote Docker connectivity
         run: docker --context production info >/dev/null
 
+      - name: Print runner and remote architecture
+        run: |
+          uname -m
+          docker --context production version --format 'client={{.Client.Arch}} server={{.Server.Arch}}'
+
       - name: Build application image on remote Docker host
-        run: docker --context production build -t corazon:latest .
+        run: docker --context production build --platform linux/arm64 -t corazon:latest .
+
+      - name: Verify built image architecture
+        run: |
+          image_platform="$(docker --context production image inspect corazon:latest --format '{{.Os}}/{{.Architecture}}')"
+          echo "$image_platform"
+          test "$image_platform" = "linux/arm64"
 
       - name: Deploy on remote Docker host
         run: |
