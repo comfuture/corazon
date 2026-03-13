@@ -36,6 +36,17 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+          cat >> ~/.ssh/config <<EOF
+          Host ${{ secrets.DEPLOY_HOST }}
+            HostName ${{ secrets.DEPLOY_HOST }}
+            User ubuntu
+            IdentitiesOnly yes
+            ServerAliveInterval 15
+            ServerAliveCountMax 20
+            TCPKeepAlive yes
+            ControlMaster auto
+            ControlPersist 10m
+          EOF
 
       - name: Create remote Docker context
         run: |
@@ -51,7 +62,7 @@ jobs:
           docker --context production version --format 'client={{.Client.Arch}} server={{.Server.Arch}}'
 
       - name: Build application image on remote Docker host
-        run: docker --context production build --platform linux/arm64 -t corazon:latest .
+        run: docker --context production build --progress=plain --platform linux/arm64 -t corazon:latest .
 
       - name: Verify built image architecture
         run: |
