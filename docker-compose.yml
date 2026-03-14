@@ -15,6 +15,7 @@ services:
       NITRO_PORT: 3000
       CORAZON_ROOT_DIR: /root/.corazon
       CODEX_HOME: /root/.corazon
+      CORAZON_CODEX_SEED_SOURCE: /root/.codex-seed
       WORKFLOW_LOCAL_DATA_DIR: /root/.corazon/workflow-data
       CORAZON_MEMORY_CHROMA_URL: ${CORAZON_MEMORY_CHROMA_URL:-http://chroma:8000}
       CORAZON_MEMORY_CHROMA_COLLECTION: ${CORAZON_MEMORY_CHROMA_COLLECTION:-mem0}
@@ -25,6 +26,10 @@ services:
       CORAZON_MEMORY_CHROMA_DATABASE: ${CORAZON_MEMORY_CHROMA_DATABASE:-}
     volumes:
       - corazon-data:/root/.corazon
+      - type: bind
+        source: ${CORAZON_CODEX_HOST_DIR:-/home/ubuntu/.codex}
+        target: /root/.codex-seed
+        read_only: true
     networks:
       - corazon-internal
 
