@@ -13,7 +13,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const SEED_FILES = ['config.toml']
@@ -125,6 +125,20 @@ const log = (state, message) => {
   }
 }
 
+const pathExists = (targetPath) => {
+  try {
+    lstatSync(targetPath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const getSymlinkTarget = (sourcePath, destinationPath) => {
+  const relativeTarget = relative(dirname(destinationPath), sourcePath)
+  return relativeTarget || '.'
+}
+
 const copyDirectoryRecursive = (sourceDir, destinationDir, overwrite, counters) => {
   mkdirSync(destinationDir, { recursive: true })
   for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
@@ -195,14 +209,14 @@ const ensureLinkedAuthFile = (sourcePath, destinationPath, overwrite, counters) 
     counters.skipped += 1
     return
   }
-  if (existsSync(destinationPath) && !overwrite) {
+  if (pathExists(destinationPath) && !overwrite) {
     counters.skipped += 1
     return
   }
-  if (existsSync(destinationPath)) {
+  if (pathExists(destinationPath)) {
     rmSync(destinationPath, { recursive: true, force: true })
   }
-  symlinkSync(sourcePath, destinationPath, 'file')
+  symlinkSync(getSymlinkTarget(sourcePath, destinationPath), destinationPath, 'file')
   counters.linked += 1
 }
 
@@ -314,6 +328,7 @@ Options:
 Examples:
   corazon setup --runtime-root ./.corazon
   corazon setup --codex-home ~/.codex
+  corazon setup --runtime-root ./.docker-state/.corazon --codex-home ./.docker-state/.codex-seed
 `)
 }
 

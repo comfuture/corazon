@@ -25,9 +25,14 @@ services:
       CORAZON_MEMORY_CHROMA_TENANT: ${CORAZON_MEMORY_CHROMA_TENANT:-}
       CORAZON_MEMORY_CHROMA_DATABASE: ${CORAZON_MEMORY_CHROMA_DATABASE:-}
     volumes:
-      - corazon-data:/root/.corazon
       - type: bind
-        source: ${CORAZON_CODEX_HOST_DIR:-/home/ubuntu/.codex}
+        source: ${CORAZON_HOST_STATE_DIR:-./.docker-state}/.corazon
+        target: /root/.corazon
+      - type: bind
+        source: ${CORAZON_HOST_STATE_DIR:-./.docker-state}/.ssh
+        target: /root/.ssh
+      - type: bind
+        source: ${CORAZON_HOST_STATE_DIR:-./.docker-state}/.codex-seed
         target: /root/.codex-seed
         read_only: true
     networks:
@@ -40,14 +45,12 @@ services:
       IS_PERSISTENT: "TRUE"
       PERSIST_DIRECTORY: /chroma/chroma
     volumes:
-      - chroma-data:/chroma/chroma
+      - type: bind
+        source: ${CORAZON_HOST_STATE_DIR:-./.docker-state}/chroma
+        target: /chroma/chroma
     networks:
       - corazon-internal
 
 networks:
   corazon-internal:
     name: corazon-internal
-
-volumes:
-  corazon-data:
-  chroma-data:
