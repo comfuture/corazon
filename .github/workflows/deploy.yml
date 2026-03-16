@@ -23,6 +23,8 @@ jobs:
       CORAZON_MEMORY_CHROMA_TENANT: ${{ secrets.CORAZON_MEMORY_CHROMA_TENANT }}
       CORAZON_MEMORY_CHROMA_DATABASE: ${{ secrets.CORAZON_MEMORY_CHROMA_DATABASE }}
       CORAZON_PORT: ${{ secrets.CORAZON_PORT }}
+      CORAZON_HOST_STATE_DIR: /home/ubuntu
+      CORAZON_CODEX_HOST_DIR: /home/ubuntu/.codex
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -52,6 +54,14 @@ jobs:
 
       - name: Verify remote Docker connectivity
         run: docker --context production info >/dev/null
+
+      - name: Prepare remote bind mount directories
+        run: |
+          ssh "${{ secrets.DEPLOY_HOST }}" '
+            mkdir -p /home/ubuntu/.corazon /home/ubuntu/chroma
+            mkdir -p /home/ubuntu/.ssh
+            chmod 700 /home/ubuntu/.ssh
+          '
 
       - name: Print runner and remote architecture
         run: |
