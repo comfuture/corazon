@@ -32,7 +32,7 @@ services:
         source: ${CORAZON_HOST_STATE_DIR:-./.docker-state}/.ssh
         target: /root/.ssh
       - type: bind
-        source: ${CORAZON_HOST_STATE_DIR:-./.docker-state}/.codex-seed
+        source: ${CORAZON_CODEX_HOST_DIR:-/home/ubuntu/.codex}
         target: /root/.codex-seed
         read_only: true
     networks:
