@@ -52,11 +52,11 @@ Prepare a host state root. Compose will bind-mount role-specific subdirectories 
 
 ```bash
 export CORAZON_HOST_STATE_DIR="$(pwd)/.docker-state"
-mkdir -p "$CORAZON_HOST_STATE_DIR"/{.corazon,.ssh,.codex-seed,chroma}
-cp -R "$HOME/.codex/." "$CORAZON_HOST_STATE_DIR/.codex-seed/"
+export CORAZON_CODEX_HOST_DIR="$HOME/.codex"
+mkdir -p "$CORAZON_HOST_STATE_DIR"/{.corazon,.ssh,chroma}
 npx corazon setup \
   --runtime-root "$CORAZON_HOST_STATE_DIR/.corazon" \
-  --codex-home "$CORAZON_HOST_STATE_DIR/.codex-seed"
+  --codex-home "$CORAZON_CODEX_HOST_DIR"
 ```
 
 If you use Git over SSH, persist your SSH keys and `known_hosts` as well:
@@ -79,14 +79,15 @@ docker build -t corazon .
 docker run --rm -p 3000:3000 \
   -v "$CORAZON_HOST_STATE_DIR/.corazon:/root/.corazon" \
   -v "$CORAZON_HOST_STATE_DIR/.ssh:/root/.ssh" \
-  -v "$CORAZON_HOST_STATE_DIR/.codex-seed:/root/.codex-seed:ro" \
+  -v "$CORAZON_CODEX_HOST_DIR:/root/.codex-seed:ro" \
   corazon
 ```
 
 Notes:
-- `${CORAZON_HOST_STATE_DIR}` is the single host directory you manage. Its `.corazon/`, `.ssh/`, `.codex-seed/`, and `chroma/` children are mounted into the containers by role.
+- `${CORAZON_HOST_STATE_DIR}` contains Corazon runtime state (`.corazon/`), SSH material (`.ssh/`), and Chroma persistence (`chroma/`).
+- `${CORAZON_CODEX_HOST_DIR}` points to the host Codex home mounted read-only at `/root/.codex-seed`. By default, Compose uses `${HOME}/.codex`.
 - The runtime root (for example `${CORAZON_HOST_STATE_DIR}/.corazon`) should contain `config.toml`, `skills/`, `data/`, and `threads/`.
-- Keep `.codex-seed/` on the same host state root when you want `auth.json` and other seed files to survive redeploys.
+- Keep the host Codex home available when you want `auth.json` and other seed files to survive redeploys.
 - Workflow local metadata is stored at `${WORKFLOW_LOCAL_DATA_DIR}` (default: `${CORAZON_ROOT_DIR}/workflow-data`).
 
 ## Data & storage
