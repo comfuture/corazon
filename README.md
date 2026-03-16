@@ -16,11 +16,18 @@ Corazon (Corazón) means “heart” in Spanish. This project is a web-first Cod
 - Node.js 22+
 - A package manager (pnpm recommended). If you use pnpm, allow native builds for `better-sqlite3`.
 - Codex CLI access (ChatGPT subscription **or** API key, per your Codex setup)
+- Optional: `mise` if you want the repo-managed Python 3.12 + `uv` toolchain locally
 
 ## Setup
 
 ```bash
 pnpm install
+```
+
+If you use `mise`, install the repo-managed Python 3.12 + `uv` toolchain first:
+
+```bash
+mise install
 ```
 
 ## Development
@@ -71,6 +78,8 @@ Build and run with Docker Compose:
 ```bash
 docker compose up --build
 ```
+
+The production image also installs Python 3.12 and `uv` via `mise`, so runtime-managed skills can rely on `python`, `python3`, `uv`, and `uvx` inside the container.
 
 Or build and run with Docker directly:
 

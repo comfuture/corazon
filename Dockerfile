@@ -1,10 +1,23 @@
+FROM jdxcode/mise:latest AS mise
+
 FROM node:22-bookworm-slim
 
+COPY --from=mise /usr/local/bin/mise /usr/local/bin/mise
+
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates git openssh-client python3 make g++ ripgrep \
+  && apt-get install -y --no-install-recommends ca-certificates git openssh-client make g++ ripgrep xz-utils \
   && rm -rf /var/lib/apt/lists/*
 
+ENV PATH=/root/.local/share/mise/shims:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
 WORKDIR /app
+
+COPY .mise.toml ./
+RUN mkdir -p /root/.config/mise \
+  && cp /app/.mise.toml /root/.config/mise/config.toml \
+  && mise trust -a \
+  && mise install \
+  && mise reshim
 
 RUN corepack enable
 
