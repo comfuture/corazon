@@ -23,7 +23,7 @@ if [ ! -d "$CODEX_HOME" ]; then
 fi
 
 mkdir -p "$SSH_DIR"
-chmod 700 "$SSH_DIR" 2>/dev/null || true
+chmod 700 "$SSH_DIR" || true
 mkdir -p "$WORKFLOW_LOCAL_DATA_DIR"
 
 if [ ! -f "$CODEX_HOME/config.toml" ]; then

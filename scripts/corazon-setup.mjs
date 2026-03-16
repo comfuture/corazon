@@ -13,7 +13,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve as resolvePath } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const SEED_FILES = ['config.toml']
@@ -139,6 +139,19 @@ const getSymlinkTarget = (sourcePath, destinationPath) => {
   return relativeTarget || '.'
 }
 
+const shouldRelinkFile = (sourcePath, destinationPath) => {
+  try {
+    const destinationStats = lstatSync(destinationPath)
+    if (!destinationStats.isSymbolicLink()) {
+      return false
+    }
+    const existingTarget = readlinkSync(destinationPath)
+    return resolvePath(dirname(destinationPath), existingTarget) !== sourcePath
+  } catch {
+    return false
+  }
+}
+
 const copyDirectoryRecursive = (sourceDir, destinationDir, overwrite, counters) => {
   mkdirSync(destinationDir, { recursive: true })
   for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
@@ -209,7 +222,8 @@ const ensureLinkedAuthFile = (sourcePath, destinationPath, overwrite, counters) 
     counters.skipped += 1
     return
   }
-  if (pathExists(destinationPath) && !overwrite) {
+  const shouldRelink = shouldRelinkFile(sourcePath, destinationPath)
+  if (pathExists(destinationPath) && !overwrite && !shouldRelink) {
     counters.skipped += 1
     return
   }
@@ -227,7 +241,7 @@ const ensureAgentsFile = (runtimeRoot, overwrite, counters) => {
     return
   }
   const scriptDir = dirname(fileURLToPath(import.meta.url))
-  const skeletonPath = resolve(scriptDir, '..', 'templates', AGENTS_SKELETON_FILE)
+  const skeletonPath = resolvePath(scriptDir, '..', 'templates', AGENTS_SKELETON_FILE)
   if (existsSync(skeletonPath)) {
     writeFileSync(destinationPath, readFileSync(skeletonPath, 'utf8'), 'utf8')
   } else {
@@ -339,8 +353,8 @@ export const run = (args = []) => {
     return
   }
 
-  const runtimeRoot = resolve(options.runtimeRoot || getDefaultRuntimeRoot())
-  const codexHome = resolve(options.codexHome || getDefaultCodexHome())
+  const runtimeRoot = resolvePath(options.runtimeRoot || getDefaultRuntimeRoot())
+  const codexHome = resolvePath(options.codexHome || getDefaultCodexHome())
   const counters = {
     copied: 0,
     linked: 0,
@@ -388,7 +402,7 @@ export const run = (args = []) => {
   const scriptDir = dirname(fileURLToPath(import.meta.url))
   for (const skillName of SYSTEM_SKILL_SYNC_NAMES) {
     ensureSeededDirectory(
-      resolve(scriptDir, '..', 'templates', 'skills', skillName),
+      resolvePath(scriptDir, '..', 'templates', 'skills', skillName),
       join(runtimeRoot, 'skills', skillName),
       true,
       counters
