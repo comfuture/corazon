@@ -1,4 +1,4 @@
-FROM jdxcode/mise:latest AS mise
+FROM jdxcode/mise:v2024.7.1 AS mise
 
 FROM node:22-bookworm-slim
 
@@ -12,10 +12,8 @@ ENV PATH=/root/.local/share/mise/shims:/root/.local/bin:/usr/local/sbin:/usr/loc
 
 WORKDIR /app
 
-COPY .mise.toml ./
-RUN mkdir -p /root/.config/mise \
-  && cp /app/.mise.toml /root/.config/mise/config.toml \
-  && mise trust -a \
+COPY .mise.toml /root/.config/mise/config.toml
+RUN mise trust /root/.config/mise/config.toml \
   && mise install \
   && mise reshim
 
