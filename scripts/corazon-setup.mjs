@@ -342,7 +342,7 @@ Options:
 Examples:
   corazon setup --runtime-root ./.corazon
   corazon setup --codex-home ~/.codex
-  corazon setup --runtime-root ./.docker-state/.corazon --codex-home ./.docker-state/.codex-seed
+  corazon setup --runtime-root ./.docker-state/.corazon --codex-home ~/.codex
 `)
 }
 
