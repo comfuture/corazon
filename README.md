@@ -48,10 +48,22 @@ pnpm preview
 
 ### Docker (production)
 
-Prepare a runtime root (seeds config/skills/rules/vendor imports and links auth):
+Prepare a host state root. Compose will bind-mount role-specific subdirectories from that root:
 
 ```bash
-npx corazon setup --runtime-root ./.corazon
+export CORAZON_HOST_STATE_DIR="$(pwd)/.docker-state"
+mkdir -p "$CORAZON_HOST_STATE_DIR"/{.corazon,.ssh,.codex-seed,chroma}
+cp -R "$HOME/.codex/." "$CORAZON_HOST_STATE_DIR/.codex-seed/"
+npx corazon setup \
+  --runtime-root "$CORAZON_HOST_STATE_DIR/.corazon" \
+  --codex-home "$CORAZON_HOST_STATE_DIR/.codex-seed"
+```
+
+If you use Git over SSH, persist your SSH keys and `known_hosts` as well:
+
+```bash
+cp -R "$HOME/.ssh/." "$CORAZON_HOST_STATE_DIR/.ssh/"
+chmod 700 "$CORAZON_HOST_STATE_DIR/.ssh"
 ```
 
 Build and run with Docker Compose:
@@ -65,13 +77,16 @@ Or build and run with Docker directly:
 ```bash
 docker build -t corazon .
 docker run --rm -p 3000:3000 \
-  -v "$(pwd)/.corazon:/root/.corazon" \
+  -v "$CORAZON_HOST_STATE_DIR/.corazon:/root/.corazon" \
+  -v "$CORAZON_HOST_STATE_DIR/.ssh:/root/.ssh" \
+  -v "$CORAZON_HOST_STATE_DIR/.codex-seed:/root/.codex-seed:ro" \
   corazon
 ```
 
 Notes:
-- The runtime root (e.g. `./.corazon`) should contain `config.toml`, `skills/`, `data/`, and `threads/`.
-- If you want a different runtime root, run `npx corazon setup --runtime-root /path/to/root` and mount it to `/root/.corazon` (or set `CORAZON_ROOT_DIR`).
+- `${CORAZON_HOST_STATE_DIR}` is the single host directory you manage. Its `.corazon/`, `.ssh/`, `.codex-seed/`, and `chroma/` children are mounted into the containers by role.
+- The runtime root (for example `${CORAZON_HOST_STATE_DIR}/.corazon`) should contain `config.toml`, `skills/`, `data/`, and `threads/`.
+- Keep `.codex-seed/` on the same host state root when you want `auth.json` and other seed files to survive redeploys.
 - Workflow local metadata is stored at `${WORKFLOW_LOCAL_DATA_DIR}` (default: `${CORAZON_ROOT_DIR}/workflow-data`).
 
 ## Data & storage

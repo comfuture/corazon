@@ -1,7 +1,7 @@
 FROM node:22-bookworm-slim
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates python3 make g++ \
+  && apt-get install -y --no-install-recommends ca-certificates git openssh-client python3 make g++ ripgrep \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -25,7 +25,7 @@ COPY scripts/docker-entrypoint.sh /usr/local/bin/corazon-entrypoint
 RUN chmod +x /usr/local/bin/corazon-entrypoint
 
 EXPOSE 3000
-VOLUME ["/root/.corazon"]
+VOLUME ["/root/.corazon", "/root/.ssh", "/root/.codex-seed"]
 
 ENTRYPOINT ["corazon-entrypoint"]
 CMD ["node", ".output/server/index.mjs"]

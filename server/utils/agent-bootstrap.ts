@@ -11,7 +11,7 @@ import {
   symlinkSync,
   writeFileSync
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { getDefaultCodexSeedSourceDir, resolveCorazonRootDir } from './agent-home.ts'
 
 const SEED_FILES = ['config.toml'] as const
@@ -52,6 +52,20 @@ const UPDATED_WORKFLOW_GUIDANCE = [
 ].join('\n')
 
 let bootstrapDone = false
+
+const pathExists = (targetPath: string) => {
+  try {
+    lstatSync(targetPath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const getSymlinkTarget = (sourcePath: string, destinationPath: string) => {
+  const relativeTarget = relative(dirname(destinationPath), sourcePath)
+  return relativeTarget || '.'
+}
 
 const copyDirectoryRecursive = (sourceDir: string, destinationDir: string) => {
   mkdirSync(destinationDir, { recursive: true })
@@ -114,11 +128,11 @@ const syncDirectoryRecursive = (sourceDir: string, destinationDir: string) => {
 }
 
 const ensureLinkedAuthFile = (sourcePath: string, destinationPath: string) => {
-  if (existsSync(destinationPath) || !existsSync(sourcePath)) {
+  if (pathExists(destinationPath) || !existsSync(sourcePath)) {
     return
   }
   mkdirSync(dirname(destinationPath), { recursive: true })
-  symlinkSync(sourcePath, destinationPath, 'file')
+  symlinkSync(getSymlinkTarget(sourcePath, destinationPath), destinationPath, 'file')
 }
 
 const ensureSeededFile = (sourcePath: string, destinationPath: string) => {

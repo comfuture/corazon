@@ -5,6 +5,7 @@
 .data
 .workflow-data
 .corazon
+.docker-state
 .chroma
 node_modules
 .DS_Store
