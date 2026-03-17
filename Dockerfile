@@ -1,19 +1,22 @@
-FROM jdxcode/mise:latest AS mise
-
 FROM node:22-bookworm-slim
 
-COPY --from=mise /usr/local/bin/mise /usr/local/bin/mise
-
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates git openssh-client make g++ ripgrep xz-utils \
+  && apt-get install -y --no-install-recommends bash ca-certificates curl git openssh-client make g++ ripgrep xz-utils \
   && rm -rf /var/lib/apt/lists/*
 
-ENV PATH=/root/.local/share/mise/shims:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ENV MISE_DATA_DIR=/mise
+ENV MISE_CONFIG_DIR=/mise
+ENV MISE_CACHE_DIR=/mise/cache
+ENV MISE_INSTALL_PATH=/usr/local/bin/mise
+ENV PATH=/mise/shims:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 WORKDIR /app
 
-COPY .mise.toml /root/.config/mise/config.toml
-RUN mise trust /root/.config/mise/config.toml \
+COPY .mise.toml /mise/config.toml
+RUN curl https://mise.run | sh \
+  && mise trust /mise/config.toml \
   && mise install \
   && mise reshim
 
