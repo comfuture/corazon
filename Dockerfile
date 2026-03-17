@@ -1,4 +1,4 @@
-FROM jdxcode/mise:v2024.7.1 AS mise
+FROM jdxcode/mise:latest AS mise
 
 FROM node:22-bookworm-slim
 
