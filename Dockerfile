@@ -1,7 +1,9 @@
-FROM node:22-bookworm-slim
+FROM ubuntu:latest
+
+ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends bash ca-certificates curl git openssh-client make g++ ripgrep xz-utils \
+  && apt-get install -y --no-install-recommends bash build-essential ca-certificates curl git openssh-client ripgrep xz-utils \
   && rm -rf /var/lib/apt/lists/*
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -12,26 +14,21 @@ ENV MISE_CACHE_DIR=/mise/cache
 ENV MISE_INSTALL_PATH=/usr/local/bin/mise
 ENV PATH=/mise/shims:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-ARG MISE_VERSION=2026.3.9
-ARG MISE_SHA256=5302866459744a7bad872d7dccdc5e2cf5d32e80c46f142c805cc21c94dfb6ad
-RUN curl -fsSL "https://github.com/jdx/mise/releases/download/v${MISE_VERSION}/mise-v${MISE_VERSION}-linux-x64" -o "${MISE_INSTALL_PATH}" \
-  && echo "${MISE_SHA256}  ${MISE_INSTALL_PATH}" | sha256sum -c - \
-  && chmod +x "${MISE_INSTALL_PATH}"
+RUN curl -fsSL https://mise.run | sh
 
 WORKDIR /app
 
 COPY .mise.toml /mise/config.toml
-RUN mise trust /mise/config.toml \
+RUN mise trust -a \
   && mise install \
   && mise reshim
-
-RUN corepack enable
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY . .
-RUN pnpm build
+RUN mise trust /app/.mise.toml \
+  && pnpm build
 
 ENV NODE_ENV=production
 ENV NITRO_HOST=0.0.0.0
