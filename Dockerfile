@@ -12,11 +12,16 @@ ENV MISE_CACHE_DIR=/mise/cache
 ENV MISE_INSTALL_PATH=/usr/local/bin/mise
 ENV PATH=/mise/shims:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
+ARG MISE_VERSION=2026.3.9
+ARG MISE_SHA256=5302866459744a7bad872d7dccdc5e2cf5d32e80c46f142c805cc21c94dfb6ad
+RUN curl -fsSL "https://github.com/jdx/mise/releases/download/v${MISE_VERSION}/mise-v${MISE_VERSION}-linux-x64" -o "${MISE_INSTALL_PATH}" \
+  && echo "${MISE_SHA256}  ${MISE_INSTALL_PATH}" | sha256sum -c - \
+  && chmod +x "${MISE_INSTALL_PATH}"
+
 WORKDIR /app
 
 COPY .mise.toml /mise/config.toml
-RUN curl https://mise.run | sh \
-  && mise trust /mise/config.toml \
+RUN mise trust /mise/config.toml \
   && mise install \
   && mise reshim
 
