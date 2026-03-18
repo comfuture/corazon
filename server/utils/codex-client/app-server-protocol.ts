@@ -486,8 +486,19 @@ export class AppServerProtocol {
         return { decision: 'decline' }
       case 'item/fileChange/requestApproval':
         return { decision: 'decline' }
+      case 'item/permissions/requestApproval':
+        return {
+          permissions: {},
+          scope: 'turn'
+        }
       case 'item/tool/requestUserInput':
         return { answers: {} }
+      case 'mcpServer/elicitation/request':
+        return {
+          action: 'decline',
+          content: null,
+          _meta: null
+        }
       case 'item/tool/call':
         return this.resolveDynamicToolCall(request.params)
       case 'applyPatchApproval':
