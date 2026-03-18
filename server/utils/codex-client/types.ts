@@ -17,7 +17,7 @@ import type {
   Usage,
   WebSearchItem
 } from '@openai/codex-sdk'
-import type { CodexFileChangeItem } from '@@/types/chat-ui'
+import type { CodexFileChangeItem, CodexSubagentActivityItem } from '@@/types/chat-ui'
 
 export type CodexInput = Input
 export type CodexThreadItem
@@ -25,6 +25,7 @@ export type CodexThreadItem
     | ReasoningItem
     | CommandExecutionItem
     | CodexFileChangeItem
+    | CodexSubagentActivityItem
     | McpToolCallItem
     | WebSearchItem
     | TodoListItem

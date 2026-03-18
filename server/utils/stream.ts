@@ -169,6 +169,8 @@ const toItemData = (item: CodexThreadItem): CodexItemData | null => {
       return { kind: 'command_execution', item }
     case 'file_change':
       return { kind: 'file_change', item }
+    case 'subagent_activity':
+      return { kind: 'subagent_activity', item }
     case 'mcp_tool_call':
       return { kind: 'mcp_tool_call', item }
     case 'web_search':

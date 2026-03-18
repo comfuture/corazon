@@ -260,6 +260,28 @@ const formatTelegramItemSummary = (data: CodexItemData) => {
       const detail = paths ? ` (${truncate(paths, 120)})` : ''
       return `Files ${data.item.status}: ${changes.length} change(s)${detail}`
     }
+    case 'subagent_activity': {
+      const label = (() => {
+        switch (data.item.action) {
+          case 'spawnAgent':
+            return 'Subagent spawn'
+          case 'sendInput':
+            return 'Subagent message'
+          case 'resumeAgent':
+            return 'Subagent resume'
+          case 'wait':
+            return 'Subagent wait'
+          case 'closeAgent':
+            return 'Subagent close'
+          default:
+            return 'Subagent activity'
+        }
+      })()
+      const target = data.item.receiverThreadIds.length === 1
+        ? (data.item.receiverThreadIds[0] ?? '')
+        : `${data.item.receiverThreadIds.length} agents`
+      return `${label} ${data.item.status}: ${truncate(target, 120)}`
+    }
     case 'web_search':
       return `Web search: ${truncate(data.item.query ?? '', 140)}`
     case 'todo_list': {

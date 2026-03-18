@@ -9,6 +9,7 @@ import CzMessageItemCommandExecution from '../message-item/command-execution.vue
 import CzMessageItemFileChange from '../message-item/file-change.vue'
 import CzMessageItemInternalToolCall from '../message-item/internal-tool-call.vue'
 import CzMessageItemMcpToolCall from '../message-item/mcp-tool-call.vue'
+import CzMessageItemSubagentActivity from '../message-item/subagent-activity.vue'
 import CzMessageItemWebSearch from '../message-item/web-search.vue'
 import CzMessageItemTodoList from '../message-item/todo-list.vue'
 import CzMessageItemError from '../message-item/error.vue'
@@ -59,6 +60,8 @@ export default defineComponent({
           return h(CzMessageItemCommandExecution, { item: itemData.item })
         case 'file_change':
           return h(CzMessageItemFileChange, { item: itemData.item })
+        case 'subagent_activity':
+          return h(CzMessageItemSubagentActivity, { item: itemData.item })
         case 'mcp_tool_call':
           if (isDynamicToolCall(itemData.item)) {
             return h(CzMessageItemInternalToolCall, { item: itemData.item })
