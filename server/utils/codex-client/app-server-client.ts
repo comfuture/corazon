@@ -290,8 +290,42 @@ const normalizeDynamicPatchStatus = (
   return 'completed'
 }
 
+const normalizeCollabStatus = (
+  status: string
+): Extract<CodexThreadItem, { type: 'subagent_activity' }>['status'] => {
+  if (status === 'inProgress') {
+    return 'in_progress'
+  }
+  if (status === 'completed') {
+    return 'completed'
+  }
+  return 'failed'
+}
+
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const toSubagentStates = (
+  receiverThreadIds: string[],
+  agentsStates: Record<string, {
+    status: Extract<CodexThreadItem, { type: 'subagent_activity' }>['agentsStates'][number]['status']
+    message: string | null
+  } | undefined>
+): Extract<CodexThreadItem, { type: 'subagent_activity' }>['agentsStates'] => {
+  const orderedIds = [
+    ...receiverThreadIds,
+    ...Object.keys(agentsStates).filter(threadId => !receiverThreadIds.includes(threadId))
+  ]
+
+  return orderedIds.map((threadId) => {
+    const state = agentsStates[threadId]
+    return {
+      threadId,
+      status: state?.status ?? null,
+      message: state?.message ?? null
+    }
+  })
+}
 
 const getStringField = (value: unknown, key: string): string | null => {
   if (!isObjectRecord(value)) {
@@ -435,21 +469,15 @@ const toThreadItem = (
     case 'collabAgentToolCall':
       return {
         id: raw.id,
-        type: 'mcp_tool_call',
-        server: 'collab',
-        tool: raw.tool,
-        arguments: {
-          senderThreadId: raw.senderThreadId,
-          receiverThreadIds: raw.receiverThreadIds,
-          prompt: raw.prompt
-        },
-        result: {
-          content: [],
-          structured_content: {
-            agentsStates: raw.agentsStates
-          }
-        },
-        status: normalizeMcpStatus(raw.status)
+        type: 'subagent_activity',
+        action: raw.tool,
+        status: normalizeCollabStatus(raw.status),
+        senderThreadId: raw.senderThreadId,
+        receiverThreadIds: raw.receiverThreadIds,
+        prompt: raw.prompt,
+        model: raw.model,
+        reasoningEffort: raw.reasoningEffort,
+        agentsStates: toSubagentStates(raw.receiverThreadIds, raw.agentsStates)
       }
     case 'webSearch':
       return {

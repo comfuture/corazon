@@ -22,6 +22,38 @@ export type CodexFileChangeItem = {
   status: 'in_progress' | 'completed' | 'failed'
 }
 
+export type CodexSubagentTool = 'spawnAgent' | 'sendInput' | 'resumeAgent' | 'wait' | 'closeAgent'
+
+export type CodexSubagentToolStatus = 'in_progress' | 'completed' | 'failed'
+
+export type CodexSubagentAgentStatus
+  = 'pendingInit'
+    | 'running'
+    | 'interrupted'
+    | 'completed'
+    | 'errored'
+    | 'shutdown'
+    | 'notFound'
+
+export type CodexSubagentAgentState = {
+  threadId: string
+  status: CodexSubagentAgentStatus | null
+  message: string | null
+}
+
+export type CodexSubagentActivityItem = {
+  id: string
+  type: 'subagent_activity'
+  action: CodexSubagentTool
+  status: CodexSubagentToolStatus
+  senderThreadId: string
+  receiverThreadIds: string[]
+  prompt: string | null
+  model: string | null
+  reasoningEffort: string | null
+  agentsStates: CodexSubagentAgentState[]
+}
+
 export type CodexThreadEventData
   = {
     kind: 'thread.started'
@@ -64,6 +96,10 @@ export type CodexItemData
   | {
     kind: 'file_change'
     item: CodexFileChangeItem
+  }
+  | {
+    kind: 'subagent_activity'
+    item: CodexSubagentActivityItem
   }
   | {
     kind: 'mcp_tool_call'
