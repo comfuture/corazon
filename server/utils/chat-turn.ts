@@ -44,7 +44,7 @@ import {
 } from './runtime.ts'
 import { buildCodexInput, createThreadEventHandler } from './stream.ts'
 
-const TITLE_MODEL = 'gpt-5.1-codex-mini'
+const TITLE_MODEL = 'gpt-5.4-mini'
 const TITLE_REASONING_EFFORT = 'low'
 const TITLE_MAX_LENGTH = 80
 const DEFAULT_MODEL = 'gpt-5.4'
