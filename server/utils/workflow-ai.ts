@@ -23,7 +23,7 @@ type WorkflowSkillAiResult = {
 }
 
 let codexInstance: CodexClient | null = null
-const WORKFLOW_DRAFT_MODEL = 'gpt-5.4'
+const WORKFLOW_DRAFT_MODEL = 'gpt-5.4-mini'
 const WORKFLOW_DRAFT_REASONING_EFFORT = 'low'
 
 const getCodexEnv = () => {
