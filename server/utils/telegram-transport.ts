@@ -69,7 +69,8 @@ const TELEGRAM_ROUTE_TRANSCRIPT_LINE_LIMIT = 12
 const TELEGRAM_RESUME_CONFIDENCE_THRESHOLD = 0.72
 const TELEGRAM_CARRYOVER_CONFIDENCE_THRESHOLD = 0.55
 const TELEGRAM_NEW_CONFIDENCE_THRESHOLD = 0.65
-const CARRYOVER_MODEL = 'gpt-5.4-mini'
+const CARRYOVER_ROUTE_MODEL = 'gpt-5.4-mini'
+const CARRYOVER_SUMMARY_MODEL = 'gpt-5.1-codex-mini'
 const CARRYOVER_WORKDIR = '/tmp'
 
 let telegramTransportInitialized = false
@@ -373,7 +374,7 @@ const generateTelegramSessionSummary = async (threadId: string) => {
   ].join('\n')
 
   const thread = getSummaryCodex().startThread({
-    model: CARRYOVER_MODEL,
+    model: CARRYOVER_SUMMARY_MODEL,
     modelReasoningEffort: 'low',
     workingDirectory: CARRYOVER_WORKDIR,
     skipGitRepoCheck: true
@@ -513,7 +514,7 @@ const classifyTelegramSessionRoute = async (input: {
 
   try {
     const result = await runChatgptCodexTextResponse({
-      model: CARRYOVER_MODEL,
+      model: CARRYOVER_ROUTE_MODEL,
       instructions: [
         'You route resumed Telegram conversations for Corazon.',
         'Compare the new user message against each candidate session transcript.',
