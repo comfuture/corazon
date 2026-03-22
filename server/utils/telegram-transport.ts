@@ -119,7 +119,146 @@ const escapeTelegramHtml = (value: string) =>
 const escapeTelegramAttribute = (value: string) =>
   escapeTelegramHtml(value).replace(/"/g, '&quot;')
 
-const renderTelegramHtml = (value: string) => {
+const MARKDOWN_LINK_REGEX = /\[([^\]\n]+)\]\(([^)\n]+)\)/g
+const FILE_EXTENSION_REGEX = /(^|\/)[^/?#]+\.[a-z0-9]{1,16}(?:$|[?#])/i
+const ABSOLUTE_LOCAL_PATH_REGEX = /^\/(?:users|home|private|var|tmp|volumes|opt|etc|applications|library|system|root)\b/i
+const RELATIVE_LOCAL_PATH_REGEX = /^(?:\.{1,2}\/|~\/|[^:/?#][^?#]*\/)?[^/?#]+\.[a-z0-9]{1,16}(?:$|[?#])/i
+
+const normalizeLocalSource = (value: string) => value.trim().replace(/^['"]+|['"]+$/g, '')
+
+const isResolvableLocalFileSource = (value: string) => {
+  const normalized = normalizeLocalSource(value).toLowerCase()
+  if (!normalized || !FILE_EXTENSION_REGEX.test(normalized)) {
+    return false
+  }
+
+  if (
+    normalized.startsWith('http://')
+    || normalized.startsWith('https://')
+    || normalized.startsWith('data:')
+    || normalized.startsWith('blob:')
+    || normalized.startsWith('mailto:')
+    || normalized.startsWith('tel:')
+    || normalized.startsWith('javascript:')
+    || normalized.startsWith('#')
+    || normalized.startsWith('/api/')
+    || normalized.startsWith('/_nuxt/')
+  ) {
+    return false
+  }
+
+  return (
+    normalized.startsWith('file://')
+    || ABSOLUTE_LOCAL_PATH_REGEX.test(normalized)
+    || RELATIVE_LOCAL_PATH_REGEX.test(normalized)
+  )
+}
+
+const parseMarkdownTargetSource = (target: string) => {
+  const trimmed = target.trim()
+  if (!trimmed) {
+    return ''
+  }
+
+  const firstWhitespaceIndex = trimmed.search(/\s/)
+  const sourceToken = firstWhitespaceIndex === -1 ? trimmed : trimmed.slice(0, firstWhitespaceIndex)
+  if (!sourceToken) {
+    return ''
+  }
+
+  const isDoubleQuoted = sourceToken.startsWith('"') && sourceToken.endsWith('"') && sourceToken.length >= 2
+  const isSingleQuoted = sourceToken.startsWith('\'') && sourceToken.endsWith('\'') && sourceToken.length >= 2
+  const source = isDoubleQuoted || isSingleQuoted ? sourceToken.slice(1, -1) : sourceToken
+  return normalizeLocalSource(source)
+}
+
+const resolveTelegramPublicBaseUrl = () => {
+  const candidates = [
+    process.env.CORAZON_PUBLIC_BASE_URL,
+    process.env.NUXT_PUBLIC_SITE_URL,
+    process.env.SITE_URL,
+    process.env.APP_BASE_URL
+  ]
+
+  for (const candidate of candidates) {
+    const value = candidate?.trim()
+    if (!value) {
+      continue
+    }
+    try {
+      const parsed = new URL(value)
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        continue
+      }
+      return parsed.toString().replace(/\/+$/, '')
+    } catch {
+      continue
+    }
+  }
+
+  return ''
+}
+
+const toTelegramPublicUrl = (path: string) => {
+  const baseUrl = resolveTelegramPublicBaseUrl()
+  if (!baseUrl) {
+    return ''
+  }
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return `${baseUrl}${normalizedPath}`
+}
+
+const rewriteTelegramLocalFileLinks = async (value: string, threadId: string | null) => {
+  let rewritten = ''
+  let cursor = 0
+  const matches = value.matchAll(MARKDOWN_LINK_REGEX)
+
+  for (const match of matches) {
+    const fullMatch = match[0]
+    const label = match[1] || ''
+    const target = match[2] || ''
+    if (!fullMatch || match.index == null) {
+      continue
+    }
+
+    rewritten += value.slice(cursor, match.index)
+    cursor = match.index + fullMatch.length
+
+    const source = parseMarkdownTargetSource(target)
+    if (!source || !isResolvableLocalFileSource(source)) {
+      rewritten += fullMatch
+      continue
+    }
+
+    if (!threadId) {
+      const fallbackLabel = label.trim() || source
+      rewritten += `${fallbackLabel} (local file: ${source})`
+      continue
+    }
+
+    try {
+      const preview = await createLocalFilePreviewToken(source, undefined, threadId)
+      const previewUrl = toTelegramPublicUrl(`/api/chat/local-file/${encodeURIComponent(preview.token)}`)
+      const fallbackDisplay = preview.displayPath || preview.filename || source
+      const nextLabel = label.trim() || fallbackDisplay
+
+      if (!previewUrl) {
+        rewritten += `${nextLabel} (local file: ${fallbackDisplay})`
+        continue
+      }
+
+      rewritten += `[${nextLabel}](${previewUrl})`
+    } catch {
+      const fallbackLabel = label.trim() || source
+      rewritten += `${fallbackLabel} (local file: ${source})`
+    }
+  }
+
+  rewritten += value.slice(cursor)
+  return rewritten
+}
+
+const renderTelegramHtml = async (value: string, threadId: string | null) => {
   const placeholders: string[] = []
   const stash = (html: string) => {
     const token = `__TG_PLACEHOLDER_${placeholders.length}__`
@@ -131,6 +270,8 @@ const renderTelegramHtml = (value: string) => {
   if (!text) {
     return ''
   }
+
+  text = await rewriteTelegramLocalFileLinks(text, threadId)
 
   text = text.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_match, label: string, url: string) =>
     stash(`<a href="${escapeTelegramAttribute(url)}">${escapeTelegramHtml(label)}</a>`)
@@ -674,11 +815,12 @@ const sendSessionTelegramMessage = async (input: {
   if (!text) {
     return null
   }
+  const threadId = getTelegramSessionById(input.sessionId)?.threadId ?? null
 
   const result = await sendTelegramMessage({
     botToken: input.botToken,
     chatId: input.chatId,
-    text: renderTelegramHtml(text),
+    text: await renderTelegramHtml(text, threadId),
     parseMode: 'HTML',
     replyToMessageId: resolveSessionReplyToMessageId(input.sessionId, input.fallbackReplyToMessageId)
   })
