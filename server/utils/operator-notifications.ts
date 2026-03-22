@@ -33,6 +33,10 @@ export type OperatorNotificationResult = {
   messageId: number | null
 }
 
+const MAX_MESSAGE_ESCAPED_LENGTH = 2400
+const MAX_NEXT_ACTION_ESCAPED_LENGTH = 300
+const MAX_CONTEXT_VALUE_ESCAPED_LENGTH = 180
+
 const compactWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim()
 
 const normalizeMultilineText = (value: string) =>
@@ -42,11 +46,46 @@ const normalizeMultilineText = (value: string) =>
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 
-const truncate = (value: string, max: number) => {
-  if (value.length <= max) {
+const escapedLength = (value: string) => {
+  let length = 0
+  for (const char of value) {
+    if (char === '&') {
+      length += 5
+      continue
+    }
+    if (char === '<' || char === '>') {
+      length += 4
+      continue
+    }
+    length += char.length
+  }
+  return length
+}
+
+const truncateByEscapedLength = (value: string, maxEscapedLength: number) => {
+  if (escapedLength(value) <= maxEscapedLength) {
     return value
   }
-  return `${value.slice(0, Math.max(0, max - 1)).trimEnd()}…`
+
+  const suffix = '…'
+  const suffixLength = escapedLength(suffix)
+  let budget = maxEscapedLength
+  if (suffixLength < budget) {
+    budget -= suffixLength
+  }
+
+  let result = ''
+  let used = 0
+  for (const char of value) {
+    const delta = escapedLength(char)
+    if (used + delta > budget) {
+      break
+    }
+    result += char
+    used += delta
+  }
+
+  return `${result.trimEnd()}${suffix}`
 }
 
 const escapeTelegramHtml = (value: string) =>
@@ -84,25 +123,25 @@ const formatContextLines = (context?: OperatorNotificationContext | null) => {
 
   const lines: string[] = []
   if (context.workflowName) {
-    lines.push(`Workflow: ${compactWhitespace(context.workflowName)}`)
+    lines.push(`Workflow: ${truncateByEscapedLength(compactWhitespace(context.workflowName), MAX_CONTEXT_VALUE_ESCAPED_LENGTH)}`)
   }
   if (context.workflowFileSlug) {
-    lines.push(`Workflow slug: ${compactWhitespace(context.workflowFileSlug)}`)
+    lines.push(`Workflow slug: ${truncateByEscapedLength(compactWhitespace(context.workflowFileSlug), MAX_CONTEXT_VALUE_ESCAPED_LENGTH)}`)
   }
   if (context.taskName) {
-    lines.push(`Task: ${compactWhitespace(context.taskName)}`)
+    lines.push(`Task: ${truncateByEscapedLength(compactWhitespace(context.taskName), MAX_CONTEXT_VALUE_ESCAPED_LENGTH)}`)
   }
   if (context.runId) {
-    lines.push(`Run: ${compactWhitespace(context.runId)}`)
+    lines.push(`Run: ${truncateByEscapedLength(compactWhitespace(context.runId), MAX_CONTEXT_VALUE_ESCAPED_LENGTH)}`)
   }
   if (context.triggerType) {
-    lines.push(`Trigger: ${context.triggerType}${context.triggerValue ? ` (${compactWhitespace(context.triggerValue)})` : ''}`)
+    lines.push(`Trigger: ${context.triggerType}${context.triggerValue ? ` (${truncateByEscapedLength(compactWhitespace(context.triggerValue), MAX_CONTEXT_VALUE_ESCAPED_LENGTH)})` : ''}`)
   }
   if (context.sessionThreadId) {
-    lines.push(`Session thread: ${compactWhitespace(context.sessionThreadId)}`)
+    lines.push(`Session thread: ${truncateByEscapedLength(compactWhitespace(context.sessionThreadId), MAX_CONTEXT_VALUE_ESCAPED_LENGTH)}`)
   }
   if (context.branch) {
-    lines.push(`Branch: ${compactWhitespace(context.branch)}`)
+    lines.push(`Branch: ${truncateByEscapedLength(compactWhitespace(context.branch), MAX_CONTEXT_VALUE_ESCAPED_LENGTH)}`)
   }
   if (typeof context.prNumber === 'number') {
     lines.push(`PR: #${context.prNumber}`)
@@ -123,7 +162,7 @@ const buildOperatorNotificationHtml = (input: OperatorNotificationInput) => {
 
   const message = normalizeMultilineText(input.message ?? '')
   if (message) {
-    lines.push('', escapeTelegramHtml(truncate(message, 3000)))
+    lines.push('', escapeTelegramHtml(truncateByEscapedLength(message, MAX_MESSAGE_ESCAPED_LENGTH)))
   }
 
   const contextLines = formatContextLines(input.context)
@@ -133,7 +172,7 @@ const buildOperatorNotificationHtml = (input: OperatorNotificationInput) => {
 
   const nextAction = compactWhitespace(input.nextAction ?? '')
   if (nextAction) {
-    lines.push('', `<b>Next:</b> ${escapeTelegramHtml(truncate(nextAction, 400))}`)
+    lines.push('', `<b>Next:</b> ${escapeTelegramHtml(truncateByEscapedLength(nextAction, MAX_NEXT_ACTION_ESCAPED_LENGTH))}`)
   }
 
   return lines.join('\n').trim()
