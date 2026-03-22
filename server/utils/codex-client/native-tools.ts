@@ -50,6 +50,7 @@ type ParsedWorkflowDraft = {
 
 const SHARED_MEMORY_TOOL_NAME = 'sharedMemory'
 const MANAGE_WORKFLOW_TOOL_NAME = 'manageWorkflow'
+const NOTIFY_OPERATOR_TOOL_NAME = 'notifyOperator'
 const DEFAULT_MEMORY_SEARCH_LIMIT = 5
 const DEFAULT_MEMORY_SECTION = 'Facts'
 const DEFAULT_WORKFLOW_NAME = 'Task Workflow'
@@ -132,6 +133,38 @@ const MANAGE_WORKFLOWS_TOOL_SCHEMA: JsonValue = {
   required: ['command']
 }
 
+const NOTIFY_OPERATOR_TOOL_SCHEMA: JsonValue = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    title: { type: 'string' },
+    message: { type: 'string' },
+    nextAction: { type: 'string' },
+    severity: {
+      type: 'string',
+      enum: ['info', 'warning', 'blocker']
+    },
+    source: {
+      type: 'string',
+      enum: ['workflow', 'background-task', 'system']
+    },
+    workflowName: { type: 'string' },
+    workflowFileSlug: { type: 'string' },
+    runId: { type: 'string' },
+    triggerType: {
+      type: 'string',
+      enum: ['schedule', 'interval', 'rrule', 'workflow-dispatch']
+    },
+    triggerValue: { type: 'string' },
+    sessionThreadId: { type: 'string' },
+    taskName: { type: 'string' },
+    branch: { type: 'string' },
+    prNumber: { type: 'integer' },
+    issueNumber: { type: 'integer' }
+  },
+  required: ['title']
+}
+
 const asRecord = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -169,6 +202,19 @@ const clampMemoryLimit = (value: unknown) => {
     return 1
   }
   return Math.min(floored, 100)
+}
+
+const asInteger = (value: unknown) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.floor(value)
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number.parseInt(value.trim(), 10)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  return null
 }
 
 const asStringList = (value: unknown) => {
@@ -829,6 +875,64 @@ const handleManageWorkflowsTool: NativeDynamicToolHandler = async (input) => {
   }
 }
 
+const handleNotifyOperatorTool: NativeDynamicToolHandler = async (input) => {
+  const args = asRecord(input)
+  const title = asString(args.title)
+  if (!title) {
+    return toolFailure('notify-operator requires "title".')
+  }
+
+  try {
+    const result = await sendOperatorNotification({
+      title,
+      message: asString(args.message) || null,
+      nextAction: asString(args.nextAction) || null,
+      severity: (
+        asString(args.severity) === 'warning'
+        || asString(args.severity) === 'blocker'
+        || asString(args.severity) === 'info'
+      )
+        ? asString(args.severity) as 'info' | 'warning' | 'blocker'
+        : 'info',
+      source: (
+        asString(args.source) === 'workflow'
+        || asString(args.source) === 'background-task'
+        || asString(args.source) === 'system'
+      )
+        ? asString(args.source) as 'workflow' | 'background-task' | 'system'
+        : 'system',
+      context: {
+        workflowName: asString(args.workflowName) || null,
+        workflowFileSlug: asString(args.workflowFileSlug) || null,
+        runId: asString(args.runId) || null,
+        triggerType: (
+          asString(args.triggerType) === 'schedule'
+          || asString(args.triggerType) === 'interval'
+          || asString(args.triggerType) === 'rrule'
+          || asString(args.triggerType) === 'workflow-dispatch'
+        )
+          ? asString(args.triggerType) as 'schedule' | 'interval' | 'rrule' | 'workflow-dispatch'
+          : null,
+        triggerValue: asString(args.triggerValue) || null,
+        sessionThreadId: asString(args.sessionThreadId) || null,
+        taskName: asString(args.taskName) || null,
+        branch: asString(args.branch) || null,
+        prNumber: asInteger(args.prNumber),
+        issueNumber: asInteger(args.issueNumber)
+      }
+    })
+
+    return toolSuccess({
+      tool: NOTIFY_OPERATOR_TOOL_NAME,
+      delivered: result.delivered,
+      skippedReason: result.skippedReason,
+      messageId: result.messageId
+    })
+  } catch (error) {
+    return toolFailure(error instanceof Error ? error.message : String(error))
+  }
+}
+
 const nativeTools: NativeDynamicTool[] = [
   {
     aliases: [
@@ -857,6 +961,20 @@ const nativeTools: NativeDynamicTool[] = [
       inputSchema: MANAGE_WORKFLOWS_TOOL_SCHEMA
     },
     handle: handleManageWorkflowsTool
+  },
+  {
+    aliases: [
+      NOTIFY_OPERATOR_TOOL_NAME,
+      'corazonNotifyOperator',
+      'notify-operator',
+      'notify_operator'
+    ],
+    spec: {
+      name: NOTIFY_OPERATOR_TOOL_NAME,
+      description: 'Native operator notification sender for high-signal Telegram alerts from workflows and background tasks.',
+      inputSchema: NOTIFY_OPERATOR_TOOL_SCHEMA
+    },
+    handle: handleNotifyOperatorTool
   }
 ]
 

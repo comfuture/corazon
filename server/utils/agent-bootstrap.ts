@@ -50,6 +50,13 @@ const UPDATED_WORKFLOW_GUIDANCE = [
   '- Never use OS-level schedulers (`crontab`, `systemd`, `launchd`) for Corazon workflow requests.',
   '- When the user asks to create/update/delete a Corazon workflow, route through Corazon workflow tooling before considering generic shell operations.'
 ].join('\n')
+const OPERATOR_NOTIFICATION_GUIDANCE = [
+  '## Operator notifications',
+  '- In app-server mode, assume native dynamic tool `notifyOperator` is available for operator-facing Telegram alerts.',
+  '- Use `notifyOperator` for blocker, warning, or other high-signal updates from workflows and background tasks when the user should hear about them without manually checking logs.',
+  '- Keep notifications concise and action-oriented. Include workflow/run/task context and a recommended next action when known.',
+  '- Avoid noisy success spam; prefer failures, warnings, manual dispatch outcomes, and unusual autonomous events that merit attention.'
+].join('\n')
 
 let bootstrapDone = false
 
@@ -211,6 +218,10 @@ const migrateLegacyAgentsFile = (agentHomeDir: string) => {
 
   if (previous.match(WORKFLOW_GUIDANCE_PATTERN) || LEGACY_WORKFLOW_SKILL_HINT.test(previous)) {
     next = updateGuidanceSection(next, WORKFLOW_GUIDANCE_PATTERN, UPDATED_WORKFLOW_GUIDANCE)
+  }
+
+  if (!next.includes('## Operator notifications')) {
+    next = `${next.trimEnd()}\n\n${OPERATOR_NOTIFICATION_GUIDANCE}\n`
   }
 
   if (next !== previous) {

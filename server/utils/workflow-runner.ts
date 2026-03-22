@@ -86,6 +86,63 @@ const buildRunContextPrompt = (
   ].join('\n')
 }
 
+const shouldNotifyWorkflowSummary = (
+  definition: WorkflowDefinition,
+  summary: WorkflowRunSummary
+) => {
+  if (summary.status === 'failed') {
+    return true
+  }
+
+  if (summary.triggerType === 'workflow-dispatch') {
+    return true
+  }
+
+  return definition.fileSlug === 'corazon-self-evolution' && summary.status === 'completed'
+}
+
+const notifyWorkflowSummary = async (
+  definition: WorkflowDefinition,
+  summary: WorkflowRunSummary
+) => {
+  if (!shouldNotifyWorkflowSummary(definition, summary)) {
+    return
+  }
+
+  if (summary.status === 'failed') {
+    await sendWorkflowRunOperatorNotification({
+      definition,
+      summary,
+      severity: 'blocker',
+      title: `${definition.frontmatter.name} failed`,
+      message: summary.errorMessage || 'Workflow execution failed before completion.',
+      nextAction: 'Review the workflow run history and session log, then resolve the blocker or rerun the workflow.'
+    })
+    return
+  }
+
+  const completionKind = summary.triggerType === 'workflow-dispatch'
+    ? 'Manual workflow dispatch completed.'
+    : 'Scheduled autonomous workflow run completed.'
+
+  const usageSummary = [
+    `Status: ${summary.status}`,
+    `Input tokens: ${summary.totalInputTokens}`,
+    `Output tokens: ${summary.totalOutputTokens}`
+  ].join('\n')
+
+  await sendWorkflowRunOperatorNotification({
+    definition,
+    summary,
+    severity: 'info',
+    title: `${definition.frontmatter.name} completed`,
+    message: `${completionKind}\n${usageSummary}`,
+    nextAction: summary.triggerType === 'workflow-dispatch'
+      ? 'Inspect the workflow run details if you want the full execution transcript.'
+      : null
+  })
+}
+
 const collectRunCompletionData = async (
   definition: WorkflowDefinition,
   triggerType: WorkflowTriggerType,
@@ -168,6 +225,12 @@ export const executeWorkflowRun = async (
   const summary = getWorkflowRunById(runId)
   if (!summary) {
     throw new Error('Failed to load workflow run summary.')
+  }
+
+  try {
+    await notifyWorkflowSummary(definition, summary)
+  } catch (error) {
+    console.error('Failed to send operator notification for workflow run:', error)
   }
 
   return summary
