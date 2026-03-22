@@ -922,6 +922,10 @@ const handleNotifyOperatorTool: NativeDynamicToolHandler = async (input) => {
       }
     })
 
+    if (!result.delivered) {
+      return toolFailure(result.skippedReason || 'Operator notification was not delivered.')
+    }
+
     return toolSuccess({
       tool: NOTIFY_OPERATOR_TOOL_NAME,
       delivered: result.delivered,

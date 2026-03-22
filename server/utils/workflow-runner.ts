@@ -110,7 +110,7 @@ const notifyWorkflowSummary = async (
   }
 
   if (summary.status === 'failed') {
-    await sendWorkflowRunOperatorNotification({
+    const result = await sendWorkflowRunOperatorNotification({
       definition,
       summary,
       severity: 'blocker',
@@ -118,6 +118,9 @@ const notifyWorkflowSummary = async (
       message: summary.errorMessage || 'Workflow execution failed before completion.',
       nextAction: 'Review the workflow run history and session log, then resolve the blocker or rerun the workflow.'
     })
+    if (!result.delivered) {
+      throw new Error(result.skippedReason || 'Failed to deliver workflow failure operator notification.')
+    }
     return
   }
 
@@ -131,7 +134,7 @@ const notifyWorkflowSummary = async (
     `Output tokens: ${summary.totalOutputTokens}`
   ].join('\n')
 
-  await sendWorkflowRunOperatorNotification({
+  const result = await sendWorkflowRunOperatorNotification({
     definition,
     summary,
     severity: 'info',
@@ -141,6 +144,9 @@ const notifyWorkflowSummary = async (
       ? 'Inspect the workflow run details if you want the full execution transcript.'
       : null
   })
+  if (!result.delivered) {
+    throw new Error(result.skippedReason || 'Failed to deliver workflow completion operator notification.')
+  }
 }
 
 const collectRunCompletionData = async (
