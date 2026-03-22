@@ -883,35 +883,39 @@ const handleNotifyOperatorTool: NativeDynamicToolHandler = async (input) => {
   }
 
   try {
+    const severity = asString(args.severity)
+    const source = asString(args.source)
+    const triggerType = asString(args.triggerType)
+
     const result = await sendOperatorNotification({
       title,
       message: asString(args.message) || null,
       nextAction: asString(args.nextAction) || null,
       severity: (
-        asString(args.severity) === 'warning'
-        || asString(args.severity) === 'blocker'
-        || asString(args.severity) === 'info'
+        severity === 'warning'
+        || severity === 'blocker'
+        || severity === 'info'
       )
-        ? asString(args.severity) as 'info' | 'warning' | 'blocker'
+        ? severity as 'info' | 'warning' | 'blocker'
         : 'info',
       source: (
-        asString(args.source) === 'workflow'
-        || asString(args.source) === 'background-task'
-        || asString(args.source) === 'system'
+        source === 'workflow'
+        || source === 'background-task'
+        || source === 'system'
       )
-        ? asString(args.source) as 'workflow' | 'background-task' | 'system'
+        ? source as 'workflow' | 'background-task' | 'system'
         : 'system',
       context: {
         workflowName: asString(args.workflowName) || null,
         workflowFileSlug: asString(args.workflowFileSlug) || null,
         runId: asString(args.runId) || null,
         triggerType: (
-          asString(args.triggerType) === 'schedule'
-          || asString(args.triggerType) === 'interval'
-          || asString(args.triggerType) === 'rrule'
-          || asString(args.triggerType) === 'workflow-dispatch'
+          triggerType === 'schedule'
+          || triggerType === 'interval'
+          || triggerType === 'rrule'
+          || triggerType === 'workflow-dispatch'
         )
-          ? asString(args.triggerType) as 'schedule' | 'interval' | 'rrule' | 'workflow-dispatch'
+          ? triggerType as 'schedule' | 'interval' | 'rrule' | 'workflow-dispatch'
           : null,
         triggerValue: asString(args.triggerValue) || null,
         sessionThreadId: asString(args.sessionThreadId) || null,
