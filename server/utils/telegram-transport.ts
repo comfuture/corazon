@@ -160,6 +160,14 @@ const parseMarkdownTargetSource = (target: string) => {
     return ''
   }
 
+  if (trimmed.startsWith('<')) {
+    const closingBracketIndex = trimmed.indexOf('>')
+    if (closingBracketIndex > 1) {
+      const wrappedSource = trimmed.slice(1, closingBracketIndex)
+      return normalizeLocalSource(wrappedSource)
+    }
+  }
+
   const firstWhitespaceIndex = trimmed.search(/\s/)
   const sourceToken = firstWhitespaceIndex === -1 ? trimmed : trimmed.slice(0, firstWhitespaceIndex)
   if (!sourceToken) {
@@ -223,6 +231,11 @@ const rewriteTelegramLocalFileLinks = async (value: string, threadId: string | n
 
     rewritten += value.slice(cursor, match.index)
     cursor = match.index + fullMatch.length
+
+    if (match.index > 0 && value[match.index - 1] === '!') {
+      rewritten += fullMatch
+      continue
+    }
 
     const source = parseMarkdownTargetSource(target)
     if (!source || !isResolvableLocalFileSource(source)) {
