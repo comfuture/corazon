@@ -199,8 +199,7 @@ const resolveTelegramPublicBaseUrl = () => {
   return ''
 }
 
-const toTelegramPublicUrl = (path: string) => {
-  const baseUrl = resolveTelegramPublicBaseUrl()
+const toTelegramPublicUrl = (baseUrl: string, path: string) => {
   if (!baseUrl) {
     return ''
   }
@@ -209,6 +208,7 @@ const toTelegramPublicUrl = (path: string) => {
 }
 
 const rewriteTelegramLocalFileLinks = async (value: string, threadId: string | null) => {
+  const baseUrl = resolveTelegramPublicBaseUrl()
   let rewritten = ''
   let cursor = 0
   const matches = value.matchAll(MARKDOWN_LINK_REGEX)
@@ -238,7 +238,7 @@ const rewriteTelegramLocalFileLinks = async (value: string, threadId: string | n
 
     try {
       const preview = await createLocalFilePreviewToken(source, undefined, threadId)
-      const previewUrl = toTelegramPublicUrl(`/api/chat/local-file/${encodeURIComponent(preview.token)}`)
+      const previewUrl = toTelegramPublicUrl(baseUrl, `/api/chat/local-file/${encodeURIComponent(preview.token)}`)
       const fallbackDisplay = preview.displayPath || preview.filename || source
       const nextLabel = label.trim() || fallbackDisplay
 
@@ -248,7 +248,8 @@ const rewriteTelegramLocalFileLinks = async (value: string, threadId: string | n
       }
 
       rewritten += `[${nextLabel}](${previewUrl})`
-    } catch {
+    } catch (error) {
+      console.warn('[telegram] failed to create local file preview token:', formatTelegramApiError(error))
       const fallbackLabel = label.trim() || source
       rewritten += `${fallbackLabel} (local file: ${source})`
     }
