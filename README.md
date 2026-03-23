@@ -96,6 +96,7 @@ Notes:
 - `${CORAZON_HOST_STATE_DIR}` contains Corazon runtime state (`.corazon/`), SSH material (`.ssh/`), and Chroma persistence (`chroma/`).
 - `${CORAZON_CODEX_HOST_DIR}` points to the host Codex home mounted read-only at `/root/.codex-seed`. By default, Compose uses `${HOME}/.codex`.
 - The runtime root (for example `${CORAZON_HOST_STATE_DIR}/.corazon`) should contain `config.toml`, `skills/`, `data/`, and `threads/`.
+- GitHub CLI (`gh`) is installed in the image, and entrypoint wiring persists `gh` auth/config under `${CORAZON_HOST_STATE_DIR}/.corazon/gh` via `/root/.config/gh`.
 - Keep the host Codex home available when you want `auth.json` and other seed files to survive redeploys.
 - Workflow local metadata is stored at `${WORKFLOW_LOCAL_DATA_DIR}` (default: `${CORAZON_ROOT_DIR}/workflow-data`).
 

@@ -3,7 +3,7 @@ FROM ubuntu:latest
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends bash build-essential ca-certificates curl git openssh-client ripgrep xz-utils \
+  && apt-get install -y --no-install-recommends bash build-essential ca-certificates curl gh git openssh-client ripgrep xz-utils \
   && rm -rf /var/lib/apt/lists/*
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]

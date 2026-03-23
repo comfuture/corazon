@@ -5,6 +5,8 @@ RUNTIME_ROOT=${CORAZON_ROOT_DIR:-/root/.corazon}
 CODEX_HOME=${CODEX_HOME:-"${RUNTIME_ROOT}"}
 WORKFLOW_LOCAL_DATA_DIR=${WORKFLOW_LOCAL_DATA_DIR:-"${RUNTIME_ROOT}/workflow-data"}
 SSH_DIR=${CORAZON_SSH_DIR:-/root/.ssh}
+GH_RUNTIME_CONFIG_DIR=${CORAZON_GH_CONFIG_DIR:-"${RUNTIME_ROOT}/gh"}
+GH_CONFIG_DIR=${CORAZON_GH_CONFIG_PATH:-/root/.config/gh}
 
 export WORKFLOW_LOCAL_DATA_DIR
 
@@ -25,6 +27,23 @@ fi
 mkdir -p "$SSH_DIR"
 chmod 700 "$SSH_DIR" || true
 mkdir -p "$WORKFLOW_LOCAL_DATA_DIR"
+mkdir -p "$(dirname "$GH_CONFIG_DIR")"
+mkdir -p "$GH_RUNTIME_CONFIG_DIR"
+chmod 700 "$GH_RUNTIME_CONFIG_DIR" || true
+
+# Persist GitHub CLI auth/config in the mounted runtime root so redeploys keep gh login state.
+if [ -d "$GH_CONFIG_DIR" ] && [ ! -L "$GH_CONFIG_DIR" ]; then
+  if [ "$(ls -A "$GH_CONFIG_DIR" 2>/dev/null)" ]; then
+    cp -R "$GH_CONFIG_DIR"/. "$GH_RUNTIME_CONFIG_DIR"/
+  fi
+  rm -rf "$GH_CONFIG_DIR"
+fi
+
+if [ -f "$GH_CONFIG_DIR" ]; then
+  rm -f "$GH_CONFIG_DIR"
+fi
+
+ln -sfn "$GH_RUNTIME_CONFIG_DIR" "$GH_CONFIG_DIR"
 
 if [ ! -f "$CODEX_HOME/config.toml" ]; then
   echo "Codex config.toml was not found at: $CODEX_HOME/config.toml" >&2
