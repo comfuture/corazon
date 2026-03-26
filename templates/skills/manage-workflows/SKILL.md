@@ -6,6 +6,7 @@ description: Manage Corazon workflow definitions in the current workspace. Prefe
 # Manage Workflows
 
 Use this skill to manage Corazon workflow files in `workflows/*.md`.
+When dynamic tools are unavailable, use the helper script for deterministic fallback operations including manual workflow dispatch.
 
 ## Priority
 1. Default: edit workflow files directly (without scripts).
@@ -125,6 +126,13 @@ scripts/manage-workflows.py update \
 scripts/manage-workflows.py apply-text \
   --root /path/to/corazon \
   --text "Create a workflow that outputs one 'Hello' line every minute."
+```
+
+```bash
+scripts/manage-workflows.py dispatch \
+  --root /path/to/corazon \
+  --slug corazon-self-evolution \
+  --base-url http://127.0.0.1:3000
 ```
 
 ## Output Contract (Script)

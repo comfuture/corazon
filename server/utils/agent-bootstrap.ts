@@ -36,7 +36,7 @@ const UPDATED_WORKFLOW_GUIDANCE = [
   '## Workflow management',
   '- Treat recurring or automated requests (for example: daily, weekly, monthly, recurring, or scheduled work) as workflow operations.',
   '- In app-server mode, assume native dynamic tool `manageWorkflow` is available and use it first for workflow operations.',
-  '- Prefer explicit `manageWorkflow` commands for workflow operations: list/inspect/create/update/delete.',
+  '- Prefer explicit `manageWorkflow` commands for workflow operations: list/inspect/create/update/delete/dispatch.',
   '- Use `manageWorkflow` `apply-text` only for natural-language workflow authoring and draft extraction.',
   '- Author workflow instructions as a detailed execution brief that fulfills user intent.',
   '- Include the goal, required context/resources, concrete execution steps, and expected output or completion criteria in the workflow instruction.',

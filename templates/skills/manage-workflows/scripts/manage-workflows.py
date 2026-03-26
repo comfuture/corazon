@@ -14,6 +14,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib import error as urllib_error
+from urllib import parse as urllib_parse
+from urllib import request as urllib_request
 
 import yaml
 
@@ -33,6 +36,7 @@ WORKFLOW_STEP_LINE_PATTERN = re.compile(r"^(?:[-*]\s+|[0-9]+\.\s+)")
 WORKFLOW_MIN_DETAIL_LENGTH = 140
 WORKFLOW_MIN_DETAIL_LINES = 3
 WORKFLOW_MIN_DETAIL_SENTENCES = 3
+DEFAULT_WORKFLOW_DISPATCH_BASE_URL = "http://127.0.0.1:3000"
 
 CRON_MONTH_NAMES = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
 CRON_WEEKDAY_NAMES = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
@@ -972,6 +976,50 @@ def list_available_skills(root: Path) -> list[str]:
     return sorted(set(names))
 
 
+def resolve_dispatch_base_url(args: argparse.Namespace) -> str:
+    from_args = as_string(getattr(args, "base_url", ""))
+    from_env = as_string(os.getenv("CORAZON_APP_BASE_URL"))
+    return (from_args or from_env or DEFAULT_WORKFLOW_DISPATCH_BASE_URL).rstrip("/")
+
+
+def dispatch_workflow_run(base_url: str, workflow_slug: str) -> dict[str, Any]:
+    if not workflow_slug:
+        raise ValueError("dispatch requires --slug or --query.")
+
+    endpoint = f"{base_url}/api/workflows/{urllib_parse.quote(workflow_slug, safe='')}/run"
+    request = urllib_request.Request(
+        endpoint,
+        method="POST",
+        headers={
+            "accept": "application/json",
+            "content-type": "application/json",
+        },
+        data=b"{}",
+    )
+
+    try:
+        with urllib_request.urlopen(request, timeout=60) as response:  # noqa: S310
+            body = response.read().decode("utf-8")
+            if not body:
+                raise ValueError("Workflow dispatch endpoint returned an empty response.")
+            payload = json.loads(body)
+            run = payload.get("run")
+            if not isinstance(run, dict):
+                raise ValueError("Workflow dispatch response is missing run summary.")
+            return run
+    except urllib_error.HTTPError as exc:
+        details = ""
+        try:
+            payload = json.loads(exc.read().decode("utf-8"))
+            if isinstance(payload, dict):
+                details = as_string(payload.get("statusMessage")) or as_string(payload.get("message"))
+        except Exception:  # noqa: BLE001
+            details = ""
+        raise ValueError(details or f"Workflow dispatch failed with HTTP {exc.code}.") from exc
+    except urllib_error.URLError as exc:
+        raise ValueError(f"Workflow dispatch request failed: {exc.reason}") from exc
+
+
 def build_frontmatter(
     name: str,
     description: str,
@@ -1142,6 +1190,26 @@ def handle_update(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def handle_dispatch(root: Path, args: argparse.Namespace) -> dict[str, Any]:
+    workflows = load_workflows(root)
+    target = pick_selector(workflows, args.slug, args.query)
+    if not target.is_valid:
+        raise ValueError(f"Cannot dispatch invalid workflow: {target.file_slug}")
+    if target.frontmatter.on.workflow_dispatch is not True:
+        raise ValueError("This workflow does not allow direct execution.")
+
+    base_url = resolve_dispatch_base_url(args)
+    run = dispatch_workflow_run(base_url, target.file_slug)
+
+    return {
+        "ok": True,
+        "action": "dispatch",
+        "workflow": workflow_summary(target),
+        "run": run,
+        "baseUrl": base_url,
+    }
+
+
 def handle_delete(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     workflows = load_workflows(root)
     target = pick_selector(workflows, args.slug, args.query)
@@ -1299,6 +1367,12 @@ def build_parser() -> argparse.ArgumentParser:
     delete_parser.add_argument("--slug", default="")
     delete_parser.add_argument("--query", default="")
 
+    dispatch_parser = subparsers.add_parser("dispatch")
+    dispatch_parser.add_argument("--root", default="")
+    dispatch_parser.add_argument("--slug", default="")
+    dispatch_parser.add_argument("--query", default="")
+    dispatch_parser.add_argument("--base-url", default="")
+
     from_text_parser = subparsers.add_parser("from-text")
     from_text_parser.add_argument("--root", default="")
     from_text_parser.add_argument("--text", required=True)
@@ -1324,6 +1398,8 @@ def main() -> None:
             result = handle_update(root, args)
         elif args.command == "delete":
             result = handle_delete(root, args)
+        elif args.command == "dispatch":
+            result = handle_dispatch(root, args)
         elif args.command == "from-text":
             result = handle_from_text(root, args)
         elif args.command == "apply-text":

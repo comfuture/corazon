@@ -66,7 +66,7 @@ const APP_SERVER_NATIVE_TOOL_PREAMBLE = [
   '- For Corazon built-ins, use dynamic tools first and do not use skills unless a dynamic tool call fails.',
   '- Treat recurring or automated requests (for example: daily, weekly, monthly, recurring, or scheduled work) as workflow operations.',
   `- For workflow operations, use dynamic tool \`${WORKFLOW_NATIVE_TOOL}\` before skills.`,
-  `- Prefer explicit \`${WORKFLOW_NATIVE_TOOL}\` commands: list/inspect/create/update/delete.`,
+  `- Prefer explicit \`${WORKFLOW_NATIVE_TOOL}\` commands: list/inspect/create/update/delete/dispatch.`,
   `- Use \`${WORKFLOW_NATIVE_TOOL}\` apply-text only for natural-language workflow authoring and draft extraction.`,
   '- Author workflow instructions as a detailed execution brief that fulfills user intent.',
   '- Include the goal, required context/resources, concrete execution steps, and expected output or completion criteria in the workflow instruction.',

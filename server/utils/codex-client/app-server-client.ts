@@ -144,7 +144,7 @@ const NATIVE_TOOL_PRIORITY_DEVELOPER_INSTRUCTIONS = [
   '- For Corazon built-ins, use dynamic tools first and do not use skills unless a dynamic tool call fails.',
   '- Treat recurring or automated requests (for example: daily, weekly, monthly, recurring, or scheduled work) as workflow operations.',
   '- For workflow operations, prefer dynamic tool `manageWorkflow` before the `manage-workflows` skill.',
-  '- Prefer explicit workflow commands: `list`, `inspect`, `create`, `update`, `delete`.',
+  '- Prefer explicit workflow commands: `list`, `inspect`, `create`, `update`, `delete`, `dispatch`.',
   '- Use `apply-text` only for natural-language workflow authoring and draft extraction.',
   '- When authoring workflows, capture the user intent as a detailed execution brief.',
   '- Include the goal, required context/resources, concrete execution steps, and expected output or completion criteria in the workflow instruction.',
