@@ -824,6 +824,23 @@ const isTelegramMessageNotModifiedError = (error: unknown) => {
   return message.includes('message is not modified')
 }
 
+const renderTelegramMessageContent = async (input: {
+  text: string
+  threadId: string | null
+}) => {
+  const html = await renderTelegramHtml(input.text, input.threadId)
+  if (html) {
+    return {
+      text: html,
+      parseMode: 'HTML' as const
+    }
+  }
+
+  return {
+    text: input.text
+  }
+}
+
 const sendSessionTelegramMessage = async (input: {
   sessionId: string
   botToken: string
@@ -837,12 +854,16 @@ const sendSessionTelegramMessage = async (input: {
     return null
   }
   const threadId = getTelegramSessionById(input.sessionId)?.threadId ?? null
+  const content = await renderTelegramMessageContent({
+    text,
+    threadId
+  })
 
   const result = await sendTelegramMessage({
     botToken: input.botToken,
     chatId: input.chatId,
-    text: await renderTelegramHtml(text, threadId),
-    parseMode: 'HTML',
+    text: content.text,
+    parseMode: content.parseMode,
     replyToMessageId: resolveSessionReplyToMessageId(input.sessionId, input.fallbackReplyToMessageId)
   })
 
@@ -868,10 +889,10 @@ const upsertSessionTelegramDraftMessage = async (input: {
     return input.existingMessageId ?? null
   }
   const threadId = getTelegramSessionById(input.sessionId)?.threadId ?? null
-  const html = await renderTelegramHtml(text, threadId)
-  if (!html) {
-    return input.existingMessageId ?? null
-  }
+  const content = await renderTelegramMessageContent({
+    text,
+    threadId
+  })
 
   if (typeof input.existingMessageId === 'number') {
     try {
@@ -879,8 +900,8 @@ const upsertSessionTelegramDraftMessage = async (input: {
         botToken: input.botToken,
         chatId: input.chatId,
         messageId: input.existingMessageId,
-        text: html,
-        parseMode: 'HTML'
+        text: content.text,
+        parseMode: content.parseMode
       })
       return input.existingMessageId
     } catch (error) {
@@ -1040,6 +1061,11 @@ const processTelegramWorkflowRun = async (input: {
   const textDraftMessageIds = new Map<string, number>()
   const textDraftLastSentAt = new Map<string, number>()
   const textDraftLastSentText = new Map<string, string>()
+  const clearTextDraftState = (textId: string) => {
+    textDraftLastSentAt.delete(textId)
+    textDraftLastSentText.delete(textId)
+    textDraftMessageIds.delete(textId)
+  }
   const typing = getTelegramTypingController({
     botToken: input.botToken,
     chatId: input.chatId
@@ -1138,9 +1164,7 @@ const processTelegramWorkflowRun = async (input: {
 
       if (value.type === 'text-start') {
         textBuffer.set(value.id, '')
-        textDraftLastSentAt.delete(value.id)
-        textDraftLastSentText.delete(value.id)
-        textDraftMessageIds.delete(value.id)
+        clearTextDraftState(value.id)
         continue
       }
 
@@ -1167,9 +1191,7 @@ const processTelegramWorkflowRun = async (input: {
           })
         }
         textBuffer.delete(value.id)
-        textDraftLastSentAt.delete(value.id)
-        textDraftLastSentText.delete(value.id)
-        textDraftMessageIds.delete(value.id)
+        clearTextDraftState(value.id)
         continue
       }
 
