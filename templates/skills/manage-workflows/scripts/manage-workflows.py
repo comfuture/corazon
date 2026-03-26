@@ -979,10 +979,49 @@ def list_available_skills(root: Path) -> list[str]:
 def resolve_dispatch_base_url(args: argparse.Namespace) -> str:
     from_args = as_string(getattr(args, "base_url", ""))
     from_env = as_string(os.getenv("CORAZON_APP_BASE_URL"))
-    return (from_args or from_env or DEFAULT_WORKFLOW_DISPATCH_BASE_URL).rstrip("/")
+    base_url = (from_args or from_env or DEFAULT_WORKFLOW_DISPATCH_BASE_URL).rstrip("/")
+    return validate_dispatch_base_url(base_url)
 
 
-def dispatch_workflow_run(base_url: str, workflow_slug: str) -> dict[str, Any]:
+def validate_dispatch_base_url(base_url: str) -> str:
+    parsed = urllib_parse.urlparse(base_url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("Dispatch base URL must use http or https.")
+    if not parsed.hostname:
+        raise ValueError("Dispatch base URL must include a hostname.")
+    if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
+        raise ValueError("Dispatch base URL must not include path, query, or fragment.")
+    if parsed.username or parsed.password:
+        raise ValueError("Dispatch base URL must not include userinfo.")
+
+    allow_remote_host = parse_bool(os.getenv("CORAZON_ALLOW_REMOTE_DISPATCH_BASE_URL"), False) is True
+    trusted_hosts = {"127.0.0.1", "localhost", "::1"}
+    if parsed.hostname not in trusted_hosts and not allow_remote_host:
+        raise ValueError(
+            "Dispatch base URL host must be loopback. "
+            "Set CORAZON_ALLOW_REMOTE_DISPATCH_BASE_URL=true to allow a remote host explicitly."
+        )
+
+    return base_url
+
+
+def resolve_dispatch_timeout_seconds(args: argparse.Namespace) -> float | None:
+    from_args = as_string(getattr(args, "timeout_seconds", ""))
+    from_env = as_string(os.getenv("CORAZON_WORKFLOW_DISPATCH_TIMEOUT_SECONDS"))
+    raw_value = from_args or from_env
+    if not raw_value:
+        return None
+
+    try:
+        timeout = float(raw_value)
+    except ValueError as exc:
+        raise ValueError("Dispatch timeout must be a positive number of seconds.") from exc
+    if timeout <= 0:
+        raise ValueError("Dispatch timeout must be a positive number of seconds.")
+    return timeout
+
+
+def dispatch_workflow_run(base_url: str, workflow_slug: str, timeout_seconds: float | None) -> dict[str, Any]:
     if not workflow_slug:
         raise ValueError("dispatch requires --slug or --query.")
 
@@ -998,7 +1037,12 @@ def dispatch_workflow_run(base_url: str, workflow_slug: str) -> dict[str, Any]:
     )
 
     try:
-        with urllib_request.urlopen(request, timeout=60) as response:  # noqa: S310
+        opener = (
+            urllib_request.urlopen(request, timeout=timeout_seconds)
+            if timeout_seconds is not None
+            else urllib_request.urlopen(request)
+        )
+        with opener as response:  # noqa: S310
             body = response.read().decode("utf-8")
             if not body:
                 raise ValueError("Workflow dispatch endpoint returned an empty response.")
@@ -1013,7 +1057,7 @@ def dispatch_workflow_run(base_url: str, workflow_slug: str) -> dict[str, Any]:
             payload = json.loads(exc.read().decode("utf-8"))
             if isinstance(payload, dict):
                 details = as_string(payload.get("statusMessage")) or as_string(payload.get("message"))
-        except Exception:  # noqa: BLE001
+        except (json.JSONDecodeError, UnicodeDecodeError):
             details = ""
         raise ValueError(details or f"Workflow dispatch failed with HTTP {exc.code}.") from exc
     except urllib_error.URLError as exc:
@@ -1199,7 +1243,8 @@ def handle_dispatch(root: Path, args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("This workflow does not allow direct execution.")
 
     base_url = resolve_dispatch_base_url(args)
-    run = dispatch_workflow_run(base_url, target.file_slug)
+    timeout_seconds = resolve_dispatch_timeout_seconds(args)
+    run = dispatch_workflow_run(base_url, target.file_slug, timeout_seconds)
 
     return {
         "ok": True,
@@ -1207,6 +1252,7 @@ def handle_dispatch(root: Path, args: argparse.Namespace) -> dict[str, Any]:
         "workflow": workflow_summary(target),
         "run": run,
         "baseUrl": base_url,
+        "timeoutSeconds": timeout_seconds,
     }
 
 
@@ -1372,6 +1418,7 @@ def build_parser() -> argparse.ArgumentParser:
     dispatch_parser.add_argument("--slug", default="")
     dispatch_parser.add_argument("--query", default="")
     dispatch_parser.add_argument("--base-url", default="")
+    dispatch_parser.add_argument("--timeout-seconds", default="")
 
     from_text_parser = subparsers.add_parser("from-text")
     from_text_parser.add_argument("--root", default="")

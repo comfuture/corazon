@@ -132,8 +132,14 @@ scripts/manage-workflows.py apply-text \
 scripts/manage-workflows.py dispatch \
   --root /path/to/corazon \
   --slug corazon-self-evolution \
-  --base-url http://127.0.0.1:3000
+  --base-url http://127.0.0.1:3000 \
+  --timeout-seconds 300
 ```
+
+Notes:
+- `--base-url` must be a host-only `http(s)` URL. By default only loopback hosts are allowed.
+- To allow an explicit remote host, set `CORAZON_ALLOW_REMOTE_DISPATCH_BASE_URL=true`.
+- If `--timeout-seconds` is omitted, dispatch waits without a fixed client timeout.
 
 ## Output Contract (Script)
 - Success: `{ "ok": true, ... }`
