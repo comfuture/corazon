@@ -64,5 +64,18 @@ export default defineNuxtConfig({
         braceStyle: '1tbs'
       }
     }
+  },
+
+  icon: {
+    serverBundle: {
+      collections: ['lucide'],
+      externalizeIconsJson: true
+    },
+    clientBundle: {
+      scan: {
+        globInclude: ['app/**/*.{vue,ts}'],
+        globExclude: ['node_modules']
+      }
+    }
   }
 })
