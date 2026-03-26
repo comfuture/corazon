@@ -22,6 +22,7 @@ import {
   writeWorkflowDefinition
 } from '../workflow-definitions.ts'
 import { inferWorkflowDraftWithAI } from '../workflow-ai.ts'
+import { executeWorkflowBySlug, initializeWorkflowRunner } from '../workflow-runner.ts'
 import { reloadWorkflowScheduler } from '../workflow-scheduler.ts'
 
 type NativeDynamicToolHandler = (input: unknown, params: DynamicToolCallParams) => Promise<DynamicToolCallResponse>
@@ -61,6 +62,7 @@ const WORKFLOW_COMMANDS = new Set([
   'create',
   'update',
   'delete',
+  'dispatch',
   'from-text',
   'apply-text',
   'inspect'
@@ -88,7 +90,7 @@ const MANAGE_WORKFLOWS_TOOL_SCHEMA: JsonValue = {
   properties: {
     command: {
       type: 'string',
-      enum: ['list', 'create', 'update', 'delete', 'from-text', 'apply-text', 'inspect']
+      enum: ['list', 'create', 'update', 'delete', 'dispatch', 'from-text', 'apply-text', 'inspect']
     },
     mode: {
       type: 'string',
@@ -674,6 +676,26 @@ const handleWorkflowDelete = (args: Record<string, unknown>) => {
   }
 }
 
+const handleWorkflowDispatch = async (args: Record<string, unknown>) => {
+  const workflows = loadWorkflowDefinitions()
+  const target = selectWorkflow(workflows, args.slug, args.query)
+  if (!target.isValid) {
+    throw new Error(`Cannot dispatch invalid workflow: ${target.fileSlug}`)
+  }
+  if (target.frontmatter.on['workflow-dispatch'] !== true) {
+    throw new Error('This workflow does not allow direct execution.')
+  }
+
+  initializeWorkflowRunner()
+  const run = await executeWorkflowBySlug(target.fileSlug, 'workflow-dispatch', 'manual')
+
+  return {
+    action: 'dispatch',
+    workflow: toWorkflowSummary(target),
+    run
+  }
+}
+
 const resolveApplyTextMode = (value: unknown): 'auto' | 'create' | 'update' => {
   const normalized = normalizeCommand(value)
   if (normalized === 'create' || normalized === 'update') {
@@ -859,6 +881,13 @@ const handleManageWorkflowsTool: NativeDynamicToolHandler = async (input) => {
       })
     }
 
+    if (command === 'dispatch') {
+      return toolSuccess({
+        tool: MANAGE_WORKFLOW_TOOL_NAME,
+        ...await handleWorkflowDispatch(args)
+      })
+    }
+
     if (command === 'from-text') {
       return toolSuccess({
         tool: MANAGE_WORKFLOW_TOOL_NAME,
@@ -965,7 +994,7 @@ const nativeTools: NativeDynamicTool[] = [
     ],
     spec: {
       name: MANAGE_WORKFLOW_TOOL_NAME,
-      description: 'Native workflow manager for Corazon workflows/*.md. Prefer explicit commands (list/inspect/create/update/delete). from-text/apply-text use AI draft parsing for natural-language workflow authoring.',
+      description: 'Native workflow manager for Corazon workflows/*.md. Prefer explicit commands (list/inspect/create/update/delete/dispatch). from-text/apply-text use AI draft parsing for natural-language workflow authoring.',
       inputSchema: MANAGE_WORKFLOWS_TOOL_SCHEMA
     },
     handle: handleManageWorkflowsTool
