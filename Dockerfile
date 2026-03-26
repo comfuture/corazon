@@ -18,7 +18,7 @@ RUN curl -fsSL https://mise.run | sh
 
 WORKDIR /app
 
-COPY .mise.toml /mise/config.toml
+COPY docker/mise.toml /mise/config.toml
 RUN mise trust -a \
   && mise install \
   && mise reshim
@@ -27,6 +27,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY . .
+COPY docker/mise.toml /app/.mise.toml
 RUN mise trust /app/.mise.toml \
   && pnpm build
 

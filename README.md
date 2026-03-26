@@ -24,10 +24,10 @@ Corazon (Corazón) means “heart” in Spanish. This project is a web-first Cod
 pnpm install
 ```
 
-If you use `mise`, install the repo-managed Python 3.12 + `uv` toolchain first:
+If you use `mise`, install the repo-managed Python 3.12 + `uv` toolchain from the Docker config file first:
 
 ```bash
-mise install
+MISE_CONFIG_FILE=./docker/mise.toml mise install
 ```
 
 ## Development
