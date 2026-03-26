@@ -41,6 +41,7 @@ import {
   type TelegramSessionRouteDecision
 } from './telegram-session.ts'
 import {
+  editTelegramMessageText,
   formatTelegramApiError,
   getTelegramDisplayName,
   sendTelegramChatAction,
@@ -64,6 +65,7 @@ const TELEGRAM_TEXT_MAX_LENGTH = 3500
 const TELEGRAM_STEER_RETRY_ATTEMPTS = 5
 const TELEGRAM_STEER_RETRY_MS = 300
 const TELEGRAM_TYPING_REFRESH_MS = 4000
+const TELEGRAM_DRAFT_UPDATE_MIN_INTERVAL_MS = 800
 const TELEGRAM_ROUTE_CANDIDATE_LIMIT = 5
 const TELEGRAM_ROUTE_TRANSCRIPT_LINE_LIMIT = 12
 const TELEGRAM_RESUME_CONFIDENCE_THRESHOLD = 0.72
@@ -817,6 +819,11 @@ const resolveSessionReplyToMessageId = (
   return getTelegramSessionById(sessionId)?.lastInboundMessageId ?? fallbackReplyToMessageId
 }
 
+const isTelegramMessageNotModifiedError = (error: unknown) => {
+  const message = formatTelegramApiError(error).toLowerCase()
+  return message.includes('message is not modified')
+}
+
 const sendSessionTelegramMessage = async (input: {
   sessionId: string
   botToken: string
@@ -846,6 +853,52 @@ const sendSessionTelegramMessage = async (input: {
   })
 
   return result.message_id
+}
+
+const upsertSessionTelegramDraftMessage = async (input: {
+  sessionId: string
+  botToken: string
+  chatId: string
+  text: string
+  fallbackReplyToMessageId?: number | null
+  existingMessageId?: number | null
+}) => {
+  const text = normalizeTelegramText(input.text)
+  if (!text) {
+    return input.existingMessageId ?? null
+  }
+  const threadId = getTelegramSessionById(input.sessionId)?.threadId ?? null
+  const html = await renderTelegramHtml(text, threadId)
+  if (!html) {
+    return input.existingMessageId ?? null
+  }
+
+  if (typeof input.existingMessageId === 'number') {
+    try {
+      await editTelegramMessageText({
+        botToken: input.botToken,
+        chatId: input.chatId,
+        messageId: input.existingMessageId,
+        text: html,
+        parseMode: 'HTML'
+      })
+      return input.existingMessageId
+    } catch (error) {
+      if (isTelegramMessageNotModifiedError(error)) {
+        return input.existingMessageId
+      }
+      console.warn('[telegram] draft edit failed, sending new message:', formatTelegramApiError(error))
+    }
+  }
+
+  return sendSessionTelegramMessage({
+    sessionId: input.sessionId,
+    botToken: input.botToken,
+    chatId: input.chatId,
+    text,
+    fallbackReplyToMessageId: input.fallbackReplyToMessageId,
+    kind: 'text'
+  })
 }
 
 const createTelegramTypingControllerInternal = (input: {
@@ -984,6 +1037,9 @@ const processTelegramWorkflowRun = async (input: {
 }) => {
   const reader = input.run.readable.getReader()
   const textBuffer = new Map<string, string>()
+  const textDraftMessageIds = new Map<string, number>()
+  const textDraftLastSentAt = new Map<string, number>()
+  const textDraftLastSentText = new Map<string, string>()
   const typing = getTelegramTypingController({
     botToken: input.botToken,
     chatId: input.chatId
@@ -993,6 +1049,40 @@ const processTelegramWorkflowRun = async (input: {
 
   try {
     typing.start()
+
+    const flushTextDraft = async (textId: string, force: boolean) => {
+      const rawText = textBuffer.get(textId) ?? ''
+      const normalizedText = normalizeTelegramText(rawText)
+      if (!normalizedText) {
+        return
+      }
+
+      const lastSentText = textDraftLastSentText.get(textId) ?? ''
+      if (lastSentText === normalizedText) {
+        return
+      }
+
+      const now = Date.now()
+      const lastSentAt = textDraftLastSentAt.get(textId) ?? 0
+      if (!force && now - lastSentAt < TELEGRAM_DRAFT_UPDATE_MIN_INTERVAL_MS) {
+        return
+      }
+
+      const messageId = await upsertSessionTelegramDraftMessage({
+        sessionId: input.sessionId,
+        botToken: input.botToken,
+        chatId: input.chatId,
+        text: normalizedText,
+        fallbackReplyToMessageId: input.fallbackReplyToMessageId,
+        existingMessageId: textDraftMessageIds.get(textId) ?? null
+      })
+
+      if (typeof messageId === 'number') {
+        textDraftMessageIds.set(textId, messageId)
+      }
+      textDraftLastSentAt.set(textId, now)
+      textDraftLastSentText.set(textId, normalizedText)
+    }
 
     while (true) {
       const { done, value } = await reader.read()
@@ -1048,30 +1138,38 @@ const processTelegramWorkflowRun = async (input: {
 
       if (value.type === 'text-start') {
         textBuffer.set(value.id, '')
+        textDraftLastSentAt.delete(value.id)
+        textDraftLastSentText.delete(value.id)
+        textDraftMessageIds.delete(value.id)
         continue
       }
 
       if (value.type === 'text-delta') {
         const previous = textBuffer.get(value.id) ?? ''
         textBuffer.set(value.id, `${previous}${value.delta}`)
+        typing.stop()
+        await flushTextDraft(value.id, false)
         continue
       }
 
       if (value.type === 'text-end') {
         const text = (textBuffer.get(value.id) ?? '').trim()
-        textBuffer.delete(value.id)
-        if (!text) {
-          continue
+        await flushTextDraft(value.id, true)
+        if (text && !textDraftMessageIds.has(value.id)) {
+          typing.stop()
+          await sendSessionTelegramMessage({
+            sessionId: input.sessionId,
+            botToken: input.botToken,
+            chatId: input.chatId,
+            text,
+            fallbackReplyToMessageId: input.fallbackReplyToMessageId,
+            kind: 'text'
+          })
         }
-        typing.stop()
-        await sendSessionTelegramMessage({
-          sessionId: input.sessionId,
-          botToken: input.botToken,
-          chatId: input.chatId,
-          text,
-          fallbackReplyToMessageId: input.fallbackReplyToMessageId,
-          kind: 'text'
-        })
+        textBuffer.delete(value.id)
+        textDraftLastSentAt.delete(value.id)
+        textDraftLastSentText.delete(value.id)
+        textDraftMessageIds.delete(value.id)
         continue
       }
 

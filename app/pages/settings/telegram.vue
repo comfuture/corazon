@@ -286,7 +286,7 @@ const saveTelegramSettings = async () => {
               variant="soft"
               icon="i-lucide-info"
               title="Behavior"
-              description="Telegram-origin turns are processed by the same chat-turn workflow, but Telegram output is emitted only when assistant text is completed."
+              description="Telegram-origin turns are processed by the same chat-turn workflow, and assistant text is streamed progressively before final completion."
             />
 
             <div class="flex justify-end">
