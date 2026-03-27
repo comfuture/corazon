@@ -114,6 +114,7 @@ const buildRunContextPrompt = (
     'Use the execution context below while running this workflow.',
     'Use `notifyOperator` only for high-signal events that need prompt operator attention.',
     'Do not send routine successful completion notifications just because the workflow finished.',
+    'When posting PR/issue progress updates with `gh`, preserve markdown code identifiers by piping comment text into `scripts/gh-comment-safe.sh` (or `gh ... --body-file`) instead of inline `--body "..."` shell strings.',
     'If reusable helper code, a custom executable, or long-lived operating guidance is required, create or update a supporting skill under the Corazon skills directory with `skill-creator` before relying on ad hoc files.',
     'If a standalone script is still necessary, place reusable scripts under the Corazon scripts directory.',
     'Use the Corazon thread-local path pattern only when the concrete thread directory is known.',
