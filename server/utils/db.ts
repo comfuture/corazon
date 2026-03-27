@@ -1564,6 +1564,34 @@ export const completeWorkflowRun = (input: {
     )
 }
 
+export const finalizeStaleRunningWorkflowRuns = (input?: {
+  completedAt?: number
+  errorMessage?: string
+}) => {
+  const database = getDb()
+  const completedAt = input?.completedAt ?? Date.now()
+  const errorMessage = input?.errorMessage
+    ?? 'Recovered on startup: previous workflow process ended before finalizing this run.'
+
+  const result = database
+    .prepare(
+      `
+      UPDATE runs
+      SET
+        status = 'failed',
+        completed_at = ?,
+        error_message = CASE
+          WHEN error_message IS NULL OR TRIM(error_message) = '' THEN ?
+          ELSE error_message
+        END
+      WHERE status = 'running'
+    `
+    )
+    .run(completedAt, errorMessage)
+
+  return result.changes
+}
+
 export const getWorkflowRunById = (runId: string): WorkflowRunSummary | null => {
   const database = getDb()
   const row = database
