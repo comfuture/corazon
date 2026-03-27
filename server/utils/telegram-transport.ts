@@ -466,7 +466,8 @@ const buildTelegramImageAttachment = async (
 
   const payload = await downloadTelegramFile({
     botToken: settings.botToken,
-    filePath
+    filePath,
+    maxBytes: TELEGRAM_MAX_IMAGE_BYTES
   })
   if (!payload.length) {
     throw new Error('Telegram image download returned empty payload.')
@@ -540,13 +541,14 @@ const toTelegramUserMessage = (message: TelegramMessage, input?: {
     filename: string
     mediaType: string
   } | null
+  includeCaption?: boolean
 }): CodexChatUserMessage => {
   const parts: CodexChatUserMessage['parts'] = []
   if (input?.imagePart) {
     parts.push(input.imagePart)
   }
   const userText = formatTelegramUserText(message, {
-    includeCaption: Boolean(input?.imagePart)
+    includeCaption: input?.includeCaption ?? Boolean(input?.imagePart)
   })
   if (userText) {
     parts.push({
@@ -1594,7 +1596,8 @@ const handleTelegramTextMessage = async (
   }
 
   const userMessage = toTelegramUserMessage(message, {
-    imagePart: imageAttachment?.part ?? null
+    imagePart: imageAttachment?.part ?? null,
+    includeCaption: hasImageAttachment
   })
 
   if (route.kind === 'reuse') {
