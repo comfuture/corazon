@@ -1356,10 +1356,17 @@ const processTelegramWorkflowRun = async (input: {
       textDraftLastSentAt.set(textId, now)
       textDraftLastSentText.set(textId, normalizedText)
     }
+    const flushAllTextDrafts = async (force: boolean) => {
+      const textIds = Array.from(textBuffer.keys())
+      for (const textId of textIds) {
+        await flushTextDraft(textId, force)
+      }
+    }
 
     while (true) {
       const { done, value } = await reader.read()
       if (done) {
+        await flushAllTextDrafts(true)
         break
       }
 
@@ -1376,6 +1383,7 @@ const processTelegramWorkflowRun = async (input: {
       if (isEventChunk(value) && value.data.kind === 'turn.completed') {
         turnCompleted = true
         typing.stop()
+        await flushAllTextDrafts(true)
         continue
       }
 
