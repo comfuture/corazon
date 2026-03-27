@@ -50,15 +50,7 @@ const getWorkflowModelSequence = () => {
     WORKFLOW_MODEL,
     ...(configuredFallbacks.length > 0 ? configuredFallbacks : WORKFLOW_FALLBACK_MODELS)
   ]
-
-  const sequence: string[] = []
-  for (const model of candidates) {
-    if (!sequence.includes(model)) {
-      sequence.push(model)
-    }
-  }
-
-  return sequence
+  return [...new Set(candidates)]
 }
 
 const getRetryDelayMs = (attemptIndex: number) => {
