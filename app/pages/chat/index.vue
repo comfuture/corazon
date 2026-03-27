@@ -178,6 +178,16 @@ watch(pendingThreadId, async (value) => {
     @dragover="onDragOver"
     @drop="onDrop"
   >
+    <template #header>
+      <UDashboardNavbar>
+        <template #leading>
+          <UDashboardSidebarCollapse />
+        </template>
+        <template #title>
+          <span>Chat</span>
+        </template>
+      </UDashboardNavbar>
+    </template>
     <template #body>
       <div class="flex h-full min-h-0 flex-col">
         <UContainer
