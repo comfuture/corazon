@@ -1314,6 +1314,7 @@ const processTelegramWorkflowRun = async (input: {
   const textDraftStartedAt = new Map<string, number>()
   const textDraftSentCount = new Map<string, number>()
   const firstVisibleDraftTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
+  const textDraftFlushInFlight = new Map<string, Promise<void>>()
   const clearFirstVisibleDraftTimeout = (textId: string) => {
     const timeout = firstVisibleDraftTimeouts.get(textId)
     if (timeout) {
@@ -1329,6 +1330,12 @@ const processTelegramWorkflowRun = async (input: {
     textDraftSentCount.delete(textId)
     clearFirstVisibleDraftTimeout(textId)
   }
+  const clearAllFirstVisibleDraftTimeouts = () => {
+    for (const timeout of firstVisibleDraftTimeouts.values()) {
+      clearTimeout(timeout)
+    }
+    firstVisibleDraftTimeouts.clear()
+  }
   const typing = getTelegramTypingController({
     botToken: input.botToken,
     chatId: input.chatId
@@ -1339,7 +1346,7 @@ const processTelegramWorkflowRun = async (input: {
   try {
     typing.start()
 
-    const flushTextDraft = async (textId: string, force: boolean) => {
+    const flushTextDraftInternal = async (textId: string, force: boolean) => {
       const rawText = textBuffer.get(textId) ?? ''
       const normalizedText = normalizeTelegramText(rawText)
       if (!normalizedText) {
@@ -1391,6 +1398,21 @@ const processTelegramWorkflowRun = async (input: {
       textDraftLastSentAt.set(textId, now)
       textDraftLastSentText.set(textId, normalizedText)
       textDraftSentCount.set(textId, sentCount + 1)
+    }
+    const flushTextDraft = async (textId: string, force: boolean) => {
+      const inFlight = textDraftFlushInFlight.get(textId)
+      if (inFlight) {
+        await inFlight
+      }
+      const flushPromise = flushTextDraftInternal(textId, force)
+      textDraftFlushInFlight.set(textId, flushPromise)
+      try {
+        await flushPromise
+      } finally {
+        if (textDraftFlushInFlight.get(textId) === flushPromise) {
+          textDraftFlushInFlight.delete(textId)
+        }
+      }
     }
     const scheduleFirstVisibleDraftTimeout = (textId: string) => {
       if (firstVisibleDraftTimeouts.has(textId)) {
@@ -1531,6 +1553,7 @@ const processTelegramWorkflowRun = async (input: {
       })
     }
   } catch (error) {
+    clearAllFirstVisibleDraftTimeouts()
     typing.stop()
     const message = formatTelegramApiError(error)
     finalizeTelegramSessionRun({
@@ -1550,6 +1573,7 @@ const processTelegramWorkflowRun = async (input: {
       console.error('[telegram] failed to report run error:', sendError)
     }
   } finally {
+    clearAllFirstVisibleDraftTimeouts()
     releaseTelegramTypingController(input.chatId, typing)
     reader.releaseLock()
   }
