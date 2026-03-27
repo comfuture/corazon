@@ -57,6 +57,7 @@ import {
   isTelegramBotMessage,
   isTelegramEditedUpdate,
   sendTelegramMessage,
+  type TelegramDocument,
   type TelegramMessage,
   type TelegramUpdate
 } from './telegram-bot.ts'
@@ -86,6 +87,13 @@ const TELEGRAM_IMAGE_EXTENSION_MAP: Record<string, string> = {
   'image/png': '.png',
   'image/webp': '.webp',
   'image/gif': '.gif'
+}
+const TELEGRAM_IMAGE_MEDIA_TYPE_BY_EXTENSION: Record<string, string> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif'
 }
 const CARRYOVER_ROUTE_MODEL = 'gpt-5.4-mini'
 const CARRYOVER_SUMMARY_MODEL = 'gpt-5.1-codex-mini'
@@ -394,15 +402,27 @@ const hasKnownTelegramImageFilename = (filename: string | null | undefined) => {
   if (!extension) {
     return false
   }
-  return Object.values(TELEGRAM_IMAGE_EXTENSION_MAP).includes(extension)
+  return extension in TELEGRAM_IMAGE_MEDIA_TYPE_BY_EXTENSION
+}
+
+const resolveTelegramDocumentImageMediaType = (document: TelegramDocument | null | undefined) => {
+  const mimeType = document?.mime_type?.trim().toLowerCase() ?? ''
+  if (mimeType.startsWith(TELEGRAM_SUPPORTED_IMAGE_MIME_PREFIX)) {
+    return mimeType
+  }
+
+  const filename = document?.file_name?.trim() ?? ''
+  if (!hasKnownTelegramImageFilename(filename)) {
+    return null
+  }
+
+  const extension = extname(filename).toLowerCase()
+  return TELEGRAM_IMAGE_MEDIA_TYPE_BY_EXTENSION[extension] ?? null
 }
 
 const hasTelegramImageDocumentAttachment = (message: TelegramMessage) =>
   typeof message.document?.file_id === 'string'
-  && (
-    message.document.mime_type?.toLowerCase().startsWith(TELEGRAM_SUPPORTED_IMAGE_MIME_PREFIX)
-    ?? hasKnownTelegramImageFilename(message.document.file_name)
-  )
+  && Boolean(resolveTelegramDocumentImageMediaType(message.document))
 
 const hasTelegramImageAttachment = (message: TelegramMessage) =>
   hasTelegramPhotoAttachment(message) || hasTelegramImageDocumentAttachment(message)
@@ -429,7 +449,10 @@ const resolveTelegramAttachmentTarget = (message: TelegramMessage) => {
   }
 
   if (hasTelegramImageDocumentAttachment(message)) {
-    const mediaType = message.document?.mime_type?.toLowerCase() ?? 'image/jpeg'
+    const mediaType = resolveTelegramDocumentImageMediaType(message.document)
+    if (!mediaType) {
+      return null
+    }
     return {
       fileId: message.document!.file_id,
       mediaType,
