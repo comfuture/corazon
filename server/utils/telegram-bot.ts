@@ -73,6 +73,8 @@ type TelegramFileResult = {
 }
 
 const TELEGRAM_API_BASE = 'https://api.telegram.org'
+const TELEGRAM_FILE_DOWNLOAD_MAX_REDIRECTS = 3
+const TELEGRAM_FILE_REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308])
 
 const toTelegramApiUrl = (botToken: string, method: string) =>
   `${TELEGRAM_API_BASE}/bot${encodeURIComponent(botToken)}/${method}`
@@ -194,37 +196,69 @@ export const downloadTelegramFile = async (input: {
   botToken: string
   filePath: string
 }) => {
-  return new Promise<Buffer>((resolve, reject) => {
-    const url = new URL(toTelegramFileUrl(input.botToken, input.filePath))
-    const chunks: Buffer[] = []
-    const request = httpsRequest({
-      protocol: url.protocol,
-      hostname: url.hostname,
-      path: `${url.pathname}${url.search}`,
-      method: 'GET',
-      family: 4
-    }, (response) => {
-      if ((response.statusCode ?? 500) >= 400) {
+  const downloadFromUrl = (url: URL, redirectCount: number): Promise<Buffer> =>
+    new Promise<Buffer>((resolve, reject) => {
+      const request = httpsRequest({
+        protocol: url.protocol,
+        hostname: url.hostname,
+        path: `${url.pathname}${url.search}`,
+        method: 'GET',
+        family: 4
+      }, (response) => {
         const statusCode = response.statusCode ?? 500
-        reject(new Error(`Telegram file download failed: ${statusCode}`))
-        response.resume()
-        return
-      }
+        const locationHeader = response.headers.location
+        const redirectLocation = Array.isArray(locationHeader) ? locationHeader[0] : locationHeader
 
-      response.on('data', (chunk: Buffer | string) => {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+        if (TELEGRAM_FILE_REDIRECT_STATUS_CODES.has(statusCode)) {
+          response.resume()
+          if (!redirectLocation) {
+            reject(new Error(`Telegram file download redirect missing location: ${statusCode}`))
+            return
+          }
+          if (redirectCount >= TELEGRAM_FILE_DOWNLOAD_MAX_REDIRECTS) {
+            reject(new Error(`Telegram file download exceeded redirect limit (${TELEGRAM_FILE_DOWNLOAD_MAX_REDIRECTS})`))
+            return
+          }
+          let nextUrl: URL
+          try {
+            nextUrl = new URL(redirectLocation, url)
+          } catch {
+            reject(new Error(`Telegram file download redirect has invalid location: ${redirectLocation}`))
+            return
+          }
+          resolve(downloadFromUrl(nextUrl, redirectCount + 1))
+          return
+        }
+
+        if (statusCode >= 400) {
+          reject(new Error(`Telegram file download failed: ${statusCode}`))
+          response.resume()
+          return
+        }
+        if (statusCode < 200 || statusCode >= 300) {
+          reject(new Error(`Telegram file download returned unexpected status: ${statusCode}`))
+          response.resume()
+          return
+        }
+
+        const chunks: Buffer[] = []
+        response.on('data', (chunk: Buffer | string) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+        })
+        response.on('end', () => {
+          resolve(Buffer.concat(chunks))
+        })
       })
-      response.on('end', () => {
-        resolve(Buffer.concat(chunks))
+
+      request.setTimeout(30_000, () => {
+        request.destroy(new Error('Telegram file download timed out'))
       })
+      request.on('error', reject)
+      request.end()
     })
 
-    request.setTimeout(30_000, () => {
-      request.destroy(new Error('Telegram file download timed out'))
-    })
-    request.on('error', reject)
-    request.end()
-  })
+  const url = new URL(toTelegramFileUrl(input.botToken, input.filePath))
+  return downloadFromUrl(url, 0)
 }
 
 export const sendTelegramMessage = async (input: {
