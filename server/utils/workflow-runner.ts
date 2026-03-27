@@ -217,15 +217,35 @@ export const executeWorkflowRun = async (
     triggerValue
   })
 
+  let failureMessage: string | null = null
   try {
     await collectRunCompletionData(definition, triggerType, triggerValue, runId)
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    completeWorkflowRun({
-      runId,
-      status: 'failed',
-      errorMessage: message
-    })
+    failureMessage = error instanceof Error ? error.message : String(error)
+    try {
+      completeWorkflowRun({
+        runId,
+        status: 'failed',
+        errorMessage: failureMessage
+      })
+    } catch (completeError) {
+      console.error('Failed to finalize workflow run after execution error:', completeError)
+    }
+  }
+
+  const finalRun = getWorkflowRunById(runId)
+  if (finalRun?.status === 'running') {
+    const fallbackMessage = failureMessage
+      ?? 'Workflow run ended without final status update. Marked as failed by completion guard.'
+    try {
+      completeWorkflowRun({
+        runId,
+        status: 'failed',
+        errorMessage: fallbackMessage
+      })
+    } catch (guardError) {
+      console.error('Failed to apply workflow completion guard:', guardError)
+    }
   }
 
   const summary = getWorkflowRunById(runId)
@@ -266,6 +286,10 @@ export const initializeWorkflowRunner = () => {
     return
   }
   workflowRunnerInitialized = true
+  const reconciledRuns = finalizeStaleRunningWorkflowRuns()
+  if (reconciledRuns > 0) {
+    console.warn(`Recovered ${reconciledRuns} stale workflow run(s) left in running state.`)
+  }
   setWorkflowScheduledExecutor(async (definition, triggerType, triggerValue) => {
     await executeWorkflowRun(definition, triggerType, triggerValue)
   })
