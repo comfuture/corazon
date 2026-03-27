@@ -75,6 +75,9 @@ const TELEGRAM_STEER_RETRY_ATTEMPTS = 5
 const TELEGRAM_STEER_RETRY_MS = 300
 const TELEGRAM_TYPING_REFRESH_MS = 4000
 const TELEGRAM_DRAFT_UPDATE_MIN_INTERVAL_MS = 800
+const TELEGRAM_DRAFT_SECOND_UPDATE_MIN_INTERVAL_MS = 220
+const TELEGRAM_DRAFT_FIRST_VISIBLE_MIN_CHARS = 8
+const TELEGRAM_DRAFT_FIRST_VISIBLE_MAX_WAIT_MS = 450
 const TELEGRAM_ROUTE_CANDIDATE_LIMIT = 5
 const TELEGRAM_ROUTE_TRANSCRIPT_LINE_LIMIT = 12
 const TELEGRAM_RESUME_CONFIDENCE_THRESHOLD = 0.72
@@ -1308,10 +1311,14 @@ const processTelegramWorkflowRun = async (input: {
   const textDraftMessageIds = new Map<string, number>()
   const textDraftLastSentAt = new Map<string, number>()
   const textDraftLastSentText = new Map<string, string>()
+  const textDraftStartedAt = new Map<string, number>()
+  const textDraftSentCount = new Map<string, number>()
   const clearTextDraftState = (textId: string) => {
     textDraftLastSentAt.delete(textId)
     textDraftLastSentText.delete(textId)
     textDraftMessageIds.delete(textId)
+    textDraftStartedAt.delete(textId)
+    textDraftSentCount.delete(textId)
   }
   const typing = getTelegramTypingController({
     botToken: input.botToken,
@@ -1336,8 +1343,23 @@ const processTelegramWorkflowRun = async (input: {
       }
 
       const now = Date.now()
+      const sentCount = textDraftSentCount.get(textId) ?? 0
+      const startedAt = textDraftStartedAt.get(textId) ?? now
+      const isFirstVisibleDraft = sentCount === 0
+
+      if (isFirstVisibleDraft && !force) {
+        const reachedFirstVisibleLength = normalizedText.length >= TELEGRAM_DRAFT_FIRST_VISIBLE_MIN_CHARS
+        const reachedFirstVisibleWait = now - startedAt >= TELEGRAM_DRAFT_FIRST_VISIBLE_MAX_WAIT_MS
+        if (!reachedFirstVisibleLength && !reachedFirstVisibleWait) {
+          return
+        }
+      }
+
       const lastSentAt = textDraftLastSentAt.get(textId) ?? 0
-      if (!force && now - lastSentAt < TELEGRAM_DRAFT_UPDATE_MIN_INTERVAL_MS) {
+      const minIntervalMs = sentCount <= 1
+        ? TELEGRAM_DRAFT_SECOND_UPDATE_MIN_INTERVAL_MS
+        : TELEGRAM_DRAFT_UPDATE_MIN_INTERVAL_MS
+      if (!force && now - lastSentAt < minIntervalMs) {
         return
       }
 
@@ -1355,6 +1377,7 @@ const processTelegramWorkflowRun = async (input: {
       }
       textDraftLastSentAt.set(textId, now)
       textDraftLastSentText.set(textId, normalizedText)
+      textDraftSentCount.set(textId, sentCount + 1)
     }
     const flushAllTextDrafts = async (force: boolean) => {
       const textIds = Array.from(textBuffer.keys())
@@ -1420,6 +1443,7 @@ const processTelegramWorkflowRun = async (input: {
       if (value.type === 'text-start') {
         textBuffer.set(value.id, '')
         clearTextDraftState(value.id)
+        textDraftStartedAt.set(value.id, Date.now())
         continue
       }
 
