@@ -22,7 +22,7 @@ let codexInstance: CodexClient | null = null
 let workflowRunnerInitialized = false
 const WORKFLOW_FINALIZATION_RETRY_LIMIT = 2
 
-const overloadErrorPattern = /(?:server[_\s-]?is[_\s-]?overloaded|at\s+capacity|temporar(?:y|ily)\s+unavailable|please\s+try\s+again)/i
+const overloadErrorPattern = /(?:server[_\s-]?is[_\s-]?overloaded|at\s+capacity|temporar(?:y|ily)\s+unavailable)/i
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 
