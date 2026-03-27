@@ -1372,6 +1372,10 @@ const processTelegramWorkflowRun = async (input: {
         return
       }
 
+      if (isFirstVisibleDraft) {
+        clearFirstVisibleDraftTimeout(textId)
+      }
+
       const messageId = await upsertSessionTelegramDraftMessage({
         sessionId: input.sessionId,
         botToken: input.botToken,
@@ -1383,9 +1387,6 @@ const processTelegramWorkflowRun = async (input: {
 
       if (typeof messageId === 'number') {
         textDraftMessageIds.set(textId, messageId)
-      }
-      if (isFirstVisibleDraft) {
-        clearFirstVisibleDraftTimeout(textId)
       }
       textDraftLastSentAt.set(textId, now)
       textDraftLastSentText.set(textId, normalizedText)
