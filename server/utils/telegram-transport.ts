@@ -1496,12 +1496,40 @@ const handleTelegramTextMessage = async (
     idleTimeoutMinutes: settings.idleTimeoutMinutes,
     messageText: messageText || '[Image attachment]'
   })
+  const fallbackReplyToMessageId = shouldReplyInTelegramChat(message)
+    ? message.message_id
+    : null
+  let routeOwnership: Awaited<ReturnType<typeof resolveThreadRunOwnership>> | null = null
+
+  if (route.kind === 'reuse') {
+    recordTelegramSessionInbound({
+      sessionId: route.session.id,
+      messageId: message.message_id
+    })
+
+    routeOwnership = await resolveThreadRunOwnership(route.session.threadId, route.session.activeRunId)
+    if (routeOwnership.kind === 'other') {
+      stopTelegramTypingController(settings.chatId)
+      await sendSessionTelegramMessage({
+        sessionId: route.session.id,
+        botToken: settings.botToken,
+        chatId: settings.chatId,
+        text: 'This thread is currently busy from the web. Wait for completion before sending a Telegram follow-up.',
+        fallbackReplyToMessageId,
+        kind: 'error'
+      })
+      return
+    }
+  }
+
+  let imageAttachmentProcessingFailed = false
   if (hasImageAttachment) {
     try {
       imageAttachment = await buildTelegramImageAttachment(settings, message, {
         threadId: route.kind === 'reuse' ? route.session.threadId : null
       })
     } catch (error) {
+      imageAttachmentProcessingFailed = true
       const failureMessage = `Image attachment could not be processed: ${formatTelegramApiError(error)}`
       await sendTelegramMessage({
         botToken: settings.botToken,
@@ -1512,24 +1540,19 @@ const handleTelegramTextMessage = async (
     }
   }
   if (!messageText && !imageAttachment) {
-    await handleUnsupportedTelegramMessage(settings, message)
+    if (!imageAttachmentProcessingFailed) {
+      await handleUnsupportedTelegramMessage(settings, message)
+    }
     return
   }
 
   const userMessage = toTelegramUserMessage(message, {
     imagePart: imageAttachment?.part ?? null
   })
-  const fallbackReplyToMessageId = shouldReplyInTelegramChat(message)
-    ? message.message_id
-    : null
 
   if (route.kind === 'reuse') {
-    recordTelegramSessionInbound({
-      sessionId: route.session.id,
-      messageId: message.message_id
-    })
-
-    const ownership = await resolveThreadRunOwnership(route.session.threadId, route.session.activeRunId)
+    const ownership = routeOwnership
+      ?? await resolveThreadRunOwnership(route.session.threadId, route.session.activeRunId)
     if (ownership.kind === 'telegram' && ownership.runId) {
       const steerResult = await steerTelegramActiveRun({
         runId: ownership.runId,
@@ -1562,20 +1585,6 @@ const handleTelegramTextMessage = async (
       deleteRuntimeTurnControl(ownership.runId)
       stopTelegramTypingController(settings.chatId)
       setTelegramSessionActiveRun(route.session.id, null)
-    }
-
-    if (ownership.kind === 'other') {
-      cleanupPendingTelegramAttachment(imageAttachment?.uploadId)
-      stopTelegramTypingController(settings.chatId)
-      await sendSessionTelegramMessage({
-        sessionId: route.session.id,
-        botToken: settings.botToken,
-        chatId: settings.chatId,
-        text: 'This thread is currently busy from the web. Wait for completion before sending a Telegram follow-up.',
-        fallbackReplyToMessageId,
-        kind: 'error'
-      })
-      return
     }
   }
 
