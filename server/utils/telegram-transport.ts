@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { start, getRun } from 'workflow/api'
@@ -22,7 +22,9 @@ import {
   clearThreadActiveRun,
   createTelegramSession,
   ensurePendingAttachmentsDirectory,
+  ensureThreadAttachmentsDirectory,
   finalizeTelegramSessionRun,
+  getPendingAttachmentsDirectory,
   getTelegramSessionById,
   getTelegramTransportState,
   getThreadActiveRun,
@@ -79,6 +81,12 @@ const TELEGRAM_CARRYOVER_CONFIDENCE_THRESHOLD = 0.55
 const TELEGRAM_NEW_CONFIDENCE_THRESHOLD = 0.65
 const TELEGRAM_MAX_IMAGE_BYTES = 20 * 1024 * 1024
 const TELEGRAM_SUPPORTED_IMAGE_MIME_PREFIX = 'image/'
+const TELEGRAM_IMAGE_EXTENSION_MAP: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif'
+}
 const CARRYOVER_ROUTE_MODEL = 'gpt-5.4-mini'
 const CARRYOVER_SUMMARY_MODEL = 'gpt-5.1-codex-mini'
 const CARRYOVER_WORKDIR = '/tmp'
@@ -361,15 +369,11 @@ const resolveTelegramImageExtension = (filePath: string, mediaType: string | nul
   if (fromPath) {
     return fromPath
   }
-  if (mediaType === 'image/png') {
-    return '.png'
+
+  if (mediaType && mediaType in TELEGRAM_IMAGE_EXTENSION_MAP) {
+    return TELEGRAM_IMAGE_EXTENSION_MAP[mediaType]
   }
-  if (mediaType === 'image/webp') {
-    return '.webp'
-  }
-  if (mediaType === 'image/gif') {
-    return '.gif'
-  }
+
   return '.jpg'
 }
 
@@ -418,7 +422,10 @@ const resolveTelegramAttachmentTarget = (message: TelegramMessage) => {
 
 const buildTelegramImageAttachment = async (
   settings: ReturnType<typeof readTelegramSettings>,
-  message: TelegramMessage
+  message: TelegramMessage,
+  input?: {
+    threadId?: string | null
+  }
 ) => {
   const target = resolveTelegramAttachmentTarget(message)
   if (!target) {
@@ -445,12 +452,21 @@ const buildTelegramImageAttachment = async (
     throw new Error('Telegram image download returned empty payload.')
   }
 
-  const uploadId = randomUUID()
-  const directory = ensurePendingAttachmentsDirectory(uploadId)
+  const uploadId = input?.threadId ? null : randomUUID()
+  const directory = input?.threadId
+    ? ensureThreadAttachmentsDirectory(input.threadId)
+    : ensurePendingAttachmentsDirectory(uploadId!)
   const fallbackName = `telegram-image-${message.message_id}${resolveTelegramImageExtension(filePath, target.mediaType)}`
   const filename = sanitizeTelegramFilename(target.sourceName || fallbackName)
   const filePathOnDisk = ensureUniqueTelegramAttachmentPath(directory, filename)
-  await writeFile(filePathOnDisk, payload)
+  try {
+    await writeFile(filePathOnDisk, payload)
+  } catch (error) {
+    if (uploadId) {
+      rmSync(directory, { recursive: true, force: true })
+    }
+    throw error
+  }
 
   return {
     uploadId,
@@ -463,6 +479,17 @@ const buildTelegramImageAttachment = async (
   }
 }
 
+const cleanupPendingTelegramAttachment = (uploadId: string | null | undefined) => {
+  if (!uploadId) {
+    return
+  }
+  const pendingDirectory = getPendingAttachmentsDirectory(uploadId)
+  if (!existsSync(pendingDirectory)) {
+    return
+  }
+  rmSync(pendingDirectory, { recursive: true, force: true })
+}
+
 const toTelegramUserMessage = (message: TelegramMessage, input?: {
   imagePart?: {
     type: 'file'
@@ -472,15 +499,15 @@ const toTelegramUserMessage = (message: TelegramMessage, input?: {
   } | null
 }): CodexChatUserMessage => {
   const parts: CodexChatUserMessage['parts'] = []
+  if (input?.imagePart) {
+    parts.push(input.imagePart)
+  }
   const userText = formatTelegramUserText(message)
   if (userText) {
     parts.push({
       type: 'text',
       text: userText
     })
-  }
-  if (input?.imagePart) {
-    parts.push(input.imagePart)
   }
 
   return {
@@ -1456,10 +1483,24 @@ const handleTelegramTextMessage = async (
   message: TelegramMessage
 ) => {
   const messageText = formatTelegramUserText(message)
+  const hasImageAttachment = hasTelegramImageAttachment(message)
+  if (!messageText && !hasImageAttachment) {
+    await handleUnsupportedTelegramMessage(settings, message)
+    return
+  }
   let imageAttachment: Awaited<ReturnType<typeof buildTelegramImageAttachment>> = null
-  if (hasTelegramImageAttachment(message)) {
+
+  const recentSessions = loadRecentTelegramSessions(settings.chatId, TELEGRAM_ROUTE_CANDIDATE_LIMIT)
+  const route = await resolveSemanticTelegramSessionRoute({
+    sessions: recentSessions,
+    idleTimeoutMinutes: settings.idleTimeoutMinutes,
+    messageText: messageText || '[Image attachment]'
+  })
+  if (hasImageAttachment) {
     try {
-      imageAttachment = await buildTelegramImageAttachment(settings, message)
+      imageAttachment = await buildTelegramImageAttachment(settings, message, {
+        threadId: route.kind === 'reuse' ? route.session.threadId : null
+      })
     } catch (error) {
       const failureMessage = `Image attachment could not be processed: ${formatTelegramApiError(error)}`
       await sendTelegramMessage({
@@ -1475,12 +1516,6 @@ const handleTelegramTextMessage = async (
     return
   }
 
-  const recentSessions = loadRecentTelegramSessions(settings.chatId, TELEGRAM_ROUTE_CANDIDATE_LIMIT)
-  const route = await resolveSemanticTelegramSessionRoute({
-    sessions: recentSessions,
-    idleTimeoutMinutes: settings.idleTimeoutMinutes,
-    messageText: messageText || '[Image attachment]'
-  })
   const userMessage = toTelegramUserMessage(message, {
     imagePart: imageAttachment?.part ?? null
   })
@@ -1507,6 +1542,7 @@ const handleTelegramTextMessage = async (
       }
 
       if (steerResult.kind === 'error') {
+        cleanupPendingTelegramAttachment(imageAttachment?.uploadId)
         stopTelegramTypingController(settings.chatId)
         await sendSessionTelegramMessage({
           sessionId: route.session.id,
@@ -1529,6 +1565,7 @@ const handleTelegramTextMessage = async (
     }
 
     if (ownership.kind === 'other') {
+      cleanupPendingTelegramAttachment(imageAttachment?.uploadId)
       stopTelegramTypingController(settings.chatId)
       await sendSessionTelegramMessage({
         sessionId: route.session.id,
