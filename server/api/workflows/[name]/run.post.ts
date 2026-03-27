@@ -1,5 +1,3 @@
-import { initializeWorkflowRunner, startWorkflowBySlug } from '@@/server/utils/workflow-runner'
-
 export default defineEventHandler(async (event) => {
   const name = getRouterParam(event, 'name')
   if (!name) {
