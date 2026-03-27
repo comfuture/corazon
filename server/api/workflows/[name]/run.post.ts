@@ -1,3 +1,5 @@
+import { initializeWorkflowRunner, startWorkflowBySlug } from '@@/server/utils/workflow-runner'
+
 export default defineEventHandler(async (event) => {
   const name = getRouterParam(event, 'name')
   if (!name) {
@@ -28,7 +30,7 @@ export default defineEventHandler(async (event) => {
   }
 
   initializeWorkflowRunner()
-  const run = await executeWorkflowBySlug(definition.fileSlug, 'workflow-dispatch', 'manual')
+  const run = startWorkflowBySlug(definition.fileSlug, 'workflow-dispatch', 'manual')
 
   return { run }
 })

@@ -4,6 +4,11 @@ import { createCodexClient } from './codex-client/index.ts'
 import type { CodexClient, CodexThreadEvent, CodexUsage } from './codex-client/types.ts'
 
 const WORKFLOW_MODEL = 'gpt-5.3-codex'
+type WorkflowExecutionContext = {
+  definition: WorkflowDefinition
+  triggerType: WorkflowTriggerType
+  triggerValue: string | null
+}
 
 let codexInstance: CodexClient | null = null
 let workflowRunnerInitialized = false
@@ -199,27 +204,13 @@ const collectRunCompletionData = async (
   })
 }
 
-export const executeWorkflowRun = async (
-  definition: WorkflowDefinition,
-  triggerType: WorkflowTriggerType,
-  triggerValue: string | null
-): Promise<WorkflowRunSummary> => {
-  if (!definition.isValid) {
-    throw new Error(definition.parseError ?? 'Invalid workflow definition.')
-  }
-
-  const runId = `run_${randomUUID()}`
-  createWorkflowRun({
-    id: runId,
-    workflowName: definition.frontmatter.name,
-    workflowFileSlug: definition.fileSlug,
-    triggerType,
-    triggerValue
-  })
-
+const finalizeWorkflowRunExecution = async (
+  context: WorkflowExecutionContext,
+  runId: string
+) => {
   let failureMessage: string | null = null
   try {
-    await collectRunCompletionData(definition, triggerType, triggerValue, runId)
+    await collectRunCompletionData(context.definition, context.triggerType, context.triggerValue, runId)
   } catch (error) {
     failureMessage = error instanceof Error ? error.message : String(error)
     try {
@@ -254,12 +245,73 @@ export const executeWorkflowRun = async (
   }
 
   try {
-    await notifyWorkflowSummary(definition, summary)
+    await notifyWorkflowSummary(context.definition, summary)
   } catch (error) {
     console.error('Failed to send operator notification for workflow run:', error)
   }
 
   return summary
+}
+
+const createRunningWorkflowRun = (
+  definition: WorkflowDefinition,
+  triggerType: WorkflowTriggerType,
+  triggerValue: string | null
+) => {
+  const runId = `run_${randomUUID()}`
+  createWorkflowRun({
+    id: runId,
+    workflowName: definition.frontmatter.name,
+    workflowFileSlug: definition.fileSlug,
+    triggerType,
+    triggerValue
+  })
+
+  const summary = getWorkflowRunById(runId)
+  if (!summary) {
+    throw new Error('Failed to create workflow run.')
+  }
+
+  return summary
+}
+
+export const executeWorkflowRun = async (
+  definition: WorkflowDefinition,
+  triggerType: WorkflowTriggerType,
+  triggerValue: string | null
+): Promise<WorkflowRunSummary> => {
+  if (!definition.isValid) {
+    throw new Error(definition.parseError ?? 'Invalid workflow definition.')
+  }
+
+  const runningSummary = createRunningWorkflowRun(definition, triggerType, triggerValue)
+  return finalizeWorkflowRunExecution({
+    definition,
+    triggerType,
+    triggerValue
+  }, runningSummary.id)
+}
+
+export const startWorkflowRun = (
+  definition: WorkflowDefinition,
+  triggerType: WorkflowTriggerType,
+  triggerValue: string | null
+): WorkflowRunSummary => {
+  if (!definition.isValid) {
+    throw new Error(definition.parseError ?? 'Invalid workflow definition.')
+  }
+
+  const runningSummary = createRunningWorkflowRun(definition, triggerType, triggerValue)
+  void finalizeWorkflowRunExecution({
+    definition,
+    triggerType,
+    triggerValue
+  }, runningSummary.id)
+    .catch((error) => {
+      console.error('Unhandled workflow run execution failure:', error)
+    })
+
+  return runningSummary
 }
 
 export const executeWorkflowBySlug = async (
@@ -279,6 +331,25 @@ export const executeWorkflowBySlug = async (
   }
 
   return executeWorkflowRun(definition, triggerType, triggerValue)
+}
+
+export const startWorkflowBySlug = (
+  fileSlug: string,
+  triggerType: WorkflowTriggerType,
+  triggerValue: string | null
+) => {
+  const definition = readWorkflowDefinitionBySlug(fileSlug)
+  if (!definition) {
+    throw new Error(`Workflow not found: ${fileSlug}`)
+  }
+  if (!definition.isValid) {
+    throw new Error(definition.parseError ?? 'Invalid workflow definition.')
+  }
+  if (triggerType === 'workflow-dispatch' && definition.frontmatter.on['workflow-dispatch'] !== true) {
+    throw new Error('This workflow does not allow workflow-dispatch execution.')
+  }
+
+  return startWorkflowRun(definition, triggerType, triggerValue)
 }
 
 export const initializeWorkflowRunner = () => {
