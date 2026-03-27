@@ -12,6 +12,7 @@ type WorkflowExecutionContext = {
 
 let codexInstance: CodexClient | null = null
 let workflowRunnerInitialized = false
+const WORKFLOW_FINALIZATION_RETRY_LIMIT = 2
 
 const getCodexEnv = () => {
   const env: Record<string, string> = {}
@@ -204,6 +205,24 @@ const collectRunCompletionData = async (
   })
 }
 
+const completeWorkflowRunWithRetry = (input: Parameters<typeof completeWorkflowRun>[0]) => {
+  let lastError: unknown = null
+  for (let attempt = 1; attempt <= WORKFLOW_FINALIZATION_RETRY_LIMIT; attempt += 1) {
+    try {
+      completeWorkflowRun(input)
+      return
+    } catch (error) {
+      lastError = error
+      if (attempt >= WORKFLOW_FINALIZATION_RETRY_LIMIT) {
+        break
+      }
+      console.error(`Workflow run finalization attempt ${attempt} failed, retrying...`, error)
+    }
+  }
+
+  throw (lastError instanceof Error ? lastError : new Error(String(lastError)))
+}
+
 const finalizeWorkflowRunExecution = async (
   context: WorkflowExecutionContext,
   runId: string
@@ -213,30 +232,22 @@ const finalizeWorkflowRunExecution = async (
     await collectRunCompletionData(context.definition, context.triggerType, context.triggerValue, runId)
   } catch (error) {
     failureMessage = error instanceof Error ? error.message : String(error)
-    try {
-      completeWorkflowRun({
-        runId,
-        status: 'failed',
-        errorMessage: failureMessage
-      })
-    } catch (completeError) {
-      console.error('Failed to finalize workflow run after execution error:', completeError)
-    }
+    completeWorkflowRunWithRetry({
+      runId,
+      status: 'failed',
+      errorMessage: failureMessage
+    })
   }
 
   const finalRun = getWorkflowRunById(runId)
   if (finalRun?.status === 'running') {
     const fallbackMessage = failureMessage
       ?? 'Workflow run ended without final status update. Marked as failed by completion guard.'
-    try {
-      completeWorkflowRun({
-        runId,
-        status: 'failed',
-        errorMessage: fallbackMessage
-      })
-    } catch (guardError) {
-      console.error('Failed to apply workflow completion guard:', guardError)
-    }
+    completeWorkflowRunWithRetry({
+      runId,
+      status: 'failed',
+      errorMessage: fallbackMessage
+    })
   }
 
   const summary = getWorkflowRunById(runId)
@@ -356,12 +367,17 @@ export const initializeWorkflowRunner = () => {
   if (workflowRunnerInitialized) {
     return
   }
-  workflowRunnerInitialized = true
-  const reconciledRuns = finalizeStaleRunningWorkflowRuns()
-  if (reconciledRuns > 0) {
-    console.warn(`Recovered ${reconciledRuns} stale workflow run(s) left in running state.`)
+  try {
+    const reconciledRuns = finalizeStaleRunningWorkflowRuns()
+    if (reconciledRuns > 0) {
+      console.warn(`Recovered ${reconciledRuns} stale workflow run(s) left in running state.`)
+    }
+    setWorkflowScheduledExecutor(async (definition, triggerType, triggerValue) => {
+      await executeWorkflowRun(definition, triggerType, triggerValue)
+    })
+    workflowRunnerInitialized = true
+  } catch (error) {
+    workflowRunnerInitialized = false
+    throw error
   }
-  setWorkflowScheduledExecutor(async (definition, triggerType, triggerValue) => {
-    await executeWorkflowRun(definition, triggerType, triggerValue)
-  })
 }
