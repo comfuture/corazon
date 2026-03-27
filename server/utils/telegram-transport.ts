@@ -545,7 +545,9 @@ const toTelegramUserMessage = (message: TelegramMessage, input?: {
   if (input?.imagePart) {
     parts.push(input.imagePart)
   }
-  const userText = formatTelegramUserText(message)
+  const userText = formatTelegramUserText(message, {
+    includeCaption: Boolean(input?.imagePart)
+  })
   if (userText) {
     parts.push({
       type: 'text',
