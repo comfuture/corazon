@@ -380,9 +380,24 @@ const resolveTelegramImageExtension = (filePath: string, mediaType: string | nul
 const hasTelegramPhotoAttachment = (message: TelegramMessage) =>
   Array.isArray(message.photo) && message.photo.length > 0
 
+const hasKnownTelegramImageFilename = (filename: string | null | undefined) => {
+  const normalized = filename?.trim()
+  if (!normalized) {
+    return false
+  }
+  const extension = extname(normalized).toLowerCase()
+  if (!extension) {
+    return false
+  }
+  return Object.values(TELEGRAM_IMAGE_EXTENSION_MAP).includes(extension)
+}
+
 const hasTelegramImageDocumentAttachment = (message: TelegramMessage) =>
   typeof message.document?.file_id === 'string'
-  && (message.document.mime_type?.toLowerCase().startsWith(TELEGRAM_SUPPORTED_IMAGE_MIME_PREFIX) ?? false)
+  && (
+    message.document.mime_type?.toLowerCase().startsWith(TELEGRAM_SUPPORTED_IMAGE_MIME_PREFIX)
+    ?? hasKnownTelegramImageFilename(message.document.file_name)
+  )
 
 const hasTelegramImageAttachment = (message: TelegramMessage) =>
   hasTelegramPhotoAttachment(message) || hasTelegramImageDocumentAttachment(message)
@@ -1623,16 +1638,22 @@ const handleTelegramTextMessage = async (
     ? buildRecoveredConversationDeveloperInstructions(carryoverSummary)
     : null
   stopTelegramTypingController(settings.chatId)
-  const run = await start(codexChatTurnWorkflow, [{
-    threadId: session.threadId,
-    resume: Boolean(session.threadId),
-    attachmentUploadId: imageAttachment?.uploadId ?? null,
-    origin: 'telegram',
-    originChannelId: settings.chatId,
-    streamMode: 'telegram',
-    harnessInstructions,
-    messages: nextMessages
-  }])
+  let run: Awaited<ReturnType<typeof start>>
+  try {
+    run = await start(codexChatTurnWorkflow, [{
+      threadId: session.threadId,
+      resume: Boolean(session.threadId),
+      attachmentUploadId: imageAttachment?.uploadId ?? null,
+      origin: 'telegram',
+      originChannelId: settings.chatId,
+      streamMode: 'telegram',
+      harnessInstructions,
+      messages: nextMessages
+    }])
+  } catch (error) {
+    cleanupPendingTelegramAttachment(imageAttachment?.uploadId)
+    throw error
+  }
 
   setTelegramSessionActiveRun(session.id, run.runId)
 
