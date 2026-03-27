@@ -8,6 +8,9 @@ const WORKFLOW_FALLBACK_MODELS = ['gpt-5.3-codex-spark']
 const WORKFLOW_OVERLOAD_RETRY_ATTEMPTS_PER_MODEL = 2
 const WORKFLOW_OVERLOAD_RETRY_BASE_DELAY_MS = 3000
 const WORKFLOW_OVERLOAD_RETRY_MAX_DELAY_MS = 15000
+const WORKFLOW_COMPLETION_QUIET_HOURS_TIMEZONE = 'Asia/Seoul'
+const WORKFLOW_COMPLETION_QUIET_HOURS_START_HOUR = 22
+const WORKFLOW_COMPLETION_QUIET_HOURS_END_HOUR = 9
 type WorkflowExecutionContext = {
   definition: WorkflowDefinition
   triggerType: WorkflowTriggerType
@@ -56,6 +59,27 @@ const getWorkflowModelSequence = () => {
 const getRetryDelayMs = (attemptIndex: number) => {
   const computed = WORKFLOW_OVERLOAD_RETRY_BASE_DELAY_MS * (2 ** attemptIndex)
   return Math.min(computed, WORKFLOW_OVERLOAD_RETRY_MAX_DELAY_MS)
+}
+
+const getHourInTimezone = (value: Date, timezone: string) => {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hour: 'numeric',
+    hourCycle: 'h23'
+  }).formatToParts(value)
+  const hourPart = parts.find(part => part.type === 'hour')?.value ?? ''
+  const hour = Number.parseInt(hourPart, 10)
+  return Number.isFinite(hour) ? hour : null
+}
+
+const isWithinWorkflowCompletionQuietHours = (value: Date) => {
+  const hour = getHourInTimezone(value, WORKFLOW_COMPLETION_QUIET_HOURS_TIMEZONE)
+  if (hour === null) {
+    return false
+  }
+
+  return hour >= WORKFLOW_COMPLETION_QUIET_HOURS_START_HOUR
+    || hour < WORKFLOW_COMPLETION_QUIET_HOURS_END_HOUR
 }
 
 const getCodexEnv = () => {
@@ -177,6 +201,10 @@ const notifyWorkflowSummary = async (
   const completionKind = summary.triggerType === 'workflow-dispatch'
     ? 'Manual workflow dispatch completed.'
     : 'Scheduled autonomous workflow run completed.'
+
+  if (isWithinWorkflowCompletionQuietHours(new Date())) {
+    return
+  }
 
   const usageSummary = [
     `Status: ${summary.status}`,
