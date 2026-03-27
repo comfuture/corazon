@@ -22,7 +22,7 @@ import {
   writeWorkflowDefinition
 } from '../workflow-definitions.ts'
 import { inferWorkflowDraftWithAI } from '../workflow-ai.ts'
-import { executeWorkflowBySlug, initializeWorkflowRunner } from '../workflow-runner.ts'
+import { initializeWorkflowRunner, startWorkflowBySlug } from '../workflow-runner.ts'
 import { reloadWorkflowScheduler } from '../workflow-scheduler.ts'
 
 type NativeDynamicToolHandler = (input: unknown, params: DynamicToolCallParams) => Promise<DynamicToolCallResponse>
@@ -687,7 +687,7 @@ const handleWorkflowDispatch = async (args: Record<string, unknown>) => {
   }
 
   initializeWorkflowRunner()
-  const run = await executeWorkflowBySlug(target.fileSlug, 'workflow-dispatch', 'manual')
+  const run = startWorkflowBySlug(target.fileSlug, 'workflow-dispatch', 'manual')
 
   return {
     action: 'dispatch',
