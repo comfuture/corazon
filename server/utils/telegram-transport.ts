@@ -326,8 +326,13 @@ const renderTelegramHtml = async (value: string, threadId: string | null) => {
   })
 }
 
-const formatTelegramUserText = (message: TelegramMessage) => {
-  const text = message.text?.trim() || message.caption?.trim() || ''
+const formatTelegramUserText = (
+  message: TelegramMessage,
+  input?: {
+    includeCaption?: boolean
+  }
+) => {
+  const text = message.text?.trim() || (input?.includeCaption ? message.caption?.trim() : '') || ''
   if (!text) {
     return ''
   }
@@ -503,6 +508,29 @@ const cleanupPendingTelegramAttachment = (uploadId: string | null | undefined) =
     return
   }
   rmSync(pendingDirectory, { recursive: true, force: true })
+}
+
+const cleanupTelegramImageAttachment = (
+  attachment: Awaited<ReturnType<typeof buildTelegramImageAttachment>>
+) => {
+  if (!attachment) {
+    return
+  }
+
+  if (attachment.uploadId) {
+    cleanupPendingTelegramAttachment(attachment.uploadId)
+    return
+  }
+
+  if (!attachment.part.url.startsWith('file://')) {
+    return
+  }
+
+  try {
+    rmSync(new URL(attachment.part.url), { force: true })
+  } catch {
+    // Best-effort cleanup only.
+  }
 }
 
 const toTelegramUserMessage = (message: TelegramMessage, input?: {
@@ -1497,8 +1525,10 @@ const handleTelegramTextMessage = async (
   settings: ReturnType<typeof readTelegramSettings>,
   message: TelegramMessage
 ) => {
-  const messageText = formatTelegramUserText(message)
   const hasImageAttachment = hasTelegramImageAttachment(message)
+  const messageText = formatTelegramUserText(message, {
+    includeCaption: hasImageAttachment
+  })
   if (!messageText && !hasImageAttachment) {
     await handleUnsupportedTelegramMessage(settings, message)
     return
@@ -1580,7 +1610,7 @@ const handleTelegramTextMessage = async (
       }
 
       if (steerResult.kind === 'error') {
-        cleanupPendingTelegramAttachment(imageAttachment?.uploadId)
+        cleanupTelegramImageAttachment(imageAttachment)
         stopTelegramTypingController(settings.chatId)
         await sendSessionTelegramMessage({
           sessionId: route.session.id,
@@ -1651,7 +1681,7 @@ const handleTelegramTextMessage = async (
       messages: nextMessages
     }])
   } catch (error) {
-    cleanupPendingTelegramAttachment(imageAttachment?.uploadId)
+    cleanupTelegramImageAttachment(imageAttachment)
     throw error
   }
 
