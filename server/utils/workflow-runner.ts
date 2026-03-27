@@ -4,15 +4,67 @@ import { createCodexClient } from './codex-client/index.ts'
 import type { CodexClient, CodexThreadEvent, CodexUsage } from './codex-client/types.ts'
 
 const WORKFLOW_MODEL = 'gpt-5.3-codex'
+const WORKFLOW_FALLBACK_MODELS = ['gpt-5.3-codex-spark']
+const WORKFLOW_OVERLOAD_RETRY_ATTEMPTS_PER_MODEL = 2
+const WORKFLOW_OVERLOAD_RETRY_BASE_DELAY_MS = 3000
+const WORKFLOW_OVERLOAD_RETRY_MAX_DELAY_MS = 15000
 type WorkflowExecutionContext = {
   definition: WorkflowDefinition
   triggerType: WorkflowTriggerType
   triggerValue: string | null
 }
+type WorkflowAttemptError = Error & {
+  transientOverload?: boolean
+  safeToRetry?: boolean
+}
 
 let codexInstance: CodexClient | null = null
 let workflowRunnerInitialized = false
 const WORKFLOW_FINALIZATION_RETRY_LIMIT = 2
+
+const overloadErrorPattern = /(?:server[_\s-]?is[_\s-]?overloaded|at\s+capacity|temporar(?:y|ily)\s+unavailable|please\s+try\s+again)/i
+
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+
+const isTransientOverloadError = (message: string) =>
+  overloadErrorPattern.test(message)
+
+const toWorkflowAttemptError = (
+  error: unknown,
+  safeToRetry: boolean
+): WorkflowAttemptError => {
+  const message = error instanceof Error ? error.message : String(error)
+  const typed = new Error(message) as WorkflowAttemptError
+  typed.transientOverload = isTransientOverloadError(message)
+  typed.safeToRetry = safeToRetry
+  return typed
+}
+
+const getWorkflowModelSequence = () => {
+  const configuredFallbacks = (process.env.CORAZON_WORKFLOW_FALLBACK_MODELS ?? '')
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean)
+
+  const candidates = [
+    WORKFLOW_MODEL,
+    ...(configuredFallbacks.length > 0 ? configuredFallbacks : WORKFLOW_FALLBACK_MODELS)
+  ]
+
+  const sequence: string[] = []
+  for (const model of candidates) {
+    if (!sequence.includes(model)) {
+      sequence.push(model)
+    }
+  }
+
+  return sequence
+}
+
+const getRetryDelayMs = (attemptIndex: number) => {
+  const computed = WORKFLOW_OVERLOAD_RETRY_BASE_DELAY_MS * (2 ** attemptIndex)
+  return Math.min(computed, WORKFLOW_OVERLOAD_RETRY_MAX_DELAY_MS)
+}
 
 const getCodexEnv = () => {
   const env: Record<string, string> = {}
@@ -163,46 +215,92 @@ const collectRunCompletionData = async (
 ) => {
   const codex = getCodex()
   const prompt = buildRunContextPrompt(definition, triggerType, triggerValue)
-  const thread = codex.startThread({
-    model: WORKFLOW_MODEL,
-    workingDirectory: process.cwd()
-  })
+  const modelSequence = getWorkflowModelSequence()
+  let lastError: Error | null = null
 
-  let usage: CodexUsage | null = null
-  let threadId: string | null = null
-  let sessionFilePath: string | null = null
+  for (let modelIndex = 0; modelIndex < modelSequence.length; modelIndex += 1) {
+    const model = modelSequence[modelIndex] as string
+    for (let attempt = 0; attempt < WORKFLOW_OVERLOAD_RETRY_ATTEMPTS_PER_MODEL; attempt += 1) {
+      const thread = codex.startThread({
+        model,
+        workingDirectory: process.cwd()
+      })
+      let usage: CodexUsage | null = null
+      let threadId: string | null = null
+      let sessionFilePath: string | null = null
+      let sawItemActivity = false
 
-  const { events } = await thread.runStreamed(prompt)
-  for await (const event of events) {
-    const typed = event as CodexThreadEvent
-    if (typed.type === 'thread.started') {
-      threadId = typed.thread_id
-      sessionFilePath = findSessionFileByThreadId(threadId)
-      setWorkflowRunSessionReference(runId, threadId, sessionFilePath)
-      continue
+      try {
+        const { events } = await thread.runStreamed(prompt)
+        for await (const event of events) {
+          const typed = event as CodexThreadEvent
+          if (typed.type === 'thread.started') {
+            threadId = typed.thread_id
+            sessionFilePath = findSessionFileByThreadId(threadId)
+            setWorkflowRunSessionReference(runId, threadId, sessionFilePath)
+            continue
+          }
+          if (typed.type === 'item.started' || typed.type === 'item.updated' || typed.type === 'item.completed') {
+            sawItemActivity = true
+            continue
+          }
+          if (typed.type === 'turn.failed') {
+            throw toWorkflowAttemptError(typed.error.message, !sawItemActivity)
+          }
+          if (typed.type === 'turn.completed') {
+            usage = typed.usage
+            continue
+          }
+        }
+      } catch (error) {
+        const typedError = toWorkflowAttemptError(error, !sawItemActivity)
+        lastError = typedError
+        const canRetry = typedError.transientOverload === true && typedError.safeToRetry === true
+        const hasMoreAttemptsOnModel = attempt < WORKFLOW_OVERLOAD_RETRY_ATTEMPTS_PER_MODEL - 1
+        const hasFallbackModel = modelIndex < modelSequence.length - 1
+
+        if (canRetry && hasMoreAttemptsOnModel) {
+          const delayMs = getRetryDelayMs(attempt)
+          console.warn(`[workflow-runner] transient overload on model ${model}; retrying in ${delayMs}ms (attempt ${attempt + 1}/${WORKFLOW_OVERLOAD_RETRY_ATTEMPTS_PER_MODEL}).`)
+          await sleep(delayMs)
+          continue
+        }
+
+        if (canRetry && hasFallbackModel) {
+          const fallbackModel = modelSequence[modelIndex + 1]
+          console.warn(`[workflow-runner] transient overload on model ${model}; falling back to ${fallbackModel}.`)
+          break
+        }
+
+        throw typedError
+      }
+
+      if (!usage) {
+        const completionError = new Error(`Workflow turn with model ${model} ended without completion.`)
+        lastError = completionError
+        throw completionError
+      }
+
+      if (threadId && !sessionFilePath) {
+        sessionFilePath = findSessionFileByThreadId(threadId)
+      }
+      if (threadId || sessionFilePath) {
+        setWorkflowRunSessionReference(runId, threadId, sessionFilePath)
+      }
+
+      completeWorkflowRun({
+        runId,
+        status: 'completed',
+        totalInputTokens: usage.input_tokens ?? 0,
+        totalCachedInputTokens: usage.cached_input_tokens ?? 0,
+        totalOutputTokens: usage.output_tokens ?? 0,
+        sessionThreadId: threadId,
+        sessionFilePath
+      })
+      return
     }
-    if (typed.type === 'turn.completed') {
-      usage = typed.usage
-      continue
-    }
   }
-
-  if (threadId && !sessionFilePath) {
-    sessionFilePath = findSessionFileByThreadId(threadId)
-  }
-  if (threadId || sessionFilePath) {
-    setWorkflowRunSessionReference(runId, threadId, sessionFilePath)
-  }
-
-  completeWorkflowRun({
-    runId,
-    status: 'completed',
-    totalInputTokens: usage?.input_tokens ?? 0,
-    totalCachedInputTokens: usage?.cached_input_tokens ?? 0,
-    totalOutputTokens: usage?.output_tokens ?? 0,
-    sessionThreadId: threadId,
-    sessionFilePath
-  })
+  throw (lastError ?? new Error('Workflow run exhausted all configured model attempts.'))
 }
 
 const completeWorkflowRunWithRetry = (input: Parameters<typeof completeWorkflowRun>[0]) => {
