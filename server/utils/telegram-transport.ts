@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
+import { basename, extname, join } from 'node:path'
 import { start, getRun } from 'workflow/api'
 import type { UIMessageChunk } from 'ai'
 import {
@@ -18,6 +21,7 @@ import {
   assignTelegramSessionThread,
   clearThreadActiveRun,
   createTelegramSession,
+  ensurePendingAttachmentsDirectory,
   finalizeTelegramSessionRun,
   getTelegramSessionById,
   getTelegramTransportState,
@@ -42,7 +46,9 @@ import {
 } from './telegram-session.ts'
 import {
   editTelegramMessageText,
+  downloadTelegramFile,
   formatTelegramApiError,
+  getTelegramFile,
   getTelegramDisplayName,
   sendTelegramChatAction,
   getTelegramUpdates,
@@ -71,6 +77,8 @@ const TELEGRAM_ROUTE_TRANSCRIPT_LINE_LIMIT = 12
 const TELEGRAM_RESUME_CONFIDENCE_THRESHOLD = 0.72
 const TELEGRAM_CARRYOVER_CONFIDENCE_THRESHOLD = 0.55
 const TELEGRAM_NEW_CONFIDENCE_THRESHOLD = 0.65
+const TELEGRAM_MAX_IMAGE_BYTES = 20 * 1024 * 1024
+const TELEGRAM_SUPPORTED_IMAGE_MIME_PREFIX = 'image/'
 const CARRYOVER_ROUTE_MODEL = 'gpt-5.4-mini'
 const CARRYOVER_SUMMARY_MODEL = 'gpt-5.1-codex-mini'
 const CARRYOVER_WORKDIR = '/tmp'
@@ -311,7 +319,7 @@ const renderTelegramHtml = async (value: string, threadId: string | null) => {
 }
 
 const formatTelegramUserText = (message: TelegramMessage) => {
-  const text = message.text?.trim() ?? ''
+  const text = message.text?.trim() || message.caption?.trim() || ''
   if (!text) {
     return ''
   }
@@ -329,14 +337,156 @@ const formatTelegramUserText = (message: TelegramMessage) => {
 const shouldReplyInTelegramChat = (message: TelegramMessage) =>
   message.chat.type === 'group' || message.chat.type === 'supergroup'
 
-const toTelegramUserMessage = (message: TelegramMessage): CodexChatUserMessage => {
+const sanitizeTelegramFilename = (value: string) => {
+  const normalized = basename(value).replace(/[\\/\0]/g, '').trim()
+  return normalized || 'telegram-image'
+}
+
+const ensureUniqueTelegramAttachmentPath = (directory: string, filename: string) => {
+  const extension = extname(filename)
+  const base = extension ? filename.slice(0, -extension.length) : filename
+  let candidate = join(directory, filename)
+  let index = 1
+
+  while (existsSync(candidate)) {
+    candidate = join(directory, `${base}-${index}${extension}`)
+    index += 1
+  }
+
+  return candidate
+}
+
+const resolveTelegramImageExtension = (filePath: string, mediaType: string | null) => {
+  const fromPath = extname(filePath).toLowerCase()
+  if (fromPath) {
+    return fromPath
+  }
+  if (mediaType === 'image/png') {
+    return '.png'
+  }
+  if (mediaType === 'image/webp') {
+    return '.webp'
+  }
+  if (mediaType === 'image/gif') {
+    return '.gif'
+  }
+  return '.jpg'
+}
+
+const hasTelegramPhotoAttachment = (message: TelegramMessage) =>
+  Array.isArray(message.photo) && message.photo.length > 0
+
+const hasTelegramImageDocumentAttachment = (message: TelegramMessage) =>
+  typeof message.document?.file_id === 'string'
+  && (message.document.mime_type?.toLowerCase().startsWith(TELEGRAM_SUPPORTED_IMAGE_MIME_PREFIX) ?? false)
+
+const hasTelegramImageAttachment = (message: TelegramMessage) =>
+  hasTelegramPhotoAttachment(message) || hasTelegramImageDocumentAttachment(message)
+
+const resolveTelegramAttachmentTarget = (message: TelegramMessage) => {
+  if (hasTelegramPhotoAttachment(message)) {
+    const photoSizes = message.photo ?? []
+    const best = photoSizes
+      .slice()
+      .sort((a, b) => {
+        const sizeDiff = (b.file_size ?? 0) - (a.file_size ?? 0)
+        if (sizeDiff !== 0) {
+          return sizeDiff
+        }
+        return (b.width * b.height) - (a.width * a.height)
+      })[0]
+    if (best?.file_id) {
+      return {
+        fileId: best.file_id,
+        mediaType: 'image/jpeg' as const,
+        sourceName: null as string | null
+      }
+    }
+  }
+
+  if (hasTelegramImageDocumentAttachment(message)) {
+    const mediaType = message.document?.mime_type?.toLowerCase() ?? 'image/jpeg'
+    return {
+      fileId: message.document!.file_id,
+      mediaType,
+      sourceName: message.document?.file_name?.trim() || null
+    }
+  }
+
+  return null
+}
+
+const buildTelegramImageAttachment = async (
+  settings: ReturnType<typeof readTelegramSettings>,
+  message: TelegramMessage
+) => {
+  const target = resolveTelegramAttachmentTarget(message)
+  if (!target) {
+    return null
+  }
+
+  const fileMeta = await getTelegramFile({
+    botToken: settings.botToken,
+    fileId: target.fileId
+  })
+  const filePath = fileMeta.file_path?.trim() ?? ''
+  if (!filePath) {
+    throw new Error('Telegram image file path is missing.')
+  }
+  if ((fileMeta.file_size ?? 0) > TELEGRAM_MAX_IMAGE_BYTES) {
+    throw new Error('Telegram image is too large to process (max 20MB).')
+  }
+
+  const payload = await downloadTelegramFile({
+    botToken: settings.botToken,
+    filePath
+  })
+  if (!payload.length) {
+    throw new Error('Telegram image download returned empty payload.')
+  }
+
+  const uploadId = randomUUID()
+  const directory = ensurePendingAttachmentsDirectory(uploadId)
+  const fallbackName = `telegram-image-${message.message_id}${resolveTelegramImageExtension(filePath, target.mediaType)}`
+  const filename = sanitizeTelegramFilename(target.sourceName || fallbackName)
+  const filePathOnDisk = ensureUniqueTelegramAttachmentPath(directory, filename)
+  await writeFile(filePathOnDisk, payload)
+
+  return {
+    uploadId,
+    part: {
+      type: 'file' as const,
+      url: `file://${filePathOnDisk}`,
+      filename: basename(filePathOnDisk),
+      mediaType: target.mediaType
+    }
+  }
+}
+
+const toTelegramUserMessage = (message: TelegramMessage, input?: {
+  imagePart?: {
+    type: 'file'
+    url: string
+    filename: string
+    mediaType: string
+  } | null
+}): CodexChatUserMessage => {
+  const parts: CodexChatUserMessage['parts'] = []
+  const userText = formatTelegramUserText(message)
+  if (userText) {
+    parts.push({
+      type: 'text',
+      text: userText
+    })
+  }
+  if (input?.imagePart) {
+    parts.push(input.imagePart)
+  }
+
   return {
     id: `telegram-${message.chat.id}-${message.message_id}`,
     role: 'user',
-    parts: [{
-      type: 'text',
-      text: formatTelegramUserText(message)
-    }]
+    parts
   }
 }
 
@@ -1306,13 +1456,34 @@ const handleTelegramTextMessage = async (
   message: TelegramMessage
 ) => {
   const messageText = formatTelegramUserText(message)
+  let imageAttachment: Awaited<ReturnType<typeof buildTelegramImageAttachment>> = null
+  if (hasTelegramImageAttachment(message)) {
+    try {
+      imageAttachment = await buildTelegramImageAttachment(settings, message)
+    } catch (error) {
+      const failureMessage = `Image attachment could not be processed: ${formatTelegramApiError(error)}`
+      await sendTelegramMessage({
+        botToken: settings.botToken,
+        chatId: settings.chatId,
+        text: failureMessage,
+        replyToMessageId: shouldReplyInTelegramChat(message) ? message.message_id : undefined
+      })
+    }
+  }
+  if (!messageText && !imageAttachment) {
+    await handleUnsupportedTelegramMessage(settings, message)
+    return
+  }
+
   const recentSessions = loadRecentTelegramSessions(settings.chatId, TELEGRAM_ROUTE_CANDIDATE_LIMIT)
   const route = await resolveSemanticTelegramSessionRoute({
     sessions: recentSessions,
     idleTimeoutMinutes: settings.idleTimeoutMinutes,
-    messageText
+    messageText: messageText || '[Image attachment]'
   })
-  const userMessage = toTelegramUserMessage(message)
+  const userMessage = toTelegramUserMessage(message, {
+    imagePart: imageAttachment?.part ?? null
+  })
   const fallbackReplyToMessageId = shouldReplyInTelegramChat(message)
     ? message.message_id
     : null
@@ -1409,6 +1580,7 @@ const handleTelegramTextMessage = async (
   const run = await start(codexChatTurnWorkflow, [{
     threadId: session.threadId,
     resume: Boolean(session.threadId),
+    attachmentUploadId: imageAttachment?.uploadId ?? null,
     origin: 'telegram',
     originChannelId: settings.chatId,
     streamMode: 'telegram',
@@ -1434,7 +1606,7 @@ const handleUnsupportedTelegramMessage = async (
   await sendTelegramMessage({
     botToken: settings.botToken,
     chatId: settings.chatId,
-    text: 'Text messages only are supported in Telegram transport v1.',
+    text: 'Unsupported message type. Telegram transport currently supports text and image attachments.',
     replyToMessageId: shouldReplyInTelegramChat(message) ? message.message_id : undefined
   })
 }
@@ -1471,11 +1643,6 @@ const processTelegramUpdate = async (
   }
 
   if (isTelegramBotMessage(message)) {
-    return
-  }
-
-  if (!message.text?.trim()) {
-    await handleUnsupportedTelegramMessage(settings, message)
     return
   }
 

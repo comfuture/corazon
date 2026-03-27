@@ -31,8 +31,27 @@ export type TelegramMessage = {
   message_id: number
   date?: number
   text?: string
+  caption?: string
+  photo?: TelegramPhotoSize[]
+  document?: TelegramDocument
   chat: TelegramChat
   from?: TelegramUser
+}
+
+export type TelegramPhotoSize = {
+  file_id: string
+  file_unique_id: string
+  width: number
+  height: number
+  file_size?: number
+}
+
+export type TelegramDocument = {
+  file_id: string
+  file_unique_id: string
+  file_name?: string
+  mime_type?: string
+  file_size?: number
 }
 
 export type TelegramUpdate = {
@@ -46,11 +65,20 @@ type TelegramSendMessageResult = {
 }
 
 type TelegramBooleanResult = true
+type TelegramFileResult = {
+  file_id: string
+  file_unique_id: string
+  file_size?: number
+  file_path?: string
+}
 
 const TELEGRAM_API_BASE = 'https://api.telegram.org'
 
 const toTelegramApiUrl = (botToken: string, method: string) =>
   `${TELEGRAM_API_BASE}/bot${encodeURIComponent(botToken)}/${method}`
+
+const toTelegramFileUrl = (botToken: string, filePath: string) =>
+  `${TELEGRAM_API_BASE}/file/bot${encodeURIComponent(botToken)}/${filePath.replace(/^\/+/, '')}`
 
 const toErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
@@ -146,6 +174,56 @@ export const getTelegramUpdates = async (
       timeout: options.timeoutSeconds ?? 20,
       allowed_updates: allowedUpdates
     }
+  })
+}
+
+export const getTelegramFile = async (input: {
+  botToken: string
+  fileId: string
+}) => {
+  return requestTelegramApi<TelegramFileResult>({
+    botToken: input.botToken,
+    method: 'getFile',
+    body: {
+      file_id: input.fileId
+    }
+  })
+}
+
+export const downloadTelegramFile = async (input: {
+  botToken: string
+  filePath: string
+}) => {
+  return new Promise<Buffer>((resolve, reject) => {
+    const url = new URL(toTelegramFileUrl(input.botToken, input.filePath))
+    const chunks: Buffer[] = []
+    const request = httpsRequest({
+      protocol: url.protocol,
+      hostname: url.hostname,
+      path: `${url.pathname}${url.search}`,
+      method: 'GET',
+      family: 4
+    }, (response) => {
+      if ((response.statusCode ?? 500) >= 400) {
+        const statusCode = response.statusCode ?? 500
+        reject(new Error(`Telegram file download failed: ${statusCode}`))
+        response.resume()
+        return
+      }
+
+      response.on('data', (chunk: Buffer | string) => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+      })
+      response.on('end', () => {
+        resolve(Buffer.concat(chunks))
+      })
+    })
+
+    request.setTimeout(30_000, () => {
+      request.destroy(new Error('Telegram file download timed out'))
+    })
+    request.on('error', reject)
+    request.end()
   })
 }
 
