@@ -1313,12 +1313,21 @@ const processTelegramWorkflowRun = async (input: {
   const textDraftLastSentText = new Map<string, string>()
   const textDraftStartedAt = new Map<string, number>()
   const textDraftSentCount = new Map<string, number>()
+  const firstVisibleDraftTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
+  const clearFirstVisibleDraftTimeout = (textId: string) => {
+    const timeout = firstVisibleDraftTimeouts.get(textId)
+    if (timeout) {
+      clearTimeout(timeout)
+      firstVisibleDraftTimeouts.delete(textId)
+    }
+  }
   const clearTextDraftState = (textId: string) => {
     textDraftLastSentAt.delete(textId)
     textDraftLastSentText.delete(textId)
     textDraftMessageIds.delete(textId)
     textDraftStartedAt.delete(textId)
     textDraftSentCount.delete(textId)
+    clearFirstVisibleDraftTimeout(textId)
   }
   const typing = getTelegramTypingController({
     botToken: input.botToken,
@@ -1344,10 +1353,10 @@ const processTelegramWorkflowRun = async (input: {
 
       const now = Date.now()
       const sentCount = textDraftSentCount.get(textId) ?? 0
-      const startedAt = textDraftStartedAt.get(textId) ?? now
       const isFirstVisibleDraft = sentCount === 0
 
       if (isFirstVisibleDraft && !force) {
+        const startedAt = textDraftStartedAt.get(textId) ?? now
         const reachedFirstVisibleLength = normalizedText.length >= TELEGRAM_DRAFT_FIRST_VISIBLE_MIN_CHARS
         const reachedFirstVisibleWait = now - startedAt >= TELEGRAM_DRAFT_FIRST_VISIBLE_MAX_WAIT_MS
         if (!reachedFirstVisibleLength && !reachedFirstVisibleWait) {
@@ -1356,7 +1365,7 @@ const processTelegramWorkflowRun = async (input: {
       }
 
       const lastSentAt = textDraftLastSentAt.get(textId) ?? 0
-      const minIntervalMs = sentCount <= 1
+      const minIntervalMs = sentCount === 1
         ? TELEGRAM_DRAFT_SECOND_UPDATE_MIN_INTERVAL_MS
         : TELEGRAM_DRAFT_UPDATE_MIN_INTERVAL_MS
       if (!force && now - lastSentAt < minIntervalMs) {
@@ -1375,9 +1384,30 @@ const processTelegramWorkflowRun = async (input: {
       if (typeof messageId === 'number') {
         textDraftMessageIds.set(textId, messageId)
       }
+      if (isFirstVisibleDraft) {
+        clearFirstVisibleDraftTimeout(textId)
+      }
       textDraftLastSentAt.set(textId, now)
       textDraftLastSentText.set(textId, normalizedText)
       textDraftSentCount.set(textId, sentCount + 1)
+    }
+    const scheduleFirstVisibleDraftTimeout = (textId: string) => {
+      if (firstVisibleDraftTimeouts.has(textId)) {
+        return
+      }
+      const sentCount = textDraftSentCount.get(textId) ?? 0
+      if (sentCount > 0) {
+        return
+      }
+      const startedAt = textDraftStartedAt.get(textId) ?? Date.now()
+      const delayMs = Math.max(0, TELEGRAM_DRAFT_FIRST_VISIBLE_MAX_WAIT_MS - (Date.now() - startedAt))
+      const timeout = setTimeout(() => {
+        firstVisibleDraftTimeouts.delete(textId)
+        void flushTextDraft(textId, false).catch((error) => {
+          console.error('[telegram] failed to flush first visible draft timeout:', formatTelegramApiError(error))
+        })
+      }, delayMs)
+      firstVisibleDraftTimeouts.set(textId, timeout)
     }
     const flushAllTextDrafts = async (force: boolean) => {
       const textIds = Array.from(textBuffer.keys())
@@ -1450,6 +1480,7 @@ const processTelegramWorkflowRun = async (input: {
       if (value.type === 'text-delta') {
         const previous = textBuffer.get(value.id) ?? ''
         textBuffer.set(value.id, `${previous}${value.delta}`)
+        scheduleFirstVisibleDraftTimeout(value.id)
         typing.stop()
         await flushTextDraft(value.id, false)
         continue
