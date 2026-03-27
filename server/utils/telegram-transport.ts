@@ -1400,11 +1400,14 @@ const processTelegramWorkflowRun = async (input: {
       textDraftSentCount.set(textId, sentCount + 1)
     }
     const flushTextDraft = async (textId: string, force: boolean) => {
-      const inFlight = textDraftFlushInFlight.get(textId)
-      if (inFlight) {
-        await inFlight
-      }
-      const flushPromise = flushTextDraftInternal(textId, force)
+      // Chain per textId so concurrent callers cannot fan out into parallel flushes
+      // after awaiting the same in-flight promise.
+      const inFlight = textDraftFlushInFlight.get(textId) ?? Promise.resolve()
+      const flushPromise = inFlight
+        .catch(() => {})
+        .then(async () => {
+          await flushTextDraftInternal(textId, force)
+        })
       textDraftFlushInFlight.set(textId, flushPromise)
       try {
         await flushPromise
