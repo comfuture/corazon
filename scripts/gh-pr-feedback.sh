@@ -81,12 +81,19 @@ fetch_paginated_arrays() {
       separator="&"
     fi
 
-    local page_json
-    page_json="$(gh api "${endpoint}${separator}per_page=100&page=${page}")"
-    printf '%s\n' "$page_json" >>"$out_file"
+    local page_file
+    page_file="$(mktemp)"
+    gh api "${endpoint}${separator}per_page=100&page=${page}" >"$page_file"
+    cat "$page_file" >>"$out_file"
+    printf '\n' >>"$out_file"
 
     local page_count
-    page_count="$(node -e 'const payload = JSON.parse(process.argv[1]); process.stdout.write(String(Array.isArray(payload) ? payload.length : 0));' "$page_json")"
+    page_count="$(node -e '
+const fs = require("node:fs")
+const payload = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
+process.stdout.write(String(Array.isArray(payload) ? payload.length : 0))
+' "$page_file")"
+    rm -f "$page_file"
     if [[ "$page_count" -lt 100 ]]; then
       break
     fi
@@ -95,10 +102,18 @@ fetch_paginated_arrays() {
 }
 
 gh api "repos/${repo}/pulls/${pr_number}" >"$pull_file" &
+pid_pull=$!
 fetch_paginated_arrays "repos/${repo}/issues/${pr_number}/comments" "$issue_comments_file" &
+pid_issue_comments=$!
 fetch_paginated_arrays "repos/${repo}/pulls/${pr_number}/comments" "$review_comments_file" &
+pid_review_comments=$!
 fetch_paginated_arrays "repos/${repo}/pulls/${pr_number}/reviews" "$reviews_file" &
-wait
+pid_reviews=$!
+
+wait "$pid_pull"
+wait "$pid_issue_comments"
+wait "$pid_review_comments"
+wait "$pid_reviews"
 
 node -e '
 const fs = require("node:fs")
