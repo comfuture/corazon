@@ -72,9 +72,29 @@ if [[ ! -s "$body_file" ]]; then
 fi
 
 awk '
-  /^[[:space:]]*(```|~~~)/ {
-    in_fence = !in_fence
-    next
+  /^[[:space:]]*```/ {
+    if (!in_fence) {
+      in_fence = 1
+      fence_delim = "```"
+      next
+    }
+    if (fence_delim == "```") {
+      in_fence = 0
+      fence_delim = ""
+      next
+    }
+  }
+  /^[[:space:]]*~~~/ {
+    if (!in_fence) {
+      in_fence = 1
+      fence_delim = "~~~"
+      next
+    }
+    if (fence_delim == "~~~") {
+      in_fence = 0
+      fence_delim = ""
+      next
+    }
   }
   !in_fence { print }
 ' "$body_file" > "$body_without_fences_file"
