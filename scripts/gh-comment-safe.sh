@@ -70,8 +70,8 @@ if [[ ! -s "$body_file" ]]; then
   exit 1
 fi
 
-if awk -F'`' '((NF - 1) % 2) == 1 { found = 1 } END { exit(found ? 0 : 1) }' "$body_file"; then
-  echo "Detected an unbalanced inline code backtick in comment body." >&2
+if (($(tr -d -c '\140' < "$body_file" | wc -c) % 2 != 0)); then
+  echo "Detected an unbalanced number of backticks in comment body." >&2
   exit 1
 fi
 
