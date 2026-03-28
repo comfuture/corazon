@@ -72,27 +72,21 @@ if [[ ! -s "$body_file" ]]; then
 fi
 
 awk '
-  /^[[:space:]]*```/ {
+  match($0, /^[[:space:]]*(```+|~~~+)/) {
+    fence_delim = substr($0, RSTART + RLENGTH - 1, 1)
+    fence_width = RLENGTH - (length($0) - length(substr($0, RSTART)))
+
     if (!in_fence) {
       in_fence = 1
-      fence_delim = "```"
+      open_fence_delim = fence_delim
+      open_fence_width = fence_width
       next
     }
-    if (fence_delim == "```") {
+
+    if (fence_delim == open_fence_delim && fence_width >= open_fence_width) {
       in_fence = 0
-      fence_delim = ""
-      next
-    }
-  }
-  /^[[:space:]]*~~~/ {
-    if (!in_fence) {
-      in_fence = 1
-      fence_delim = "~~~"
-      next
-    }
-    if (fence_delim == "~~~") {
-      in_fence = 0
-      fence_delim = ""
+      open_fence_delim = ""
+      open_fence_width = 0
       next
     }
   }
