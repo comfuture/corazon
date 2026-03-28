@@ -58,8 +58,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 body_file="$(mktemp)"
+body_without_fences_file="$(mktemp)"
 cleanup() {
-  rm -f "$body_file"
+  rm -f "$body_file" "$body_without_fences_file"
 }
 trap cleanup EXIT
 
@@ -70,8 +71,16 @@ if [[ ! -s "$body_file" ]]; then
   exit 1
 fi
 
-if (($(tr -d -c '\140' < "$body_file" | wc -c) % 2 != 0)); then
-  echo "Detected an unbalanced number of backticks in comment body." >&2
+awk '
+  /^[[:space:]]*(```|~~~)/ {
+    in_fence = !in_fence
+    next
+  }
+  !in_fence { print }
+' "$body_file" > "$body_without_fences_file"
+
+if (($(tr -d -c '\140' < "$body_without_fences_file" | wc -c) % 2 != 0)); then
+  echo "Detected an unbalanced number of backticks outside fenced code blocks in comment body." >&2
   exit 1
 fi
 
