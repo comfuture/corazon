@@ -115,6 +115,7 @@ const buildRunContextPrompt = (
     'Use `notifyOperator` only for high-signal events that need prompt operator attention.',
     'Do not send routine successful completion notifications just because the workflow finished.',
     'When collecting GitHub PR feedback, do not rely on `gh pr view --comments`; use `scripts/gh-pr-feedback.sh <pr_number> --repo <owner/repo>` or `gh api repos/<owner>/<repo>/issues/<pr_number>/comments`, `gh api repos/<owner>/<repo>/pulls/<pr_number>/comments`, and `gh api repos/<owner>/<repo>/pulls/<pr_number>/reviews`.',
+    'When collecting GitHub issue feedback, do not rely on `gh issue view --comments`; use `scripts/gh-issue-feedback.sh <issue_number> --repo <owner/repo>` or `gh api repos/<owner>/<repo>/issues/<issue_number>` and `gh api repos/<owner>/<repo>/issues/<issue_number>/comments`.',
     'When posting PR/issue progress updates with `gh`, preserve markdown code identifiers by piping comment text into `scripts/gh-comment-safe.sh` (or `gh ... --body-file`) instead of inline `--body "..."` shell strings.',
     'If reusable helper code, a custom executable, or long-lived operating guidance is required, create or update a supporting skill under the Corazon skills directory with `skill-creator` before relying on ad hoc files.',
     'If a standalone script is still necessary, place reusable scripts under the Corazon scripts directory.',
