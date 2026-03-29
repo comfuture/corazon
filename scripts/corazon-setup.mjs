@@ -334,6 +334,8 @@ const ensureImageGenerationFeatureEnabled = (configPath) => {
   const original = readFileSync(configPath, 'utf8')
   const newline = original.includes('\r\n') ? '\r\n' : '\n'
   const lines = original.split(/\r?\n/)
+  const imageGenerationKeyPattern = /^(?:"image_generation"|'image_generation'|image_generation)\s*=/
+  const imageGenerationTruePattern = /^(?:"image_generation"|'image_generation'|image_generation)\s*=\s*true(?:\s+#.*)?$/i
   let inFeatures = false
   let sawFeatures = false
   let imageGenerationSet = false
@@ -364,8 +366,8 @@ const ensureImageGenerationFeatureEnabled = (configPath) => {
       continue
     }
 
-    if (/^image_generation\s*=/.test(trimmed)) {
-      if (!/^image_generation\s*=\s*true(?:\s+#.*)?$/i.test(trimmed)) {
+    if (imageGenerationKeyPattern.test(trimmed)) {
+      if (!imageGenerationTruePattern.test(trimmed)) {
         changed = true
       }
       nextLines.push('image_generation = true')
