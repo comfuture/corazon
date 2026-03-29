@@ -54,6 +54,15 @@ export type CodexSubagentActivityItem = {
   agentsStates: CodexSubagentAgentState[]
 }
 
+export interface CodexSubagentPanelItem {
+  id: string
+  type: 'subagent_panel'
+  threadId: string
+  name: string
+  status: CodexSubagentAgentStatus | null
+  messages: CodexUIMessage[]
+}
+
 export type CodexThreadEventData
   = {
     kind: 'thread.started'
@@ -100,6 +109,10 @@ export type CodexItemData
   | {
     kind: 'subagent_activity'
     item: CodexSubagentActivityItem
+  }
+  | {
+    kind: 'subagent_panel'
+    item: CodexSubagentPanelItem
   }
   | {
     kind: 'mcp_tool_call'

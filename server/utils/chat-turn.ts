@@ -14,6 +14,7 @@ import {
 } from '../../lib/chatgpt-codex-responses.ts'
 import { ensureAgentBootstrap } from './agent-bootstrap.ts'
 import { createCodexClient, resolveCodexClientMode } from './codex-client/index.ts'
+import { getSharedAppServerProtocol } from './codex-client/app-server-protocol.ts'
 import type { CodexClient, CodexInput } from './codex-client/types.ts'
 import { createCodexAssistantBuilder } from './message-builder.ts'
 import {
@@ -43,6 +44,7 @@ import {
   updateRuntimeTurnControlThreadId
 } from './runtime.ts'
 import { buildCodexInput, createThreadEventHandler } from './stream.ts'
+import { createSubagentPanelManager } from './subagent-panels.ts'
 
 const TITLE_MODEL = 'gpt-5.4-mini'
 const TITLE_REASONING_EFFORT = 'low'
@@ -94,6 +96,12 @@ const SDK_WORKFLOW_ROUTING_PREAMBLE = [
   '- Apply workflow changes through Corazon workflow definitions (`workflows/*.md`) via Corazon workflow tooling.'
 ].join('\n')
 
+const CODEX_CLIENT_CONFIG = {
+  show_raw_agent_reasoning: true,
+  approval_policy: 'never',
+  sandbox_mode: 'danger-full-access'
+} as const
+
 let codexInstance: CodexClient | null = null
 
 const getCodexEnv = () => {
@@ -114,15 +122,17 @@ const getCodex = () => {
 
   codexInstance = createCodexClient({
     env: getCodexEnv(),
-    config: {
-      show_raw_agent_reasoning: true,
-      approval_policy: 'never',
-      sandbox_mode: 'danger-full-access'
-    }
+    config: CODEX_CLIENT_CONFIG
   })
 
   return codexInstance
 }
+
+const getAppServerProtocol = () =>
+  getSharedAppServerProtocol({
+    env: getCodexEnv(),
+    config: CODEX_CLIENT_CONFIG
+  })
 
 const resolveModel = (value: unknown) => {
   if (typeof value !== 'string') {
@@ -380,6 +390,14 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
   return createUIMessageStream<CodexUIMessage>({
     async execute({ writer }) {
       const assistantBuilder = createCodexAssistantBuilder()
+      const appServerProtocol = codex.mode === 'app-server' ? getAppServerProtocol() : null
+      const subagentPanelManager = appServerProtocol
+        ? createSubagentPanelManager({
+            protocol: appServerProtocol,
+            writer
+          })
+        : null
+      const unsubscribeSubagentNotifications = subagentPanelManager?.subscribe() ?? null
       let resolvedThreadId: string | null = threadId
       const baseMessages = messages
       let firstAssistantText = ''
@@ -510,6 +528,15 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
         for await (const threadEvent of events) {
           const now = Date.now()
 
+          if (
+            (threadEvent.type === 'item.started'
+              || threadEvent.type === 'item.updated'
+              || threadEvent.type === 'item.completed')
+            && threadEvent.item.type === 'subagent_activity'
+          ) {
+            subagentPanelManager?.observeParentItem(threadEvent.item)
+          }
+
           if (threadEvent.type === 'turn.started') {
             turnStartedAt = now
           }
@@ -623,6 +650,7 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
           saveThreadMessages(resolvedThreadId, finalMessages)
         }
       } finally {
+        unsubscribeSubagentNotifications?.()
         if (resolvedThreadId) {
           const endedAt = Date.now()
           const endedEvent: CodexThreadEventData = {
