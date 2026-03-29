@@ -31,7 +31,7 @@ const {
   uploadAttachments
 } = useChatAttachments()
 const chatPromptRef = ref<{ textareaRef?: HTMLTextAreaElement | null } | null>(null)
-const { panels: visualSubagentPanels } = useVisualSubagentPanels(() => chat.value?.messages ?? [])
+const visualSubagentPanels = useVisualSubagentPanels(() => chat.value?.messages ?? [])
 
 const route = useRoute()
 const router = useRouter()
@@ -241,13 +241,13 @@ const onAttachmentInputChange = (event: Event) => {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 w-full gap-4">
+  <div class="flex h-full min-h-0 w-full">
     <UDashboardPanel
       class="relative h-full min-h-0 flex-1"
       :default-size="70"
       :min-size="45"
       :max-size="82"
-      resizable
+      :resizable="visualSubagentPanels.length > 0"
       @dragenter="onDragEnter"
       @dragleave="onDragLeave"
       @dragover="onDragOver"
@@ -508,7 +508,6 @@ const onAttachmentInputChange = (event: Event) => {
       :default-size="30"
       :min-size="18"
       :max-size="45"
-      resizable
       :ui="{ body: '!p-0' }"
     >
       <template #header>
@@ -528,7 +527,7 @@ const onAttachmentInputChange = (event: Event) => {
       <template #body>
         <div class="h-full min-h-0 p-3">
           <cz-visual-subagent-stack
-            :panels="visualSubagentPanels"
+            :agents="visualSubagentPanels"
             class="h-full min-h-0"
           />
         </div>
