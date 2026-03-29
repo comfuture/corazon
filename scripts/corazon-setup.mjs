@@ -348,7 +348,7 @@ const ensureImageGenerationFeatureEnabled = (configPath) => {
         imageGenerationSet = true
         changed = true
       }
-      inFeatures = /^\[features\]\s*$/i.test(trimmed)
+      inFeatures = /^\[features\](?:\s+#.*)?\s*$/i.test(trimmed)
       sawFeatures = sawFeatures || inFeatures
       nextLines.push(line)
       continue
