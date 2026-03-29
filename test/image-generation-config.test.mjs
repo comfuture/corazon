@@ -41,6 +41,27 @@ test('normalizes dotted features.image_generation key without appending [feature
   assert.equal((output.match(/features\.image_generation\s*=/g) ?? []).length, 1)
 })
 
+test('adds root-level dotted key before later tables when features.* exists without image_generation', () => {
+  const input = 'features.foo = "bar"\n[server]\nport = 8080\n'
+  const { output } = normalizeImageGenerationFeatureConfig(input)
+  const parsed = parse(output)
+
+  assert.equal(parsed.features.foo, 'bar')
+  assert.equal(parsed.features.image_generation, true)
+  assert.equal(parsed.server.port, 8080)
+  assert.equal(parsed.server.features, undefined)
+  assert.match(output, /features\.image_generation = true\n\[server\]/)
+})
+
+test('normalizes literal-quoted dotted features key without appending [features]', () => {
+  const input = '\'features\'.\'image_generation\' = false\n'
+  const { output } = normalizeImageGenerationFeatureConfig(input)
+
+  assertNormalizedToTrue(input)
+  assert.equal((output.match(/\[features\]/g) ?? []).length, 0)
+  assert.equal((output.match(/features\.image_generation\s*=/g) ?? []).length, 1)
+})
+
 test('normalizes inline features table key without adding duplicate feature table', () => {
   const input = 'features = { image_generation = false }\n'
   const { output } = normalizeImageGenerationFeatureConfig(input)
