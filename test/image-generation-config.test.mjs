@@ -53,6 +53,17 @@ test('adds root-level dotted key before later tables when features.* exists with
   assert.match(output, /features\.image_generation = true\n\[server\]/)
 })
 
+test('does not treat nested table features.* key as root features table', () => {
+  const input = '[server]\nfeatures.foo = "bar"\n'
+  const { output } = normalizeImageGenerationFeatureConfig(input)
+  const parsed = parse(output)
+
+  assert.equal(parsed.server.features.foo, 'bar')
+  assert.equal(parsed.server.features.image_generation, undefined)
+  assert.equal(parsed.features.image_generation, true)
+  assert.match(output, /\[features\]\nimage_generation = true/)
+})
+
 test('normalizes literal-quoted dotted features key without appending [features]', () => {
   const input = '\'features\'.\'image_generation\' = false\n'
   const { output } = normalizeImageGenerationFeatureConfig(input)
