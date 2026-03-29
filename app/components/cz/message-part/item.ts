@@ -27,6 +27,9 @@ const asCodexItemPart = (part: unknown) =>
     ? (part as DataUIPart<CodexUIDataTypes> & { type: typeof CODEX_ITEM_PART, data: CodexItemData })
     : undefined
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
 const normalizeDynamicToolName = (value: string) =>
   value
     .trim()
@@ -55,24 +58,46 @@ export default defineComponent({
         return null
       }
 
-      switch (itemData.kind) {
+      const kind = isRecord(itemData) && typeof itemData.kind === 'string'
+        ? itemData.kind
+        : null
+
+      switch (kind) {
         case 'command_execution':
-          return h(CzMessageItemCommandExecution, { item: itemData.item })
+          return h(CzMessageItemCommandExecution, {
+            item: (itemData as Extract<CodexItemData, { kind: 'command_execution' }>).item
+          })
         case 'file_change':
-          return h(CzMessageItemFileChange, { item: itemData.item })
+          return h(CzMessageItemFileChange, {
+            item: (itemData as Extract<CodexItemData, { kind: 'file_change' }>).item
+          })
         case 'subagent_activity':
-          return h(CzMessageItemSubagentActivity, { item: itemData.item })
+          return h(CzMessageItemSubagentActivity, {
+            item: (itemData as Extract<CodexItemData, { kind: 'subagent_activity' }>).item
+          })
+        case 'subagent_panel':
+          return null
         case 'mcp_tool_call':
-          if (isDynamicToolCall(itemData.item)) {
-            return h(CzMessageItemInternalToolCall, { item: itemData.item })
+          if (isDynamicToolCall((itemData as Extract<CodexItemData, { kind: 'mcp_tool_call' }>).item)) {
+            return h(CzMessageItemInternalToolCall, {
+              item: (itemData as Extract<CodexItemData, { kind: 'mcp_tool_call' }>).item
+            })
           }
-          return h(CzMessageItemMcpToolCall, { item: itemData.item })
+          return h(CzMessageItemMcpToolCall, {
+            item: (itemData as Extract<CodexItemData, { kind: 'mcp_tool_call' }>).item
+          })
         case 'web_search':
-          return h(CzMessageItemWebSearch, { item: itemData.item })
+          return h(CzMessageItemWebSearch, {
+            item: (itemData as Extract<CodexItemData, { kind: 'web_search' }>).item
+          })
         case 'todo_list':
-          return h(CzMessageItemTodoList, { item: itemData.item })
+          return h(CzMessageItemTodoList, {
+            item: (itemData as Extract<CodexItemData, { kind: 'todo_list' }>).item
+          })
         case 'error':
-          return h(CzMessageItemError, { item: itemData.item })
+          return h(CzMessageItemError, {
+            item: (itemData as Extract<CodexItemData, { kind: 'error' }>).item
+          })
         default:
           return null
       }
