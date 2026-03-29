@@ -1,39 +1,32 @@
 <script setup lang="ts">
-import type { VisualSubagentPanel, VisualSubagentStatus } from '../../composables/useVisualSubagentPanels'
+import { computed } from 'vue'
+import {
+  SplitterGroup,
+  SplitterPanel,
+  SplitterResizeHandle
+} from 'reka-ui'
+import type { VisualSubagentPanel } from '@/composables/useVisualSubagentPanels'
 
 const props = defineProps<{
-  panels: VisualSubagentPanel[]
+  agents: VisualSubagentPanel[]
 }>()
 
-const shortThreadId = (value: string) => value.slice(0, 8)
-
-const statusLabel = (status: VisualSubagentStatus) => {
-  switch (status) {
-    case 'pendingInit':
-      return 'pending'
-    case 'running':
-      return 'running'
-    case 'interrupted':
-      return 'interrupted'
-    case 'completed':
-      return 'completed'
-    case 'errored':
-      return 'errored'
-    case 'shutdown':
-      return 'shutdown'
-    case 'notFound':
-      return 'not found'
-    default:
-      return 'live'
+const paneSize = computed(() => {
+  if (!props.agents.length) {
+    return 100
   }
-}
 
-const statusColor = (status: VisualSubagentStatus) => {
+  return 100 / props.agents.length
+})
+
+const statusColor = (status: VisualSubagentPanel['status']) => {
   switch (status) {
     case 'running':
       return 'info'
     case 'pendingInit':
       return 'primary'
+    case 'completed':
+      return 'success'
     case 'interrupted':
       return 'warning'
     case 'errored':
@@ -42,77 +35,106 @@ const statusColor = (status: VisualSubagentStatus) => {
     case 'notFound':
       return 'neutral'
     default:
-      return 'success'
+      return 'neutral'
   }
 }
+
+const statusLabel = (status: VisualSubagentPanel['status']) => {
+  switch (status) {
+    case 'pendingInit':
+      return 'pending'
+    case 'running':
+      return 'running'
+    case 'completed':
+      return 'completed'
+    case 'interrupted':
+      return 'interrupted'
+    case 'errored':
+      return 'errored'
+    case 'shutdown':
+      return 'shutdown'
+    case 'notFound':
+      return 'not found'
+    default:
+      return 'active'
+  }
+}
+
+const messageRoleLabel = (role: string | undefined) =>
+  role === 'user' ? 'user' : 'assistant'
 </script>
 
 <template>
   <SplitterGroup
     direction="vertical"
-    class="flex h-full min-h-0 flex-col"
+    class="h-full min-h-0"
   >
     <template
-      v-for="(panel, index) in props.panels"
-      :key="panel.threadId"
+      v-for="(agent, index) in agents"
+      :key="agent.threadId"
     >
       <SplitterPanel
-        :id="panel.threadId"
+        :id="agent.threadId"
         :order="index + 1"
-        :default-size="100 / props.panels.length"
+        :default-size="paneSize"
         :min-size="18"
-        class="min-h-0 overflow-hidden rounded-2xl border border-default bg-elevated/80 shadow-sm"
+        class="min-h-0"
       >
-        <div class="flex h-full min-h-0 flex-col">
-          <div class="flex items-start justify-between gap-3 border-b border-default/70 bg-muted/20 px-3 py-2.5">
+        <div class="flex h-full min-h-0 flex-col bg-elevated/30">
+          <div class="flex items-center justify-between gap-2 border-b border-muted px-4 py-3">
             <div class="min-w-0">
               <p class="truncate text-sm font-semibold text-default">
-                {{ panel.name || shortThreadId(panel.threadId) }}
+                {{ agent.name }}
               </p>
               <p class="font-mono text-[11px] text-muted-foreground">
-                {{ shortThreadId(panel.threadId) }}
+                {{ agent.threadId.slice(0, 8) }}
               </p>
             </div>
             <UBadge
-              :color="statusColor(panel.status)"
+              :color="statusColor(agent.status)"
               variant="soft"
-              size="xs"
-              class="shrink-0"
+              size="sm"
             >
-              {{ statusLabel(panel.status) }}
+              {{ statusLabel(agent.status) }}
             </UBadge>
           </div>
 
-          <div class="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+          <div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
             <div
-              v-if="panel.messages.length > 0"
-              class="space-y-3"
+              v-if="agent.messages.length === 0"
+              class="rounded-lg border border-dashed border-muted px-3 py-4 text-sm text-muted-foreground"
             >
-              <div
-                v-for="message in panel.messages"
-                :key="message.id"
-                class="rounded-xl border border-default/70 bg-background/80 p-3 shadow-sm"
-              >
-                <div class="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                  <span>{{ message.role }}</span>
-                </div>
-                <cz-message-content :message="message" />
-              </div>
+              Waiting for subagent output...
             </div>
 
             <div
               v-else
-              class="flex h-full min-h-24 items-center justify-center rounded-xl border border-dashed border-muted/70 bg-muted/10 px-4 py-6 text-sm text-muted-foreground"
+              class="space-y-4"
             >
-              Waiting for subagent transcript...
+              <div
+                v-for="message in agent.messages"
+                :key="message.id"
+                class="space-y-2 rounded-lg border border-muted/70 bg-default/5 px-3 py-3"
+              >
+                <div class="flex items-center gap-2">
+                  <UBadge
+                    :color="message.role === 'user' ? 'neutral' : 'primary'"
+                    variant="subtle"
+                    size="xs"
+                  >
+                    {{ messageRoleLabel(message.role) }}
+                  </UBadge>
+                </div>
+                <cz-message-content :message="message" />
+              </div>
             </div>
           </div>
         </div>
       </SplitterPanel>
 
       <SplitterResizeHandle
-        v-if="index < props.panels.length - 1"
-        class="mx-3 my-2 h-1 rounded-full bg-muted/70"
+        v-if="index < agents.length - 1"
+        class="relative flex h-2 items-center justify-center bg-transparent before:h-px before:w-full before:bg-border"
       />
     </template>
   </SplitterGroup>
