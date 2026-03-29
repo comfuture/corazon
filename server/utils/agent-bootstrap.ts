@@ -12,6 +12,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { dirname, join, relative, resolve as resolvePath } from 'node:path'
+import { normalizeImageGenerationFeatureConfig } from '@@/lib/image-generation-config.mjs'
 import { getDefaultCodexSeedSourceDir, resolveCorazonRootDir } from './agent-home.ts'
 
 const SEED_FILES = ['config.toml'] as const
@@ -188,77 +189,11 @@ const ensureImageGenerationFeatureEnabled = (configPath: string) => {
   }
 
   const original = readFileSync(configPath, 'utf8')
-  const newline = original.includes('\r\n') ? '\r\n' : '\n'
-  const lines = original.split(/\r?\n/)
-  const imageGenerationKeyPattern = /^(?:"image_generation"|'image_generation'|image_generation)\s*=/
-  const imageGenerationTruePattern = /^(?:"image_generation"|'image_generation'|image_generation)\s*=\s*true(?:\s+#.*)?$/i
-  let inFeatures = false
-  let sawFeatures = false
-  let imageGenerationSet = false
-  let changed = false
-  const nextLines: string[] = []
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (/^\[.*\]/.test(trimmed)) {
-      if (inFeatures && !imageGenerationSet) {
-        nextLines.push('image_generation = true')
-        imageGenerationSet = true
-        changed = true
-      }
-      inFeatures = /^\[features\](?:\s+#.*)?\s*$/i.test(trimmed)
-      sawFeatures = sawFeatures || inFeatures
-      nextLines.push(line)
-      continue
-    }
-
-    if (!inFeatures) {
-      nextLines.push(line)
-      continue
-    }
-
-    if (trimmed.startsWith('#')) {
-      nextLines.push(line)
-      continue
-    }
-
-    if (imageGenerationKeyPattern.test(trimmed)) {
-      if (!imageGenerationTruePattern.test(trimmed)) {
-        changed = true
-      }
-      nextLines.push('image_generation = true')
-      imageGenerationSet = true
-      continue
-    }
-
-    nextLines.push(line)
-  }
-
-  if (inFeatures && !imageGenerationSet) {
-    nextLines.push('image_generation = true')
-    imageGenerationSet = true
-    changed = true
-  }
-
-  if (!sawFeatures) {
-    const lastLine = nextLines.at(-1)
-    if (typeof lastLine === 'string' && lastLine.trim() !== '') {
-      nextLines.push('')
-    }
-    nextLines.push('[features]')
-    nextLines.push('image_generation = true')
-    changed = true
-  }
-
+  const { changed, output } = normalizeImageGenerationFeatureConfig(original)
   if (!changed) {
     return
   }
-
-  const next = nextLines.join(newline)
-  const output = next.endsWith(newline) ? next : `${next}${newline}`
-  if (output !== original) {
-    writeFileSync(configPath, output, 'utf8')
-  }
+  writeFileSync(configPath, output, 'utf8')
 }
 
 const ensureDefaultAgentsFile = (agentHomeDir: string) => {
