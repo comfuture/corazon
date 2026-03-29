@@ -326,7 +326,7 @@ const ensureSkillScriptPermissions = (runtimeRoot) => {
   }
 }
 
-const stripImageGenerationFeature = (configPath) => {
+const ensureImageGenerationFeatureEnabled = (configPath) => {
   if (!existsSync(configPath)) {
     return false
   }
@@ -335,36 +335,67 @@ const stripImageGenerationFeature = (configPath) => {
   const newline = original.includes('\r\n') ? '\r\n' : '\n'
   const lines = original.split(/\r?\n/)
   let inFeatures = false
+  let sawFeatures = false
+  let imageGenerationSet = false
   let changed = false
 
-  const filtered = lines.filter((line) => {
+  const nextLines = []
+  for (const line of lines) {
     const trimmed = line.trim()
     if (/^\[.*\]/.test(trimmed)) {
+      if (inFeatures && !imageGenerationSet) {
+        nextLines.push('image_generation = true')
+        imageGenerationSet = true
+        changed = true
+      }
       inFeatures = /^\[features\]\s*$/i.test(trimmed)
-      return true
+      sawFeatures = sawFeatures || inFeatures
+      nextLines.push(line)
+      continue
     }
 
     if (!inFeatures) {
-      return true
+      nextLines.push(line)
+      continue
     }
 
     if (trimmed.startsWith('#')) {
-      return true
+      nextLines.push(line)
+      continue
     }
 
     if (/^image_generation\s*=/.test(trimmed)) {
-      changed = true
-      return false
+      if (!/^image_generation\s*=\s*true(?:\s+#.*)?$/i.test(trimmed)) {
+        changed = true
+      }
+      nextLines.push('image_generation = true')
+      imageGenerationSet = true
+      continue
     }
 
-    return true
-  })
+    nextLines.push(line)
+  }
+
+  if (inFeatures && !imageGenerationSet) {
+    nextLines.push('image_generation = true')
+    imageGenerationSet = true
+    changed = true
+  }
+
+  if (!sawFeatures) {
+    if (nextLines.length > 0 && nextLines[nextLines.length - 1].trim() !== '') {
+      nextLines.push('')
+    }
+    nextLines.push('[features]')
+    nextLines.push('image_generation = true')
+    changed = true
+  }
 
   if (!changed) {
     return false
   }
 
-  const next = filtered.join(newline)
+  const next = nextLines.join(newline)
   const output = next.endsWith(newline) ? next : `${next}${newline}`
   if (output !== original) {
     writeFileSync(configPath, output, 'utf8')
@@ -434,8 +465,11 @@ export const run = (args = []) => {
       )
     }
 
-    if (configSeeded) {
-      stripImageGenerationFeature(join(runtimeRoot, 'config.toml'))
+    if (configSeeded || existsSync(join(runtimeRoot, 'config.toml'))) {
+      const featureUpdated = ensureImageGenerationFeatureEnabled(join(runtimeRoot, 'config.toml'))
+      if (featureUpdated) {
+        log(options, 'Enabled `features.image_generation = true` in runtime config.toml.')
+      }
     }
 
     ensureLinkedAuthFile(

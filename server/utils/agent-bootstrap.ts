@@ -182,6 +182,83 @@ const ensureSeededDirectory = (sourcePath: string, destinationPath: string) => {
   copyDirectoryRecursive(sourcePath, destinationPath)
 }
 
+const ensureImageGenerationFeatureEnabled = (configPath: string) => {
+  if (!existsSync(configPath)) {
+    return
+  }
+
+  const original = readFileSync(configPath, 'utf8')
+  const newline = original.includes('\r\n') ? '\r\n' : '\n'
+  const lines = original.split(/\r?\n/)
+  let inFeatures = false
+  let sawFeatures = false
+  let imageGenerationSet = false
+  let changed = false
+  const nextLines: string[] = []
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (/^\[.*\]/.test(trimmed)) {
+      if (inFeatures && !imageGenerationSet) {
+        nextLines.push('image_generation = true')
+        imageGenerationSet = true
+        changed = true
+      }
+      inFeatures = /^\[features\]\s*$/i.test(trimmed)
+      sawFeatures = sawFeatures || inFeatures
+      nextLines.push(line)
+      continue
+    }
+
+    if (!inFeatures) {
+      nextLines.push(line)
+      continue
+    }
+
+    if (trimmed.startsWith('#')) {
+      nextLines.push(line)
+      continue
+    }
+
+    if (/^image_generation\s*=/.test(trimmed)) {
+      if (!/^image_generation\s*=\s*true(?:\s+#.*)?$/i.test(trimmed)) {
+        changed = true
+      }
+      nextLines.push('image_generation = true')
+      imageGenerationSet = true
+      continue
+    }
+
+    nextLines.push(line)
+  }
+
+  if (inFeatures && !imageGenerationSet) {
+    nextLines.push('image_generation = true')
+    imageGenerationSet = true
+    changed = true
+  }
+
+  if (!sawFeatures) {
+    const lastLine = nextLines.at(-1)
+    if (typeof lastLine === 'string' && lastLine.trim() !== '') {
+      nextLines.push('')
+    }
+    nextLines.push('[features]')
+    nextLines.push('image_generation = true')
+    changed = true
+  }
+
+  if (!changed) {
+    return
+  }
+
+  const next = nextLines.join(newline)
+  const output = next.endsWith(newline) ? next : `${next}${newline}`
+  if (output !== original) {
+    writeFileSync(configPath, output, 'utf8')
+  }
+}
+
 const ensureDefaultAgentsFile = (agentHomeDir: string) => {
   const destinationPath = join(agentHomeDir, AGENTS_FILE)
   if (existsSync(destinationPath)) {
@@ -351,6 +428,7 @@ export const ensureAgentBootstrap = () => {
     }
     ensureLinkedAuthFile(join(sourceRootDir, AUTH_FILE), join(agentHomeDir, AUTH_FILE))
   }
+  ensureImageGenerationFeatureEnabled(join(agentHomeDir, 'config.toml'))
 
   ensureBundledSkills(agentHomeDir)
   ensureSkillScriptPermissions(agentHomeDir)

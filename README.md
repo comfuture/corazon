@@ -101,6 +101,17 @@ Notes:
 - Keep the host Codex home available when you want `auth.json` and other seed files to survive redeploys.
 - Workflow local metadata is stored at `${WORKFLOW_LOCAL_DATA_DIR}` (default: `${CORAZON_ROOT_DIR}/workflow-data`).
 
+### Verify Image Generation Readiness
+
+After `npx corazon setup`, verify runtime config and Codex package versions:
+
+```bash
+grep -n "image_generation = true" "$CORAZON_HOST_STATE_DIR/.corazon/config.toml"
+pnpm list @openai/codex-sdk @openai/codex --depth 0
+```
+
+Then start Corazon with an image-capable model and confirm the `image_generation` tool is exposed in the session.
+
 ## Data & storage
 
 - SQLite database: `${CORAZON_ROOT_DIR}/data/codex.sqlite` (default: `~/.corazon/data/codex.sqlite`)
