@@ -32,3 +32,6 @@ jobs:
 
       - name: Typecheck
         run: pnpm run typecheck
+
+      - name: image_generation regression tests
+        run: pnpm run test:image-generation-config
