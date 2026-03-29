@@ -16,7 +16,6 @@ import { homedir } from 'node:os'
 import { dirname, join, relative, resolve as resolvePath } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const SEED_FILES = ['config.toml']
 const SEED_DIRECTORIES = ['skills', 'rules', 'vendor_imports']
 const AUTH_FILE = 'auth.json'
 const AGENTS_FILE = 'AGENTS.md'
@@ -186,15 +185,16 @@ const copyDirectoryRecursive = (sourceDir, destinationDir, overwrite, counters) 
 const ensureSeededFile = (sourcePath, destinationPath, overwrite, counters) => {
   if (!existsSync(sourcePath)) {
     counters.skipped += 1
-    return
+    return false
   }
   if (existsSync(destinationPath) && !overwrite) {
     counters.skipped += 1
-    return
+    return false
   }
   mkdirSync(dirname(destinationPath), { recursive: true })
   copyFileSync(sourcePath, destinationPath)
   counters.copied += 1
+  return true
 }
 
 const ensureSeededDirectory = (sourcePath, destinationPath, overwrite, counters) => {
@@ -326,6 +326,53 @@ const ensureSkillScriptPermissions = (runtimeRoot) => {
   }
 }
 
+const stripImageGenerationFeature = (configPath) => {
+  if (!existsSync(configPath)) {
+    return false
+  }
+
+  const original = readFileSync(configPath, 'utf8')
+  const newline = original.includes('\r\n') ? '\r\n' : '\n'
+  const lines = original.split(/\r?\n/)
+  let inFeatures = false
+  let changed = false
+
+  const filtered = lines.filter((line) => {
+    const trimmed = line.trim()
+    if (/^\[.*\]/.test(trimmed)) {
+      inFeatures = /^\[features\]\s*$/i.test(trimmed)
+      return true
+    }
+
+    if (!inFeatures) {
+      return true
+    }
+
+    if (trimmed.startsWith('#')) {
+      return true
+    }
+
+    if (/^image_generation\s*=/.test(trimmed)) {
+      changed = true
+      return false
+    }
+
+    return true
+  })
+
+  if (!changed) {
+    return false
+  }
+
+  const next = filtered.join(newline)
+  const output = next.endsWith(newline) ? next : `${next}${newline}`
+  if (output !== original) {
+    writeFileSync(configPath, output, 'utf8')
+  }
+
+  return true
+}
+
 const printUsage = () => {
   console.log(`corazon setup
 
@@ -371,14 +418,12 @@ export const run = (args = []) => {
   mkdirSync(join(runtimeRoot, 'workflow-data'), { recursive: true })
 
   if (existsSync(codexHome)) {
-    for (const filename of SEED_FILES) {
-      ensureSeededFile(
-        join(codexHome, filename),
-        join(runtimeRoot, filename),
-        options.overwrite,
-        counters
-      )
-    }
+    const configSeeded = ensureSeededFile(
+      join(codexHome, 'config.toml'),
+      join(runtimeRoot, 'config.toml'),
+      options.overwrite,
+      counters
+    )
 
     for (const directoryName of SEED_DIRECTORIES) {
       ensureSeededDirectory(
@@ -387,6 +432,10 @@ export const run = (args = []) => {
         options.overwrite,
         counters
       )
+    }
+
+    if (configSeeded) {
+      stripImageGenerationFeature(join(runtimeRoot, 'config.toml'))
     }
 
     ensureLinkedAuthFile(
