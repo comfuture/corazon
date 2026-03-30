@@ -243,6 +243,7 @@ const onAttachmentInputChange = (event: Event) => {
 <template>
   <div class="flex h-full min-h-0 w-full">
     <UDashboardPanel
+      id="chat-main-panel"
       class="relative h-full min-h-0 flex-1"
       :default-size="70"
       :min-size="50"
@@ -505,9 +506,6 @@ const onAttachmentInputChange = (event: Event) => {
       v-if="visualSubagentPanels.length > 0"
       id="chat-subagents-panel"
       class="h-full min-h-0"
-      :default-size="30"
-      :min-size="30"
-      :max-size="50"
       :ui="{ body: '!p-0' }"
     >
       <template #header>
