@@ -31,7 +31,56 @@ const {
   uploadAttachments
 } = useChatAttachments()
 const chatPromptRef = ref<{ textareaRef?: HTMLTextAreaElement | null } | null>(null)
-const visualSubagentPanels = useVisualSubagentPanels(() => chat.value?.messages ?? [])
+const {
+  availablePanels: availableSubagentPanels,
+  activePanels: activeSubagentPanels
+} = useVisualSubagentPanels(() => chat.value?.messages ?? [])
+const isSubagentsPanelOpen = ref(false)
+const hasUserToggledSubagentsPanel = ref(false)
+const hasResolvedSubagentPanelState = ref(false)
+const previousActiveSubagentCount = ref(0)
+
+const SUBAGENT_AVATAR_PALETTE = [
+  'bg-emerald-500/15 text-emerald-700 ring-1 ring-inset ring-emerald-500/30 dark:text-emerald-300',
+  'bg-sky-500/15 text-sky-700 ring-1 ring-inset ring-sky-500/30 dark:text-sky-300',
+  'bg-amber-500/15 text-amber-800 ring-1 ring-inset ring-amber-500/35 dark:text-amber-300',
+  'bg-rose-500/15 text-rose-700 ring-1 ring-inset ring-rose-500/30 dark:text-rose-300',
+  'bg-violet-500/15 text-violet-700 ring-1 ring-inset ring-violet-500/30 dark:text-violet-300',
+  'bg-cyan-500/15 text-cyan-700 ring-1 ring-inset ring-cyan-500/30 dark:text-cyan-300',
+  'bg-lime-500/15 text-lime-800 ring-1 ring-inset ring-lime-500/35 dark:text-lime-300',
+  'bg-orange-500/15 text-orange-700 ring-1 ring-inset ring-orange-500/30 dark:text-orange-300'
+] as const
+
+const toSubagentAvatarText = (name: string) => {
+  const normalized = name.replace(/\s+/g, '').trim()
+  return Array.from(normalized || 'AG').slice(0, 2).join('')
+}
+
+const hasAvailableSubagents = computed(() => availableSubagentPanels.value.length > 0)
+const isSubagentsPanelVisible = computed(() =>
+  isSubagentsPanelOpen.value && hasAvailableSubagents.value
+)
+const subagentAvatarItems = computed(() =>
+  availableSubagentPanels.value.map((panel, index) => ({
+    threadId: panel.threadId,
+    name: panel.name,
+    text: toSubagentAvatarText(panel.name),
+    class: SUBAGENT_AVATAR_PALETTE[index % SUBAGENT_AVATAR_PALETTE.length]
+  }))
+)
+
+const toggleSubagentsPanel = () => {
+  if (!hasAvailableSubagents.value) {
+    return
+  }
+  hasUserToggledSubagentsPanel.value = true
+  isSubagentsPanelOpen.value = !isSubagentsPanelOpen.value
+}
+
+const closeSubagentsPanel = () => {
+  hasUserToggledSubagentsPanel.value = true
+  isSubagentsPanelOpen.value = false
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -78,9 +127,48 @@ const confirmDeleteThread = async () => {
 watch(
   routeThreadId,
   (value) => {
+    hasUserToggledSubagentsPanel.value = false
+    hasResolvedSubagentPanelState.value = false
+    previousActiveSubagentCount.value = 0
+    isSubagentsPanelOpen.value = false
     if (value) {
       void setThreadFromRoute(value)
     }
+  },
+  { immediate: true }
+)
+
+watch(hasAvailableSubagents, (value) => {
+  if (!value) {
+    hasUserToggledSubagentsPanel.value = false
+    hasResolvedSubagentPanelState.value = false
+    previousActiveSubagentCount.value = 0
+    isSubagentsPanelOpen.value = false
+  }
+}, { immediate: true })
+
+watch(
+  () => activeSubagentPanels.value.length,
+  (nextCount) => {
+    if (!hasAvailableSubagents.value) {
+      return
+    }
+
+    if (!hasResolvedSubagentPanelState.value) {
+      hasResolvedSubagentPanelState.value = true
+      previousActiveSubagentCount.value = nextCount
+      isSubagentsPanelOpen.value = nextCount > 0
+      return
+    }
+
+    if (!hasUserToggledSubagentsPanel.value
+      && previousActiveSubagentCount.value === 0
+      && nextCount > 0
+    ) {
+      isSubagentsPanelOpen.value = true
+    }
+
+    previousActiveSubagentCount.value = nextCount
   },
   { immediate: true }
 )
@@ -245,10 +333,10 @@ const onAttachmentInputChange = (event: Event) => {
     <UDashboardPanel
       id="chat-main-panel"
       class="relative h-full min-h-0 flex-1"
-      :default-size="70"
-      :min-size="50"
-      :max-size="70"
-      :resizable="visualSubagentPanels.length > 0"
+      :default-size="isSubagentsPanelVisible ? 70 : undefined"
+      :min-size="isSubagentsPanelVisible ? 50 : undefined"
+      :max-size="isSubagentsPanelVisible ? 70 : undefined"
+      :resizable="isSubagentsPanelVisible"
       @dragenter="onDragEnter"
       @dragleave="onDragLeave"
       @dragover="onDragOver"
@@ -276,6 +364,31 @@ const onAttachmentInputChange = (event: Event) => {
           </template>
           <template #right>
             <div class="flex items-center gap-3">
+              <UButton
+                v-if="hasAvailableSubagents"
+                :color="isSubagentsPanelVisible ? 'primary' : 'neutral'"
+                :variant="isSubagentsPanelVisible ? 'soft' : 'ghost'"
+                size="sm"
+                class="gap-2 ps-2 pe-2.5"
+                :aria-label="isSubagentsPanelVisible ? 'Hide subagents' : 'Show subagents'"
+                @click="toggleSubagentsPanel"
+              >
+                <span class="hidden text-sm sm:inline">
+                  Subagents
+                </span>
+                <UAvatarGroup
+                  size="2xs"
+                  :max="4"
+                >
+                  <UAvatar
+                    v-for="agent in subagentAvatarItems"
+                    :key="agent.threadId"
+                    :text="agent.text"
+                    :alt="agent.name"
+                    :class="agent.class"
+                  />
+                </UAvatarGroup>
+              </UButton>
               <UColorModeButton
                 color="neutral"
                 variant="ghost"
@@ -503,7 +616,7 @@ const onAttachmentInputChange = (event: Event) => {
     </UDashboardPanel>
 
     <UDashboardPanel
-      v-if="visualSubagentPanels.length > 0"
+      v-if="isSubagentsPanelVisible"
       id="chat-subagents-panel"
       class="h-full min-h-0"
       :ui="{ body: '!p-0' }"
@@ -513,19 +626,29 @@ const onAttachmentInputChange = (event: Event) => {
           <h3 class="text-base font-semibold">
             Subagents
           </h3>
-          <UBadge
-            color="primary"
-            variant="soft"
-          >
-            {{ visualSubagentPanels.length }}
-          </UBadge>
+          <div class="flex items-center gap-2">
+            <UBadge
+              color="primary"
+              variant="soft"
+            >
+              {{ availableSubagentPanels.length }}
+            </UBadge>
+            <UButton
+              icon="i-lucide-x"
+              color="neutral"
+              variant="ghost"
+              size="xs"
+              aria-label="Close subagents panel"
+              @click="closeSubagentsPanel"
+            />
+          </div>
         </div>
       </template>
 
       <template #body>
         <div class="h-full min-h-0 p-3">
           <cz-visual-subagent-stack
-            :agents="visualSubagentPanels"
+            :agents="availableSubagentPanels"
             class="h-full min-h-0"
           />
         </div>
