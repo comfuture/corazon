@@ -213,14 +213,15 @@ export default defineEventHandler(async (event: H3Event) => {
   const activeRunInfo = getThreadActiveRunInfo(threadId)
   let messages = loadThreadMessages(threadId) ?? []
   let activeRunId = await resolveActiveRunId(threadId, activeRunInfo?.runId ?? null)
+  const hasExpiredHeartbeat = typeof activeRunInfo?.updatedAt === 'number'
+    && Date.now() - activeRunInfo.updatedAt >= STALE_ACTIVE_RUN_IDLE_MS
+  const hasVisibleInFlightWork = hasOpenInFlightOperation(messages)
 
   if (hasRepairableStaleState(messages)) {
     const hasTrackedActiveRun = Boolean(activeRunInfo?.runId)
-    const hasExpiredHeartbeat = typeof activeRunInfo?.updatedAt === 'number'
-      && Date.now() - activeRunInfo.updatedAt >= STALE_ACTIVE_RUN_IDLE_MS
     const canFinalizeStaleRun = !hasTrackedActiveRun
       || !activeRunId
-      || (hasExpiredHeartbeat && !hasOpenInFlightOperation(messages))
+      || (hasExpiredHeartbeat && !hasVisibleInFlightWork)
 
     if (canFinalizeStaleRun) {
       messages = finalizeStaleMessages(messages)
@@ -230,6 +231,11 @@ export default defineEventHandler(async (event: H3Event) => {
       }
       activeRunId = null
     }
+  }
+
+  if (activeRunInfo?.runId && activeRunId && hasExpiredHeartbeat && !hasVisibleInFlightWork) {
+    clearThreadActiveRun(threadId, activeRunInfo.runId)
+    activeRunId = null
   }
 
   const response: CodexChatHistoryResponse = {
