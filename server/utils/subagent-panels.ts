@@ -445,6 +445,7 @@ type SubagentPanelManagerOptions = {
 export const createSubagentPanelManager = (options: SubagentPanelManagerOptions) => {
   const panels = new Map<string, SubagentPanelState>()
   const orphanNotifications = new Map<string, ServerNotification[]>()
+  const knownSubagentThreadIds = new Set<string>()
 
   const getOrCreatePanel = (threadId: string) => {
     const existing = panels.get(threadId)
@@ -516,6 +517,9 @@ export const createSubagentPanelManager = (options: SubagentPanelManagerOptions)
 
     const panel = panels.get(threadId)
     if (!panel) {
+      if (!knownSubagentThreadIds.has(threadId)) {
+        return
+      }
       const queued = orphanNotifications.get(threadId) ?? []
       queued.push(notification)
       orphanNotifications.set(threadId, queued)
@@ -577,6 +581,7 @@ export const createSubagentPanelManager = (options: SubagentPanelManagerOptions)
     )
 
     for (const threadId of item.receiverThreadIds) {
+      knownSubagentThreadIds.add(threadId)
       const status = stateByThreadId.get(threadId) ?? null
       if (isSubagentActiveStatus(status)) {
         ensureActivePanel(threadId, status)

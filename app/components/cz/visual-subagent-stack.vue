@@ -151,10 +151,38 @@ const scrollContainerRef = (threadId: string) => {
   return ref
 }
 
+const summarizeMessage = (message: VisualSubagentPanel['messages'][number] | undefined) => {
+  if (!message) {
+    return ''
+  }
+
+  return (message.parts ?? [])
+    .map((part) => {
+      switch (part.type) {
+        case 'text':
+        case 'reasoning':
+          return `${part.type}:${part.state ?? 'done'}:${part.text?.length ?? 0}`
+        case 'data-codex-item': {
+          const item = part.data?.item as { id?: string, status?: string } | undefined
+          return `${part.type}:${part.id}:${item?.status ?? ''}:${item?.id ?? ''}`
+        }
+        case 'file':
+          return `${part.type}:${part.url ?? ''}`
+        default:
+          return part.type
+      }
+    })
+    .join('|')
+}
+
 const panelSignatures = computed(() =>
   props.agents.map(agent => ({
     threadId: agent.threadId,
-    signature: JSON.stringify(agent.messages),
+    signature: [
+      agent.messages.length,
+      agent.messages.at(-1)?.id ?? '',
+      summarizeMessage(agent.messages.at(-1))
+    ].join(':'),
     status: agent.status
   }))
 )

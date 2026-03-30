@@ -412,6 +412,7 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
       let lastPersistedChunkIndex = -1
       let persistSnapshotTimer: ReturnType<typeof setTimeout> | null = null
       let persistSnapshotChain = Promise.resolve()
+      let hasSavedFinalMessages = false
 
       if (resolvedThreadId && workflowRunId) {
         setThreadActiveRun(resolvedThreadId, workflowRunId)
@@ -698,6 +699,7 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
           }
 
           saveThreadMessages(resolvedThreadId, finalMessages)
+          hasSavedFinalMessages = true
         }
       } finally {
         if (persistSnapshotTimer) {
@@ -705,7 +707,9 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
           persistSnapshotTimer = null
         }
         await persistSnapshotChain
-        await persistActiveSnapshot()
+        if (!hasSavedFinalMessages) {
+          await persistActiveSnapshot()
+        }
 
         unsubscribeSubagentNotifications?.()
         if (resolvedThreadId) {
