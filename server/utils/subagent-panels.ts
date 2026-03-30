@@ -13,11 +13,11 @@ import {
   type CodexSubagentPanelItem,
   type CodexUIDataTypes,
   type CodexUIMessage
-} from '@@/types/chat-ui'
-import type { ServerNotification } from '@@/types/codex-app-server/ServerNotification'
-import type { ThreadItem as AppServerThreadItem } from '@@/types/codex-app-server/v2/ThreadItem'
-import type { ThreadReadResponse } from '@@/types/codex-app-server/v2/ThreadReadResponse'
-import type { UserInput } from '@@/types/codex-app-server/v2/UserInput'
+} from '../../types/chat-ui.ts'
+import type { ServerNotification } from '../../types/codex-app-server/ServerNotification.ts'
+import type { ThreadItem as AppServerThreadItem } from '../../types/codex-app-server/v2/ThreadItem.ts'
+import type { ThreadReadResponse } from '../../types/codex-app-server/v2/ThreadReadResponse.ts'
+import type { UserInput } from '../../types/codex-app-server/v2/UserInput.ts'
 import type { AppServerProtocol } from './codex-client/app-server-protocol.ts'
 import type { CodexThreadItem } from './codex-client/types.ts'
 import {
