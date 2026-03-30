@@ -232,6 +232,7 @@ const getDb = () => {
       origin TEXT,
       origin_channel_id TEXT,
       active_run_id TEXT,
+      active_run_resume_index INTEGER,
       active_run_updated_at INTEGER,
       memory_synced_source_updated_at INTEGER,
       memory_last_synced_at INTEGER,
@@ -353,6 +354,10 @@ const getDb = () => {
 
   if (!hasColumn('active_run_id')) {
     db.exec('ALTER TABLE threads ADD COLUMN active_run_id TEXT')
+  }
+
+  if (!hasColumn('active_run_resume_index')) {
+    db.exec('ALTER TABLE threads ADD COLUMN active_run_resume_index INTEGER')
   }
 
   if (!hasColumn('active_run_updated_at')) {
@@ -686,11 +691,32 @@ export const setThreadActiveRun = (threadId: string, runId: string, updatedAt?: 
     .prepare(
       `
       UPDATE threads
-      SET active_run_id = ?, active_run_updated_at = ?, updated_at = ?
+      SET active_run_id = ?, active_run_resume_index = 0, active_run_updated_at = ?, updated_at = ?
       WHERE id = ?
     `
     )
     .run(runId, now, now, threadId)
+  return now
+}
+
+export const setThreadActiveRunResumeIndex = (
+  threadId: string,
+  runId: string,
+  resumeIndex: number,
+  updatedAt?: number
+) => {
+  const now = updatedAt ?? Date.now()
+  const database = getDb()
+  ensureThread(threadId)
+  database
+    .prepare(
+      `
+      UPDATE threads
+      SET active_run_resume_index = ?, active_run_updated_at = ?, updated_at = ?
+      WHERE id = ? AND active_run_id = ?
+    `
+    )
+    .run(Math.max(0, Math.floor(resumeIndex)), now, now, threadId, runId)
   return now
 }
 
@@ -704,7 +730,7 @@ export const clearThreadActiveRun = (threadId: string, runId?: string) => {
       .prepare(
         `
         UPDATE threads
-        SET active_run_id = NULL, active_run_updated_at = ?, updated_at = ?
+        SET active_run_id = NULL, active_run_resume_index = NULL, active_run_updated_at = ?, updated_at = ?
         WHERE id = ? AND active_run_id = ?
       `
       )
@@ -716,7 +742,7 @@ export const clearThreadActiveRun = (threadId: string, runId?: string) => {
     .prepare(
       `
       UPDATE threads
-      SET active_run_id = NULL, active_run_updated_at = ?, updated_at = ?
+      SET active_run_id = NULL, active_run_resume_index = NULL, active_run_updated_at = ?, updated_at = ?
       WHERE id = ?
     `
     )
@@ -730,6 +756,31 @@ export const getThreadActiveRun = (threadId: string): string | null => {
     .prepare('SELECT active_run_id FROM threads WHERE id = ?')
     .get(threadId) as { active_run_id?: string | null } | undefined
   return row?.active_run_id ?? null
+}
+
+export const getThreadActiveRunResumeIndex = (
+  threadId: string,
+  runId?: string | null
+): number | null => {
+  const database = getDb()
+  const row = database
+    .prepare('SELECT active_run_id, active_run_resume_index FROM threads WHERE id = ?')
+    .get(threadId) as {
+      active_run_id?: string | null
+      active_run_resume_index?: number | null
+    } | undefined
+
+  if (!row) {
+    return null
+  }
+
+  if (runId && row.active_run_id !== runId) {
+    return null
+  }
+
+  return typeof row.active_run_resume_index === 'number'
+    ? row.active_run_resume_index
+    : null
 }
 
 export const getThreadTitle = (threadId: string): string | null => {
