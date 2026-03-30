@@ -28,6 +28,14 @@ export default defineEventHandler(async (event: H3Event) => {
     startIndex = parsed
   }
 
+  const threadIdHeader = getHeader(event, 'x-codex-thread-id')
+  if (startIndex === 0 && typeof threadIdHeader === 'string' && threadIdHeader.trim()) {
+    const storedResumeIndex = getThreadActiveRunResumeIndex(threadIdHeader.trim(), runId)
+    if (typeof storedResumeIndex === 'number' && storedResumeIndex > 0) {
+      startIndex = storedResumeIndex
+    }
+  }
+
   const run = getRun(runId)
   let runStatus = ''
   try {

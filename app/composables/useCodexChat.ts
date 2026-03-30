@@ -412,9 +412,15 @@ export const useCodexChat = () => {
             return request
           }
 
+          const reconnectThreadId = threadId.value
+
           return {
             ...request,
-            api: `/api/chat/${encodeURIComponent(runId)}/stream`
+            api: `/api/chat/${encodeURIComponent(runId)}/stream`,
+            headers: {
+              ...(request.headers ?? {}),
+              ...(reconnectThreadId ? { 'x-codex-thread-id': reconnectThreadId } : {})
+            }
           }
         }
       }),

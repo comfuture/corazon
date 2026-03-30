@@ -29,6 +29,7 @@ import {
   getThreadTitle,
   recordThreadUsage,
   saveThreadMessages,
+  setThreadActiveRunResumeIndex,
   setThreadOrigin,
   setThreadActiveRun,
   setThreadModel,
@@ -407,15 +408,64 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
       const reasoningDurations = new Map<string, number>()
       let reasoningWindowStartedAt = executeStartedAt
       let waitingForNextReasoningWindowStart = false
+      let emittedChunkIndex = 0
+      let lastPersistedChunkIndex = -1
+      let persistSnapshotTimer: ReturnType<typeof setTimeout> | null = null
+      let persistSnapshotChain = Promise.resolve()
 
       if (resolvedThreadId && workflowRunId) {
         setThreadActiveRun(resolvedThreadId, workflowRunId)
       }
 
+      const buildCurrentMessagesSnapshot = () => {
+        const steeringMessages = workflowRunId ? getRuntimeTurnSteeringMessages(workflowRunId) : []
+        const assistantMessage = assistantBuilder.build()
+        return assistantMessage
+          ? [...baseMessages, ...steeringMessages, assistantMessage]
+          : [...baseMessages, ...steeringMessages]
+      }
+
+      const persistActiveSnapshot = async () => {
+        if (!resolvedThreadId || !workflowRunId) {
+          return
+        }
+
+        const snapshotChunkIndex = emittedChunkIndex
+        if (snapshotChunkIndex <= lastPersistedChunkIndex) {
+          return
+        }
+
+        saveThreadMessages(resolvedThreadId, buildCurrentMessagesSnapshot())
+        setThreadActiveRunResumeIndex(resolvedThreadId, workflowRunId, snapshotChunkIndex)
+        lastPersistedChunkIndex = snapshotChunkIndex
+      }
+
+      const queuePersistActiveSnapshot = () => {
+        if (!resolvedThreadId || !workflowRunId) {
+          return
+        }
+
+        if (persistSnapshotTimer) {
+          return
+        }
+
+        persistSnapshotTimer = setTimeout(() => {
+          persistSnapshotTimer = null
+          persistSnapshotChain = persistSnapshotChain
+            .then(() => persistActiveSnapshot())
+            .catch((error) => {
+              console.error(error)
+            })
+        }, 120)
+      }
+
       const originalWrite = writer.write.bind(writer)
       const writeChunk: typeof writer.write = (chunk) => {
         assistantBuilder.apply(chunk as InferUIMessageChunk<CodexUIMessage>)
-        return originalWrite(chunk)
+        const result = originalWrite(chunk)
+        emittedChunkIndex += 1
+        queuePersistActiveSnapshot()
+        return result
       }
       writer.write = writeChunk
 
@@ -650,6 +700,13 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
           saveThreadMessages(resolvedThreadId, finalMessages)
         }
       } finally {
+        if (persistSnapshotTimer) {
+          clearTimeout(persistSnapshotTimer)
+          persistSnapshotTimer = null
+        }
+        await persistSnapshotChain
+        await persistActiveSnapshot()
+
         unsubscribeSubagentNotifications?.()
         if (resolvedThreadId) {
           const endedAt = Date.now()
