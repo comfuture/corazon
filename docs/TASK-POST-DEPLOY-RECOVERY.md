@@ -11,7 +11,6 @@ Provide an out-of-band recovery check path that still runs when the normal agent
     - `GET /api/workflows`
     - `GET /api/memory/health`
     - `GET /api/settings/mcp`
-    - `GET /api/chat/workdir`
     - `GET /api/chat/threads?limit=1` (non-critical signal)
   - Runs local runtime checks:
     - runtime root existence
