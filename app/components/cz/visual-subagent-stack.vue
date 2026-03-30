@@ -26,6 +26,10 @@ const paneSize = computed(() => {
   return 100 / props.agents.length
 })
 
+const splitterGroupKey = computed(() =>
+  props.agents.map(agent => agent.threadId).join(':') || 'subagent-panels'
+)
+
 const statusColor = (status: VisualSubagentPanel['status']) => {
   switch (status) {
     case 'running':
@@ -165,6 +169,7 @@ onBeforeUnmount(() => {
 
 <template>
   <SplitterGroup
+    :key="splitterGroupKey"
     direction="vertical"
     class="h-full min-h-0"
   >
@@ -176,7 +181,8 @@ onBeforeUnmount(() => {
         :id="agent.threadId"
         :order="index + 1"
         :default-size="paneSize"
-        :min-size="18"
+        :min-size="0"
+        :max-size="100"
         class="min-h-0"
       >
         <div class="flex h-full min-h-0 flex-col bg-elevated/30">
