@@ -44,7 +44,16 @@ pnpm recovery:post-deploy --apply-safe-fixes
 - Produces a concrete recovery plan format and rollback guidance.
 - Supports an explicit non-agent execution path for post-deploy triage.
 
-## Follow-up candidates
-- Add deploy pipeline hook to run this task immediately after rollout.
-- Add regression tests around classification thresholds and failure mapping.
-- Add optional operator alert integration when status is `down` or repeated `degraded`.
+## Deploy integration status (Issue `#65`)
+- `.github/workflows/deploy.yml` runs `pnpm recovery:post-deploy --json` after each `main` rollout.
+- Recovery JSON is uploaded as a workflow artifact (`post-deploy-recovery-<run_id>`).
+- Gate policy is enforced via `scripts/evaluate-post-deploy-recovery.mjs`:
+  - `down` => deployment workflow fails.
+  - repeated `degraded` (previous run also `degraded`) => warning + operator follow-up required.
+  - single `degraded` => warning (non-blocking), continue with monitoring.
+- Last recovery status is persisted on deploy host at `/home/ubuntu/.corazon/post-deploy-recovery-last-status.txt`.
+
+## Manual dry-run / test path
+- The deploy workflow supports manual dispatch input `post_deploy_check_only=true`.
+- In this mode, build/deploy steps are skipped and only the recovery hook + gate evaluation run against the current production container.
+- This provides a no-rollout validation path for the recovery integration.
