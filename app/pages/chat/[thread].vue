@@ -245,8 +245,8 @@ const onAttachmentInputChange = (event: Event) => {
     <UDashboardPanel
       class="relative h-full min-h-0 flex-1"
       :default-size="70"
-      :min-size="45"
-      :max-size="82"
+      :min-size="50"
+      :max-size="70"
       :resizable="visualSubagentPanels.length > 0"
       @dragenter="onDragEnter"
       @dragleave="onDragLeave"
@@ -506,8 +506,8 @@ const onAttachmentInputChange = (event: Event) => {
       id="chat-subagents-panel"
       class="h-full min-h-0"
       :default-size="30"
-      :min-size="18"
-      :max-size="45"
+      :min-size="30"
+      :max-size="50"
       :ui="{ body: '!p-0' }"
     >
       <template #header>
