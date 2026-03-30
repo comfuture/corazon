@@ -4,13 +4,14 @@ import { join, resolve } from 'node:path'
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:3000'
 const DEFAULT_TIMEOUT_MS = 8000
+const DEFAULT_RUNTIME_ROOT = resolve(process.env.HOME ?? '/root', '.corazon')
 
 const printHelp = () => {
   console.log(`Usage: node scripts/post-deploy-recovery.mjs [options]
 
 Options:
   --base-url <url>           Target Corazon base URL (default: ${DEFAULT_BASE_URL})
-  --runtime-root <path>      Runtime root for local checks (default: /root/.corazon)
+  --runtime-root <path>      Runtime root for local checks (default: ${DEFAULT_RUNTIME_ROOT})
   --timeout-ms <ms>          HTTP timeout per check (default: ${DEFAULT_TIMEOUT_MS})
   --apply-safe-fixes         Apply narrow safe local fixes (directory bootstrap only)
   --probe-agent              Add lightweight /api/chat stream probe
@@ -22,7 +23,7 @@ Options:
 const parseArgs = (argv) => {
   const options = {
     baseUrl: DEFAULT_BASE_URL,
-    runtimeRoot: '/root/.corazon',
+    runtimeRoot: DEFAULT_RUNTIME_ROOT,
     timeoutMs: DEFAULT_TIMEOUT_MS,
     applySafeFixes: false,
     probeAgent: false,
@@ -104,7 +105,8 @@ const checkHttpJson = async ({
   timeoutMs,
   body = null,
   name,
-  critical = true
+  critical = true,
+  readBody = 'json'
 }) => {
   const startedAt = Date.now()
   const controller = new AbortController()
@@ -124,13 +126,19 @@ const checkHttpJson = async ({
       signal: controller.signal
     })
     const durationMs = Date.now() - startedAt
-    const text = await response.text()
     let parsed = null
-    if (text.trim().length > 0) {
-      try {
-        parsed = JSON.parse(text)
-      } catch {
-        parsed = null
+    if (readBody !== 'none') {
+      const text = await response.text()
+      if (text.trim().length > 0) {
+        if (readBody === 'json') {
+          try {
+            parsed = JSON.parse(text)
+          } catch {
+            parsed = null
+          }
+        } else {
+          parsed = text
+        }
       }
     }
     return {
@@ -189,7 +197,8 @@ const runAgentProbe = async ({ baseUrl, timeoutMs }) => {
       origin: 'web',
       streamMode: 'web',
       messages: [probeMessage]
-    }
+    },
+    readBody: 'none'
   })
 
   return {
@@ -252,21 +261,25 @@ const classify = ({ probes, localChecks, agentProbe }) => {
     symptoms.push('agent stream probe failed while non-agent path may still be alive')
   }
 
-  const suspectedRootCause = !serviceUp
-    ? 'transport/startup failure'
-    : (localRequiredMissing.length > 0
-        ? 'runtime bootstrap/configuration regression'
-        : (!functionalHealthy
-            ? 'core dependency regression (memory/settings/workflow state)'
-            : (agentProbe && !agentProbe.ok
-                ? 'agent runtime path degraded'
-                : 'no critical failure detected')))
+  let suspectedRootCause = 'no critical failure detected'
+  if (!serviceUp) {
+    suspectedRootCause = 'transport/startup failure'
+  } else if (localRequiredMissing.length > 0) {
+    suspectedRootCause = 'runtime bootstrap/configuration regression'
+  } else if (!functionalHealthy) {
+    suspectedRootCause = 'core dependency regression (memory/settings/workflow state)'
+  } else if (agentProbe && !agentProbe.ok) {
+    suspectedRootCause = 'agent runtime path degraded'
+  }
 
-  const confidence = !serviceUp
-    ? 'high'
-    : ((!functionalHealthy || localRequiredMissing.length > 0)
-        ? 'medium'
-        : (agentProbe && !agentProbe.ok ? 'medium' : 'high'))
+  let confidence = 'high'
+  if (!serviceUp) {
+    confidence = 'high'
+  } else if (!functionalHealthy || localRequiredMissing.length > 0) {
+    confidence = 'medium'
+  } else if (agentProbe && !agentProbe.ok) {
+    confidence = 'medium'
+  }
 
   const proposedActions = []
   if (!serviceUp) {
@@ -366,13 +379,6 @@ const main = async () => {
     url: `${options.baseUrl}/api/settings/mcp`,
     timeoutMs: options.timeoutMs,
     name: 'settings-mcp',
-    critical: true
-  }))
-  probes.push(await checkHttpJson({
-    method: 'GET',
-    url: `${options.baseUrl}/api/chat/workdir`,
-    timeoutMs: options.timeoutMs,
-    name: 'chat-workdir',
     critical: true
   }))
   probes.push(await checkHttpJson({
