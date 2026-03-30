@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      post_deploy_check_only:
+        description: "Run only post-deploy recovery validation against current production (skip build/deploy)"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: deploy-production
@@ -28,6 +35,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Resolve deploy mode
+        id: mode
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.post_deploy_check_only }}" == "true" ]]; then
+            echo "skip_deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip_deploy=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Start SSH agent
         uses: webfactory/ssh-agent@v0.9.0
@@ -69,16 +85,61 @@ jobs:
           docker --context production version --format 'client={{.Client.Arch}} server={{.Server.Arch}}'
 
       - name: Build application image on remote Docker host
+        if: steps.mode.outputs.skip_deploy != 'true'
         run: docker --context production build --progress=plain --platform linux/arm64 -t corazon:latest .
 
       - name: Verify built image architecture
+        if: steps.mode.outputs.skip_deploy != 'true'
         run: |
           image_platform="$(docker --context production image inspect corazon:latest --format '{{.Os}}/{{.Architecture}}')"
           echo "$image_platform"
           test "$image_platform" = "linux/arm64"
 
       - name: Deploy on remote Docker host
+        if: steps.mode.outputs.skip_deploy != 'true'
         run: |
           docker --context production compose pull chroma
           docker --context production compose up -d --no-build --remove-orphans
           docker --context production compose ps
+
+      - name: Load previous post-deploy recovery status
+        id: previous_recovery
+        run: |
+          previous_status="$(ssh "${{ secrets.DEPLOY_HOST }}" 'cat /home/ubuntu/.corazon/post-deploy-recovery-last-status.txt 2>/dev/null || true')"
+          previous_status="${previous_status//$'\n'/}"
+          echo "status=${previous_status}" >> "$GITHUB_OUTPUT"
+
+      - name: Run post-deploy recovery check
+        run: |
+          ssh "${{ secrets.DEPLOY_HOST }}" '
+            cd /home/ubuntu/corazon
+            docker compose exec -T corazon pnpm recovery:post-deploy --json
+          ' > post-deploy-recovery.json
+          cat post-deploy-recovery.json
+
+      - name: Evaluate post-deploy recovery gate
+        id: recovery_gate
+        run: |
+          node scripts/evaluate-post-deploy-recovery.mjs \
+            --report-file post-deploy-recovery.json \
+            --previous-status "${{ steps.previous_recovery.outputs.status }}"
+
+      - name: Persist post-deploy recovery status
+        if: always()
+        run: |
+          ssh "${{ secrets.DEPLOY_HOST }}" \
+            "printf '%s\n' '${{ steps.recovery_gate.outputs.status }}' > /home/ubuntu/.corazon/post-deploy-recovery-last-status.txt"
+
+      - name: Upload post-deploy recovery report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-deploy-recovery-${{ github.run_id }}
+          path: post-deploy-recovery.json
+          if-no-files-found: error
+
+      - name: Enforce post-deploy recovery gate
+        if: steps.recovery_gate.outputs.gate == 'fail'
+        run: |
+          echo "Recovery status is down; failing deployment gate."
+          exit 1
