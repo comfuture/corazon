@@ -128,13 +128,31 @@ normalize_file "$body_file" "$normalized_body_file"
 
 if [[ "$target_type" == "pr" && -n "$repo" && "$allow_duplicate" != "true" && "$dry_run" != "true" ]]; then
   actor_login="$(gh api user --jq '.login')"
-  gh api --paginate --slurp "repos/${repo}/issues/${target_number}/comments?per_page=100" \
+  gh api --paginate "repos/${repo}/issues/${target_number}/comments?per_page=100" \
     | node -e '
 const fs = require("node:fs")
 const actor = process.argv[1]
-const payload = JSON.parse(fs.readFileSync(0, "utf8"))
-const pages = Array.isArray(payload) ? payload : []
-const comments = pages.flatMap(page => Array.isArray(page) ? page : [])
+const raw = fs.readFileSync(0, "utf8").trim()
+let comments = []
+if (raw.length > 0) {
+  try {
+    const payload = JSON.parse(raw)
+    comments = Array.isArray(payload) ? payload : []
+  } catch {
+    comments = raw
+      .split(/\n+/)
+      .map(line => line.trim())
+      .filter(Boolean)
+      .flatMap(line => {
+        try {
+          const page = JSON.parse(line)
+          return Array.isArray(page) ? page : []
+        } catch {
+          return []
+        }
+      })
+  }
+}
 const mine = comments.filter(comment => comment?.user?.login === actor)
 process.stdout.write(mine.length > 0 ? String(mine[mine.length - 1].body ?? "") : "")
 ' "$actor_login" > "$latest_body_file"
