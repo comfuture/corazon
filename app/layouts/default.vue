@@ -7,8 +7,13 @@ const threadScrollContainerRef = ref<HTMLElement | null>(null)
 
 const sidebarUi = computed(() =>
   sidebarCollapsed.value
-    ? { body: 'flex flex-col gap-4 flex-1 overflow-y-auto px-1 py-2' }
-    : undefined
+    ? {
+        body: 'flex flex-col gap-4 flex-1 overflow-y-auto px-1 py-2',
+        footer: 'overflow-visible'
+      }
+    : {
+        footer: 'overflow-visible'
+      }
 )
 
 const workflowMenuItems = computed<NavigationMenuItem[][]>(() => [[
@@ -25,6 +30,7 @@ const workflowMenuItems = computed<NavigationMenuItem[][]>(() => [[
   <UDashboardGroup>
     <UDashboardSidebar
       v-model:collapsed="sidebarCollapsed"
+      class="overflow-visible"
       resizable
       collapsible
       :default-size="24"
@@ -75,16 +81,19 @@ const workflowMenuItems = computed<NavigationMenuItem[][]>(() => [[
         </div>
       </template>
       <template #footer="{ collapsed }">
-        <UButton
-          to="/settings/general"
-          color="neutral"
-          variant="ghost"
-          icon="i-lucide-settings"
-          :label="collapsed ? undefined : 'Settings'"
-          :square="collapsed"
-          class="w-full justify-center"
-          :block="!collapsed"
-        />
+        <div class="flex w-full items-center gap-2 overflow-visible">
+          <UButton
+            to="/settings/general"
+            color="neutral"
+            variant="ghost"
+            icon="i-lucide-settings"
+            :label="collapsed ? undefined : 'Settings'"
+            :square="collapsed"
+            class="min-w-0 flex-[1_1_auto] justify-center"
+            :block="!collapsed"
+          />
+          <UDashboardSidebarCollapse class="relative z-20 -me-4 shrink-0" />
+        </div>
       </template>
     </UDashboardSidebar>
     <NuxtPage />

@@ -349,9 +349,6 @@ const triggerSummary = (workflow: WorkflowDefinition) => {
   <UDashboardPanel id="workflows-panel">
     <template #header>
       <UDashboardNavbar title="Workflows">
-        <template #leading>
-          <UDashboardSidebarCollapse />
-        </template>
         <template #right>
           <div class="flex items-center gap-2">
             <UButton

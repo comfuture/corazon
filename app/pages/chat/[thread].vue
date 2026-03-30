@@ -32,7 +32,6 @@ const {
 } = useChatAttachments()
 const chatPromptRef = ref<{ textareaRef?: HTMLTextAreaElement | null } | null>(null)
 const {
-  availablePanels: availableSubagentPanels,
   activePanels: activeSubagentPanels
 } = useVisualSubagentPanels(() => chat.value?.messages ?? [])
 const isSubagentsPanelOpen = ref(false)
@@ -56,17 +55,23 @@ const toSubagentAvatarText = (name: string) => {
   return Array.from(normalized || 'AG').slice(0, 2).join('')
 }
 
-const hasAvailableSubagents = computed(() => availableSubagentPanels.value.length > 0)
+const visibleSubagentPanels = computed(() => activeSubagentPanels.value)
+const hasAvailableSubagents = computed(() => visibleSubagentPanels.value.length > 0)
 const isSubagentsPanelVisible = computed(() =>
   isSubagentsPanelOpen.value && hasAvailableSubagents.value
 )
 const subagentAvatarItems = computed(() =>
-  availableSubagentPanels.value.map((panel, index) => ({
+  visibleSubagentPanels.value.map((panel, index) => ({
     threadId: panel.threadId,
     name: panel.name,
     text: toSubagentAvatarText(panel.name),
     class: SUBAGENT_AVATAR_PALETTE[index % SUBAGENT_AVATAR_PALETTE.length]
   }))
+)
+const subagentsToggleIcon = computed(() =>
+  isSubagentsPanelVisible.value
+    ? 'i-lucide-panel-right-close'
+    : 'i-lucide-panel-right-open'
 )
 
 const toggleSubagentsPanel = () => {
@@ -329,10 +334,11 @@ const onAttachmentInputChange = (event: Event) => {
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 w-full">
+  <div class="flex h-full min-h-0 flex-1 min-w-0">
     <UDashboardPanel
-      id="chat-main-panel"
-      class="relative h-full min-h-0 flex-1"
+      :id="isSubagentsPanelVisible ? 'chat-main-panel-split' : 'chat-main-panel-full'"
+      :key="isSubagentsPanelVisible ? 'chat-main-panel-split' : 'chat-main-panel-full'"
+      class="relative h-full min-h-0"
       :default-size="isSubagentsPanelVisible ? 70 : undefined"
       :min-size="isSubagentsPanelVisible ? 50 : undefined"
       :max-size="isSubagentsPanelVisible ? 70 : undefined"
@@ -344,9 +350,6 @@ const onAttachmentInputChange = (event: Event) => {
     >
       <template #header>
         <UDashboardNavbar>
-          <template #leading>
-            <UDashboardSidebarCollapse />
-          </template>
           <template #title>
             <div class="flex min-w-0 items-center gap-2">
               <span class="truncate">{{ threadTitle ?? routeThreadId ?? 'Chat' }}</span>
@@ -364,54 +367,34 @@ const onAttachmentInputChange = (event: Event) => {
           </template>
           <template #right>
             <div class="flex items-center gap-3">
-              <UButton
+              <UTooltip
                 v-if="hasAvailableSubagents"
-                :color="isSubagentsPanelVisible ? 'primary' : 'neutral'"
-                :variant="isSubagentsPanelVisible ? 'soft' : 'ghost'"
-                size="sm"
-                class="gap-2 ps-2 pe-2.5"
-                :aria-label="isSubagentsPanelVisible ? 'Hide subagents' : 'Show subagents'"
-                @click="toggleSubagentsPanel"
+                text="Subagents"
               >
-                <span class="hidden text-sm sm:inline">
-                  Subagents
-                </span>
-                <UAvatarGroup
-                  size="2xs"
-                  :max="4"
+                <UButton
+                  :color="isSubagentsPanelVisible ? 'primary' : 'neutral'"
+                  :variant="isSubagentsPanelVisible ? 'soft' : 'ghost'"
+                  :icon="subagentsToggleIcon"
+                  size="sm"
+                  class="gap-2 ps-2 pe-2.5"
+                  :aria-label="isSubagentsPanelVisible ? 'Hide subagents' : 'Show subagents'"
+                  @click="toggleSubagentsPanel"
                 >
-                  <UAvatar
-                    v-for="agent in subagentAvatarItems"
-                    :key="agent.threadId"
-                    :text="agent.text"
-                    :alt="agent.name"
-                    :class="agent.class"
-                  />
-                </UAvatarGroup>
-              </UButton>
-              <UColorModeButton
-                color="neutral"
-                variant="ghost"
-                size="sm"
-              />
-              <UButton
-                to="/chat"
-                icon="i-lucide-plus"
-                label="New chat"
-                color="primary"
-                variant="soft"
-                size="sm"
-                class="hidden sm:inline-flex"
-              />
-              <UButton
-                to="/chat"
-                icon="i-lucide-plus"
-                color="primary"
-                variant="soft"
-                size="sm"
-                class="sm:hidden"
-                aria-label="New chat"
-              />
+                  <UAvatarGroup
+                    size="xs"
+                    :max="4"
+                    :ui="{ base: 'ring-2 -me-2 first:me-0' }"
+                  >
+                    <UAvatar
+                      v-for="agent in subagentAvatarItems"
+                      :key="agent.threadId"
+                      :text="agent.text"
+                      :alt="agent.name"
+                      :class="agent.class"
+                    />
+                  </UAvatarGroup>
+                </UButton>
+              </UTooltip>
             </div>
           </template>
         </UDashboardNavbar>
@@ -631,7 +614,7 @@ const onAttachmentInputChange = (event: Event) => {
               color="primary"
               variant="soft"
             >
-              {{ availableSubagentPanels.length }}
+              {{ visibleSubagentPanels.length }}
             </UBadge>
             <UButton
               icon="i-lucide-x"
@@ -648,7 +631,7 @@ const onAttachmentInputChange = (event: Event) => {
       <template #body>
         <div class="h-full min-h-0 p-3">
           <cz-visual-subagent-stack
-            :agents="availableSubagentPanels"
+            :agents="visibleSubagentPanels"
             class="h-full min-h-0"
           />
         </div>

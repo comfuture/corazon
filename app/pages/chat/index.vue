@@ -180,9 +180,6 @@ watch(pendingThreadId, async (value) => {
   >
     <template #header>
       <UDashboardNavbar>
-        <template #leading>
-          <UDashboardSidebarCollapse />
-        </template>
         <template #title>
           <span>Chat</span>
         </template>

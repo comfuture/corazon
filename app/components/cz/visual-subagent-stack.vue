@@ -13,6 +13,16 @@ const props = defineProps<{
 
 const SCROLL_RETRY_DELAY_MS = 48
 const SCROLL_RETRY_COUNT = 4
+const SUBAGENT_ACCENT_PALETTE = [
+  'text-emerald-700 dark:text-emerald-300',
+  'text-sky-700 dark:text-sky-300',
+  'text-amber-800 dark:text-amber-300',
+  'text-rose-700 dark:text-rose-300',
+  'text-violet-700 dark:text-violet-300',
+  'text-cyan-700 dark:text-cyan-300',
+  'text-lime-800 dark:text-lime-300',
+  'text-orange-700 dark:text-orange-300'
+] as const
 
 const scrollContainers = new Map<string, HTMLElement>()
 const scrollRetryTimers = new Map<string, number>()
@@ -29,6 +39,9 @@ const paneSize = computed(() => {
 const splitterGroupKey = computed(() =>
   props.agents.map(agent => agent.threadId).join(':') || 'subagent-panels'
 )
+
+const agentAccentClass = (index: number) =>
+  SUBAGENT_ACCENT_PALETTE[index % SUBAGENT_ACCENT_PALETTE.length]
 
 const statusColor = (status: VisualSubagentPanel['status']) => {
   switch (status) {
@@ -186,13 +199,13 @@ onBeforeUnmount(() => {
         class="min-h-0"
       >
         <div class="flex h-full min-h-0 flex-col bg-elevated/30">
-          <div class="flex items-center justify-between gap-2 border-b border-muted px-4 py-3">
+          <div class="flex items-center justify-between gap-2 border-b border-muted px-3 py-2">
             <div class="min-w-0">
-              <p class="truncate text-sm font-semibold text-default">
+              <p
+                class="truncate text-sm font-semibold"
+                :class="agentAccentClass(index)"
+              >
                 {{ agent.name }}
-              </p>
-              <p class="font-mono text-[11px] text-muted-foreground">
-                {{ agent.threadId.slice(0, 8) }}
               </p>
             </div>
             <UBadge
@@ -206,7 +219,7 @@ onBeforeUnmount(() => {
 
           <div
             :ref="scrollContainerRef(agent.threadId)"
-            class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+            class="min-h-0 flex-1 overflow-y-auto px-3 py-2"
           >
             <div
               v-if="agent.messages.length === 0"
@@ -226,7 +239,7 @@ onBeforeUnmount(() => {
                   content: 'px-4 py-3 rounded-lg min-h-12'
                 }
               }"
-              :ui="{ root: 'min-h-full' }"
+              :ui="{ root: 'subagent-chat-messages min-h-full min-w-0 [&>article]:min-w-0 [&_[data-slot=content]]:min-w-0' }"
               compact
               should-auto-scroll
             >
@@ -245,3 +258,40 @@ onBeforeUnmount(() => {
     </template>
   </SplitterGroup>
 </template>
+
+<style scoped>
+.subagent-chat-messages :deep(.markstream-vue),
+.subagent-chat-messages :deep([data-slot='content']) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.subagent-chat-messages :deep(.markstream-vue p),
+.subagent-chat-messages :deep(.markstream-vue li),
+.subagent-chat-messages :deep(.markstream-vue a),
+.subagent-chat-messages :deep(.markstream-vue .text-node),
+.subagent-chat-messages :deep(.markstream-vue .link-node) {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.subagent-chat-messages :deep(.markstream-vue code) {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.subagent-chat-messages :deep(.markstream-vue pre),
+.subagent-chat-messages :deep(.markstream-vue pre[class^='language-']),
+.subagent-chat-messages :deep(.markstream-vue pre[class*=' language-']),
+.subagent-chat-messages :deep(.markstream-vue .code-block-content),
+.subagent-chat-messages :deep(.markstream-vue .code-fallback-plain),
+.subagent-chat-messages :deep(.markstream-vue .shiki),
+.subagent-chat-messages :deep(.markstream-vue .shiki code) {
+  max-width: 100%;
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  overflow-x: hidden !important;
+}
+</style>
