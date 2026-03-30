@@ -93,6 +93,10 @@ const toLocalDate = (value: Date) => {
   return `${year}-${month}-${day}`
 }
 
+const shouldApplySelfEvolutionNoOpCommentPolicy = (definition: WorkflowDefinition) =>
+  definition.fileSlug === 'corazon-self-evolution'
+  || definition.frontmatter.name.trim().toLowerCase() === 'corazon self evolution'
+
 const buildRunContextPrompt = (
   definition: WorkflowDefinition,
   triggerType: WorkflowTriggerType,
@@ -105,6 +109,7 @@ const buildRunContextPrompt = (
   const corazonSkillsDir = resolveCorazonSkillsDir()
   const corazonScriptsDir = resolveCorazonScriptsDir()
   const corazonThreadsDir = resolveCorazonThreadsDir()
+  const includeSelfEvolutionNoOpCommentPolicy = shouldApplySelfEvolutionNoOpCommentPolicy(definition)
 
   return [
     `Workflow description: ${definition.frontmatter.description}`,
@@ -117,6 +122,12 @@ const buildRunContextPrompt = (
     'When collecting GitHub PR feedback, do not rely on `gh pr view --comments`; use `scripts/gh-pr-feedback.sh <pr_number> --repo <owner/repo>` or `gh api repos/<owner>/<repo>/issues/<pr_number>/comments`, `gh api repos/<owner>/<repo>/pulls/<pr_number>/comments`, and `gh api repos/<owner>/<repo>/pulls/<pr_number>/reviews`.',
     'When collecting GitHub issue feedback, do not rely on `gh issue view --comments`; use `scripts/gh-issue-feedback.sh <issue_number> --repo <owner/repo>` or `gh api repos/<owner>/<repo>/issues/<issue_number>` and `gh api repos/<owner>/<repo>/issues/<issue_number>/comments`.',
     'When posting PR/issue progress updates with `gh`, preserve markdown code identifiers by piping comment text into `scripts/gh-comment-safe.sh` (or `gh ... --body-file`) instead of inline `--body "..."` shell strings.',
+    ...(includeSelfEvolutionNoOpCommentPolicy
+      ? [
+          'For self-evolution PR maintenance, do not post routine no-op PR timeline comments.',
+          'Post a PR comment only when at least one condition is true: code was pushed, review feedback was explicitly answered/resolved, PR check/review state changed since the previous run, or a new follow-up issue was created and linked.'
+        ]
+      : []),
     'If reusable helper code, a custom executable, or long-lived operating guidance is required, create or update a supporting skill under the Corazon skills directory with `skill-creator` before relying on ad hoc files.',
     'If a standalone script is still necessary, place reusable scripts under the Corazon scripts directory.',
     'Use the Corazon thread-local path pattern only when the concrete thread directory is known.',

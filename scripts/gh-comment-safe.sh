@@ -13,6 +13,8 @@ Use a single-quoted heredoc to preserve backticks and code identifiers:
   cat <<'MD' | scripts/gh-comment-safe.sh pr 123 --repo comfuture/corazon
   Updated `flushTextDraft` guard.
   MD
+
+Set `GH_COMMENT_SAFE_ALLOW_DUPLICATE=true` to bypass duplicate PR comment suppression.
 USAGE
 }
 
@@ -35,6 +37,7 @@ esac
 
 repo=""
 dry_run="false"
+allow_duplicate="${GH_COMMENT_SAFE_ALLOW_DUPLICATE:-false}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo)
@@ -59,8 +62,11 @@ done
 
 body_file="$(mktemp)"
 body_without_fences_file="$(mktemp)"
+normalized_body_file="$(mktemp)"
+latest_body_file="$(mktemp)"
+normalized_latest_body_file="$(mktemp)"
 cleanup() {
-  rm -f "$body_file" "$body_without_fences_file"
+  rm -f "$body_file" "$body_without_fences_file" "$normalized_body_file" "$latest_body_file" "$normalized_latest_body_file"
 }
 trap cleanup EXIT
 
@@ -96,6 +102,49 @@ awk '
 if (($(tr -d -c '\140' < "$body_without_fences_file" | wc -c) % 2 != 0)); then
   echo "Detected an unbalanced number of backticks outside fenced code blocks in comment body." >&2
   exit 1
+fi
+
+normalize_file() {
+  local input_file="$1"
+  local output_file="$2"
+  awk '
+    {
+      sub(/[[:space:]]+$/, "", $0)
+      lines[NR] = $0
+    }
+    END {
+      last = NR
+      while (last > 0 && lines[last] == "") {
+        last--
+      }
+      for (i = 1; i <= last; i++) {
+        print lines[i]
+      }
+    }
+  ' "$input_file" > "$output_file"
+}
+
+normalize_file "$body_file" "$normalized_body_file"
+
+if [[ "$target_type" == "pr" && -n "$repo" && "$allow_duplicate" != "true" ]]; then
+  actor_login="$(gh api user --jq '.login')"
+  gh api "repos/${repo}/issues/${target_number}/comments?per_page=100" \
+    | node -e '
+const fs = require("node:fs")
+const actor = process.argv[1]
+const payload = JSON.parse(fs.readFileSync(0, "utf8"))
+const comments = Array.isArray(payload) ? payload : []
+const mine = comments.filter(comment => comment?.user?.login === actor)
+process.stdout.write(mine.length > 0 ? String(mine[mine.length - 1].body ?? "") : "")
+' "$actor_login" > "$latest_body_file"
+
+  if [[ -s "$latest_body_file" ]]; then
+    normalize_file "$latest_body_file" "$normalized_latest_body_file"
+    if cmp -s "$normalized_body_file" "$normalized_latest_body_file"; then
+      echo "Skipping duplicate PR comment for #${target_number}: latest comment by ${actor_login} has equivalent body."
+      exit 0
+    fi
+  fi
 fi
 
 cmd=(gh "$target_type" comment "$target_number" --body-file "$body_file")
