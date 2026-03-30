@@ -13,7 +13,7 @@ on:
         type: boolean
 
 concurrency:
-  group: deploy-production
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.post_deploy_check_only == true && 'deploy-production-check-only' || 'deploy-production' }}
   cancel-in-progress: true
 
 jobs:
@@ -111,10 +111,7 @@ jobs:
 
       - name: Run post-deploy recovery check
         run: |
-          ssh "${{ secrets.DEPLOY_HOST }}" '
-            cd /home/ubuntu/corazon
-            docker compose exec -T corazon pnpm recovery:post-deploy --json
-          ' > post-deploy-recovery.json
+          docker --context production compose exec -T corazon pnpm recovery:post-deploy --json > post-deploy-recovery.json
           cat post-deploy-recovery.json
 
       - name: Evaluate post-deploy recovery gate
@@ -125,7 +122,7 @@ jobs:
             --previous-status "${{ steps.previous_recovery.outputs.status }}"
 
       - name: Persist post-deploy recovery status
-        if: always()
+        if: always() && steps.recovery_gate.outputs.status != ''
         run: |
           ssh "${{ secrets.DEPLOY_HOST }}" \
             "printf '%s\n' '${{ steps.recovery_gate.outputs.status }}' > /home/ubuntu/.corazon/post-deploy-recovery-last-status.txt"
