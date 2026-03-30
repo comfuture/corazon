@@ -758,6 +758,25 @@ export const getThreadActiveRun = (threadId: string): string | null => {
   return row?.active_run_id ?? null
 }
 
+export const getThreadActiveRunInfo = (threadId: string) => {
+  const database = getDb()
+  const row = database
+    .prepare('SELECT active_run_id, active_run_updated_at FROM threads WHERE id = ?')
+    .get(threadId) as {
+      active_run_id?: string | null
+      active_run_updated_at?: number | null
+    } | undefined
+
+  if (!row?.active_run_id) {
+    return null
+  }
+
+  return {
+    runId: row.active_run_id,
+    updatedAt: typeof row.active_run_updated_at === 'number' ? row.active_run_updated_at : null
+  }
+}
+
 export const getThreadActiveRunResumeIndex = (
   threadId: string,
   runId?: string | null
