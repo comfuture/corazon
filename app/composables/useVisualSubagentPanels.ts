@@ -13,7 +13,9 @@ export type VisualSubagentPanel = {
   name: string
   status: CodexSubagentAgentStatus | null
   messages: CodexUIMessage[]
+  firstSeenAt: number
   lastSeenAt: number
+  isActive: boolean
 }
 
 const ACTIVE_SUBAGENT_STATUSES = new Set<CodexSubagentAgentStatus | null>([
@@ -21,6 +23,10 @@ const ACTIVE_SUBAGENT_STATUSES = new Set<CodexSubagentAgentStatus | null>([
   'pendingInit',
   'running'
 ])
+
+export const isVisualSubagentActiveStatus = (
+  status: CodexSubagentAgentStatus | null
+) => ACTIVE_SUBAGENT_STATUSES.has(status)
 
 const isCodexItemPart = (
   part: unknown
@@ -35,31 +41,44 @@ const isCodexItemPart = (
 
 export const useVisualSubagentPanels = (
   messages: MaybeRefOrGetter<CodexUIMessage[] | null | undefined>
-) => computed<VisualSubagentPanel[]>(() => {
-  const resolvedMessages = toValue(messages) ?? []
-  const panels = new Map<string, VisualSubagentPanel>()
+) => {
+  const availablePanels = computed<VisualSubagentPanel[]>(() => {
+    const resolvedMessages = toValue(messages) ?? []
+    const panels = new Map<string, VisualSubagentPanel>()
 
-  for (let messageIndex = 0; messageIndex < resolvedMessages.length; messageIndex += 1) {
-    const message = resolvedMessages[messageIndex]
-    const parts = message?.parts ?? []
+    for (let messageIndex = 0; messageIndex < resolvedMessages.length; messageIndex += 1) {
+      const message = resolvedMessages[messageIndex]
+      const parts = message?.parts ?? []
 
-    for (const part of parts) {
-      if (!isCodexItemPart(part) || part.data.kind !== 'subagent_panel') {
-        continue
+      for (const part of parts) {
+        if (!isCodexItemPart(part) || part.data.kind !== 'subagent_panel') {
+          continue
+        }
+
+        const panel = part.data.item
+        const existingPanel = panels.get(panel.threadId)
+        panels.set(panel.threadId, {
+          threadId: panel.threadId,
+          name: panel.name,
+          status: panel.status,
+          messages: panel.messages,
+          firstSeenAt: existingPanel?.firstSeenAt ?? messageIndex,
+          lastSeenAt: messageIndex,
+          isActive: isVisualSubagentActiveStatus(panel.status)
+        })
       }
-
-      const panel = part.data.item
-      panels.set(panel.threadId, {
-        threadId: panel.threadId,
-        name: panel.name,
-        status: panel.status,
-        messages: panel.messages,
-        lastSeenAt: messageIndex
-      })
     }
-  }
 
-  return [...panels.values()]
-    .filter(panel => ACTIVE_SUBAGENT_STATUSES.has(panel.status))
-    .sort((left, right) => left.lastSeenAt - right.lastSeenAt)
-})
+    return [...panels.values()]
+      .sort((left, right) => left.firstSeenAt - right.firstSeenAt)
+  })
+
+  const activePanels = computed(() =>
+    availablePanels.value.filter(panel => panel.isActive)
+  )
+
+  return {
+    availablePanels,
+    activePanels
+  }
+}
