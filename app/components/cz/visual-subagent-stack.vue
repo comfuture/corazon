@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, onBeforeUnmount, watch } from 'vue'
 import {
   SplitterGroup,
   SplitterPanel,
@@ -10,6 +10,13 @@ import type { VisualSubagentPanel } from '@/composables/useVisualSubagentPanels'
 const props = defineProps<{
   agents: VisualSubagentPanel[]
 }>()
+
+const SCROLL_RETRY_DELAY_MS = 48
+const SCROLL_RETRY_COUNT = 4
+
+const scrollContainers = new Map<string, HTMLElement>()
+const scrollRetryTimers = new Map<string, number>()
+const scrollContainerRefs = new Map<string, (container: Element | null) => void>()
 
 const paneSize = computed(() => {
   if (!props.agents.length) {
@@ -60,8 +67,100 @@ const statusLabel = (status: VisualSubagentPanel['status']) => {
   }
 }
 
-const messageRoleLabel = (role: string | undefined) =>
-  role === 'user' ? 'user' : 'assistant'
+const isStreamingStatus = (status: VisualSubagentPanel['status']) =>
+  status === 'pendingInit' || status === 'running'
+
+const clearScrollRetry = (threadId: string) => {
+  const timer = scrollRetryTimers.get(threadId)
+  if (timer !== undefined) {
+    window.clearTimeout(timer)
+    scrollRetryTimers.delete(threadId)
+  }
+}
+
+const scrollContainerToBottom = (threadId: string) => {
+  const container = scrollContainers.get(threadId)
+  if (!container) {
+    return
+  }
+  container.scrollTop = container.scrollHeight
+}
+
+const queueScrollToBottom = (threadId: string, attempt = 0) => {
+  if (!import.meta.client) {
+    return
+  }
+
+  if (attempt === 0) {
+    clearScrollRetry(threadId)
+  }
+
+  void nextTick(() => {
+    scrollContainerToBottom(threadId)
+    if (attempt >= SCROLL_RETRY_COUNT) {
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      queueScrollToBottom(threadId, attempt + 1)
+    }, SCROLL_RETRY_DELAY_MS)
+
+    scrollRetryTimers.set(threadId, timer)
+  })
+}
+
+const setScrollContainer = (threadId: string, container: Element | null) => {
+  if (!(container instanceof HTMLElement)) {
+    scrollContainers.delete(threadId)
+    clearScrollRetry(threadId)
+    return
+  }
+
+  scrollContainers.set(threadId, container)
+  queueScrollToBottom(threadId)
+}
+
+const scrollContainerRef = (threadId: string) => {
+  const existing = scrollContainerRefs.get(threadId)
+  if (existing) {
+    return existing
+  }
+
+  const ref = (container: Element | null) => {
+    setScrollContainer(threadId, container)
+  }
+
+  scrollContainerRefs.set(threadId, ref)
+  return ref
+}
+
+const panelSignatures = computed(() =>
+  props.agents.map(agent => ({
+    threadId: agent.threadId,
+    signature: JSON.stringify(agent.messages),
+    status: agent.status
+  }))
+)
+
+watch(panelSignatures, (signatures) => {
+  const activeThreadIds = new Set(signatures.map(entry => entry.threadId))
+
+  for (const { threadId } of signatures) {
+    queueScrollToBottom(threadId)
+  }
+
+  for (const threadId of scrollRetryTimers.keys()) {
+    if (!activeThreadIds.has(threadId)) {
+      clearScrollRetry(threadId)
+    }
+  }
+}, { immediate: true })
+
+onBeforeUnmount(() => {
+  for (const threadId of scrollRetryTimers.keys()) {
+    clearScrollRetry(threadId)
+  }
+})
 </script>
 
 <template>
@@ -99,7 +198,10 @@ const messageRoleLabel = (role: string | undefined) =>
             </UBadge>
           </div>
 
-          <div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          <div
+            :ref="scrollContainerRef(agent.threadId)"
+            class="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+          >
             <div
               v-if="agent.messages.length === 0"
               class="rounded-lg border border-dashed border-muted px-3 py-4 text-sm text-muted-foreground"
@@ -107,27 +209,25 @@ const messageRoleLabel = (role: string | undefined) =>
               Waiting for subagent output...
             </div>
 
-            <div
+            <UChatMessages
               v-else
-              class="space-y-4"
+              :messages="agent.messages"
+              :status="isStreamingStatus(agent.status) ? 'streaming' : 'ready'"
+              :user="{
+                ui: {
+                  root: 'scroll-mt-4',
+                  container: 'gap-3 pb-8',
+                  content: 'px-4 py-3 rounded-lg min-h-12'
+                }
+              }"
+              :ui="{ root: 'min-h-full' }"
+              compact
+              should-auto-scroll
             >
-              <div
-                v-for="message in agent.messages"
-                :key="message.id"
-                class="space-y-2 rounded-lg border border-muted/70 bg-default/5 px-3 py-3"
-              >
-                <div class="flex items-center gap-2">
-                  <UBadge
-                    :color="message.role === 'user' ? 'neutral' : 'primary'"
-                    variant="subtle"
-                    size="xs"
-                  >
-                    {{ messageRoleLabel(message.role) }}
-                  </UBadge>
-                </div>
+              <template #content="{ message }">
                 <cz-message-content :message="message" />
-              </div>
-            </div>
+              </template>
+            </UChatMessages>
           </div>
         </div>
       </SplitterPanel>
