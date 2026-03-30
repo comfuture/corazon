@@ -8,8 +8,13 @@ const props = defineProps<{
 }>()
 
 const open = ref(false)
+const hiddenActions = new Set<SubagentActivityItem['action']>([
+  'wait',
+  'closeAgent'
+])
 
 const stateEntries = computed<CodexSubagentAgentState[]>(() => props.item.agentsStates ?? [])
+const isHidden = computed(() => hiddenActions.has(props.item.action))
 
 const shortThreadId = (value: string) => value.slice(0, 8)
 
@@ -132,7 +137,10 @@ const agentStatusLabel = (status: CodexSubagentAgentState['status']) => {
 </script>
 
 <template>
-  <div class="space-y-1.5">
+  <div
+    v-if="!isHidden"
+    class="space-y-1.5"
+  >
     <UButton
       v-if="hasDetails"
       color="neutral"
