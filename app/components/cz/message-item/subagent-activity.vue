@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CodexItemData, CodexSubagentAgentState } from '@@/types/chat-ui'
+import CzMessageItemChatTool from './chat-tool.vue'
 
 type SubagentActivityItem = Extract<CodexItemData, { kind: 'subagent_activity' }>['item']
 
@@ -7,7 +8,6 @@ const props = defineProps<{
   item: SubagentActivityItem
 }>()
 
-const open = ref(false)
 const hiddenActions = new Set<SubagentActivityItem['action']>([
   'wait',
   'closeAgent'
@@ -59,39 +59,9 @@ const hasDetails = computed(() =>
   || stateEntries.value.length > 0
 )
 
-const toggleOpen = () => {
-  if (!hasDetails.value) {
-    return
-  }
-
-  open.value = !open.value
-}
-
-const statusIconName = computed(() => {
-  switch (props.item.status) {
-    case 'in_progress':
-      return 'i-lucide-loader-2'
-    case 'completed':
-      return 'i-lucide-check'
-    case 'failed':
-      return 'i-lucide-x'
-    default:
-      return 'i-lucide-circle'
-  }
-})
-
-const statusIconClass = computed(() => {
-  switch (props.item.status) {
-    case 'in_progress':
-      return 'h-3.5 w-3.5 animate-spin text-amber-500'
-    case 'completed':
-      return 'h-3.5 w-3.5 text-emerald-500'
-    case 'failed':
-      return 'h-3.5 w-3.5 text-rose-500'
-    default:
-      return 'h-3.5 w-3.5 text-muted'
-  }
-})
+const icon = computed(() =>
+  props.item.status === 'failed' ? 'i-lucide-triangle-alert' : 'i-lucide-bot'
+)
 
 const agentStatusColor = (status: CodexSubagentAgentState['status']) => {
   switch (status) {
@@ -141,122 +111,89 @@ const agentStatusLabel = (status: CodexSubagentAgentState['status']) => {
     v-if="!isHidden"
     class="space-y-1.5"
   >
-    <UButton
+    <CzMessageItemChatTool
       v-if="hasDetails"
-      color="neutral"
-      variant="ghost"
-      size="sm"
-      class="w-full justify-between px-0 py-0.5 text-muted"
-      @click="toggleOpen"
+      :text="summaryText"
+      :icon="icon"
+      :status="item.status"
+      variant="card"
+      :default-open="item.status === 'failed'"
+      :ui="{
+        label: 'whitespace-pre-wrap break-all text-xs text-default',
+        trigger: 'px-2 py-1.5',
+        body: 'max-h-[320px] overflow-y-auto border-default p-2'
+      }"
     >
-      <span class="min-w-0 flex flex-1 items-center gap-2 text-left">
-        <UBadge
-          color="primary"
-          variant="subtle"
-          size="xs"
-        >
-          subagent
-        </UBadge>
-        <span class="block whitespace-pre-wrap break-all text-xs text-default">{{ summaryText }}</span>
-      </span>
+      <div class="space-y-2">
+        <div class="rounded-md border border-muted/60 bg-muted/10 px-3 py-2">
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <span class="font-medium text-default">from</span>
+            <span class="font-mono text-muted-foreground">{{ shortThreadId(item.senderThreadId) }}</span>
+            <span class="font-medium text-default">to</span>
+            <span class="font-mono text-muted-foreground">{{ item.receiverThreadIds.map(shortThreadId).join(', ') || '-' }}</span>
+          </div>
 
-      <template #trailing>
-        <div class="flex items-center gap-2">
-          <UIcon
-            :name="statusIconName"
-            :class="statusIconClass"
-          />
-          <UIcon
-            name="i-lucide-chevron-right"
-            class="size-3.5 text-muted transition-transform"
-            :class="open ? 'rotate-90' : ''"
-          />
-        </div>
-      </template>
-    </UButton>
-
-    <div
-      v-else
-      class="flex min-w-0 items-center gap-2 py-0.5 text-muted"
-    >
-      <UBadge
-        color="primary"
-        variant="subtle"
-        size="xs"
-      >
-        subagent
-      </UBadge>
-      <span class="min-w-0 flex-1 whitespace-pre-wrap break-all text-xs text-default">{{ summaryText }}</span>
-      <UIcon
-        :name="statusIconName"
-        :class="statusIconClass"
-      />
-    </div>
-
-    <div
-      v-if="hasDetails && open"
-      class="space-y-2"
-    >
-      <div class="rounded-md border border-muted/60 bg-muted/10 px-3 py-2">
-        <div class="flex flex-wrap items-center gap-2 text-xs">
-          <span class="font-medium text-default">from</span>
-          <span class="font-mono text-muted-foreground">{{ shortThreadId(item.senderThreadId) }}</span>
-          <span class="font-medium text-default">to</span>
-          <span class="font-mono text-muted-foreground">{{ item.receiverThreadIds.map(shortThreadId).join(', ') || '-' }}</span>
+          <div
+            v-if="item.model || item.reasoningEffort"
+            class="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
+          >
+            <span v-if="item.model">model: <span class="font-mono">{{ item.model }}</span></span>
+            <span v-if="item.reasoningEffort">reasoning: <span class="font-mono">{{ item.reasoningEffort }}</span></span>
+          </div>
         </div>
 
         <div
-          v-if="item.model || item.reasoningEffort"
-          class="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
+          v-if="item.prompt"
+          class="rounded-md bg-muted/10 px-3 py-2"
         >
-          <span v-if="item.model">model: <span class="font-mono">{{ item.model }}</span></span>
-          <span v-if="item.reasoningEffort">reasoning: <span class="font-mono">{{ item.reasoningEffort }}</span></span>
+          <p class="mb-2 text-xs font-medium text-default">
+            Prompt
+          </p>
+          <pre class="whitespace-pre-wrap break-words text-xs text-muted-foreground">{{ item.prompt }}</pre>
+        </div>
+
+        <div
+          v-if="stateEntries.length > 0"
+          class="rounded-md border border-muted/60 bg-muted/10 px-3 py-2"
+        >
+          <p class="mb-2 text-xs font-medium text-default">
+            Agent states
+          </p>
+
+          <ul class="space-y-2">
+            <li
+              v-for="entry in stateEntries"
+              :key="`${item.id}-${entry.threadId}`"
+              class="space-y-1"
+            >
+              <div class="flex flex-wrap items-center gap-2 text-xs">
+                <span class="font-mono text-default">{{ shortThreadId(entry.threadId) }}</span>
+                <UBadge
+                  :color="agentStatusColor(entry.status)"
+                  variant="subtle"
+                  size="xs"
+                >
+                  {{ agentStatusLabel(entry.status) }}
+                </UBadge>
+              </div>
+              <p
+                v-if="entry.message"
+                class="text-xs text-muted-foreground"
+              >
+                {{ entry.message }}
+              </p>
+            </li>
+          </ul>
         </div>
       </div>
+    </CzMessageItemChatTool>
 
-      <div
-        v-if="item.prompt"
-        class="rounded-md bg-muted/10 px-3 py-2"
-      >
-        <p class="mb-2 text-xs font-medium text-default">
-          Prompt
-        </p>
-        <pre class="whitespace-pre-wrap break-words text-xs text-muted-foreground">{{ item.prompt }}</pre>
-      </div>
-
-      <div
-        v-if="stateEntries.length > 0"
-        class="rounded-md border border-muted/60 bg-muted/10 px-3 py-2"
-      >
-        <p class="mb-2 text-xs font-medium text-default">
-          Agent states
-        </p>
-
-        <ul class="space-y-2">
-          <li
-            v-for="entry in stateEntries"
-            :key="`${item.id}-${entry.threadId}`"
-            class="space-y-1"
-          >
-            <div class="flex flex-wrap items-center gap-2 text-xs">
-              <span class="font-mono text-default">{{ shortThreadId(entry.threadId) }}</span>
-              <UBadge
-                :color="agentStatusColor(entry.status)"
-                variant="subtle"
-                size="xs"
-              >
-                {{ agentStatusLabel(entry.status) }}
-              </UBadge>
-            </div>
-            <p
-              v-if="entry.message"
-              class="text-xs text-muted-foreground"
-            >
-              {{ entry.message }}
-            </p>
-          </li>
-        </ul>
-      </div>
-    </div>
+    <CzMessageItemChatTool
+      v-else
+      :text="summaryText"
+      :icon="icon"
+      :status="item.status"
+      :ui="{ label: 'whitespace-pre-wrap break-all text-xs text-default' }"
+    />
   </div>
 </template>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CodexItemData } from '@@/types/chat-ui'
+import CzMessageItemChatTool from './chat-tool.vue'
 import CzMessageItemUnifiedDiffViewer from './unified-diff-viewer.vue'
 
 type FileChangeItem = Extract<CodexItemData, { kind: 'file_change' }>['item']
@@ -8,21 +9,13 @@ const props = defineProps<{
   item: FileChangeItem
 }>()
 
-const open = ref(false)
-
 const changes = computed(() => props.item.changes ?? [])
 
 const hasDiff = (diff?: string | null) => typeof diff === 'string' && diff.trim().length > 0
 
 const hasAnyDiff = computed(() => changes.value.some(change => hasDiff(change?.diff)))
 
-const hasAnyChangeKind = computed(() => changes.value.some(change => typeof change?.kind === 'string' && change.kind.length > 0))
-
 const hasDetails = computed(() => changes.value.length > 1 || hasAnyDiff.value)
-
-const itemStatus = computed(() => String(props.item.status ?? ''))
-
-const badgeLabel = computed(() => (hasAnyDiff.value || hasAnyChangeKind.value ? 'file' : 'file change'))
 
 const filePreview = computed(() => {
   const [firstChange] = changes.value
@@ -37,31 +30,22 @@ const filePreview = computed(() => {
   return `${firstChange.path} +${changes.value.length - 1} more`
 })
 
-const statusIconName = computed(() => {
-  switch (itemStatus.value) {
+const title = computed(() => {
+  switch (props.item.status) {
     case 'in_progress':
-      return 'i-lucide-loader-2'
+      return '파일 변경 적용 중'
     case 'completed':
-      return 'i-lucide-check'
+      return '파일 변경'
     case 'failed':
-      return 'i-lucide-x'
+      return '파일 변경 실패'
     default:
-      return 'i-lucide-circle'
+      return '파일 변경'
   }
 })
 
-const statusIconClass = computed(() => {
-  switch (itemStatus.value) {
-    case 'in_progress':
-      return 'h-3.5 w-3.5 animate-spin text-amber-500'
-    case 'completed':
-      return 'h-3.5 w-3.5 text-emerald-500'
-    case 'failed':
-      return 'h-3.5 w-3.5 text-rose-500'
-    default:
-      return 'h-3.5 w-3.5 text-muted'
-  }
-})
+const icon = computed(() =>
+  props.item.status === 'failed' ? 'i-lucide-triangle-alert' : 'i-lucide-file-pen-line'
+)
 
 const changeKindIcon = (kind?: string) => {
   switch (kind) {
@@ -88,74 +72,25 @@ const changeKindClass = (kind?: string) => {
       return 'text-muted'
   }
 }
-
-const toggleOpen = () => {
-  if (!hasDetails.value) {
-    return
-  }
-
-  open.value = !open.value
-}
 </script>
 
 <template>
-  <div class="space-y-1.5">
-    <UButton
-      v-if="hasDetails"
-      color="neutral"
-      variant="ghost"
-      size="sm"
-      class="w-full justify-between px-0 py-0.5 text-muted"
-      @click="toggleOpen"
-    >
-      <span class="min-w-0 flex flex-1 items-center gap-2 text-left">
-        <UBadge
-          color="primary"
-          variant="subtle"
-          size="xs"
-        >
-          {{ badgeLabel }}
-        </UBadge>
-        <span class="block whitespace-pre-wrap break-all font-mono text-xs text-default">{{ filePreview }}</span>
-      </span>
-
-      <template #trailing>
-        <div class="flex items-center gap-2">
-          <UIcon
-            :name="statusIconName"
-            :class="statusIconClass"
-          />
-          <UIcon
-            name="i-lucide-chevron-right"
-            class="size-3.5 text-muted transition-transform"
-            :class="open ? 'rotate-90' : ''"
-          />
-        </div>
-      </template>
-    </UButton>
-
-    <div
-      v-else
-      class="flex min-w-0 items-center gap-2 py-0.5 text-muted"
-    >
-      <UBadge
-        color="primary"
-        variant="subtle"
-        size="xs"
-      >
-        {{ badgeLabel }}
-      </UBadge>
-      <span class="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-xs text-default">{{ filePreview }}</span>
-      <UIcon
-        :name="statusIconName"
-        :class="statusIconClass"
-      />
-    </div>
-
-    <ul
-      v-if="hasDetails && open"
-      class="space-y-1 pl-1"
-    >
+  <CzMessageItemChatTool
+    v-if="hasDetails"
+    :text="title"
+    :suffix="filePreview"
+    :icon="icon"
+    :status="item.status"
+    variant="card"
+    :default-open="item.status === 'failed'"
+    :ui="{
+      label: 'min-w-0 truncate',
+      suffix: 'truncate font-mono text-xs',
+      trigger: 'px-2 py-1.5',
+      body: 'max-h-[320px] overflow-y-auto border-default p-2'
+    }"
+  >
+    <ul class="space-y-2">
       <li
         v-for="(change, changeIndex) in changes"
         :key="`${item.id}-${change?.path}-${changeIndex}`"
@@ -178,5 +113,17 @@ const toggleOpen = () => {
         </div>
       </li>
     </ul>
-  </div>
+  </CzMessageItemChatTool>
+
+  <CzMessageItemChatTool
+    v-else
+    :text="title"
+    :suffix="filePreview"
+    :icon="icon"
+    :status="item.status"
+    :ui="{
+      label: 'min-w-0 truncate',
+      suffix: 'truncate font-mono text-xs'
+    }"
+  />
 </template>

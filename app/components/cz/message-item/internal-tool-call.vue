@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CodexItemData } from '@@/types/chat-ui'
+import CzMessageItemChatTool from './chat-tool.vue'
 
 type InternalToolCallItem = Extract<CodexItemData, { kind: 'mcp_tool_call' }>['item']
 
@@ -91,17 +92,6 @@ const workflowName = computed(() =>
   || asString(argumentsRecord.value?.query)
 )
 
-const badgeLabel = computed(() => {
-  switch (toolKind.value) {
-    case 'memory':
-      return 'memory'
-    case 'workflow':
-      return 'workflow'
-    default:
-      return 'tool'
-  }
-})
-
 const summaryText = computed(() => {
   if (toolKind.value === 'memory') {
     switch (memoryAction.value.toLowerCase()) {
@@ -146,46 +136,27 @@ const summaryText = computed(() => {
   return `[tool call] ${props.item.tool?.trim() || 'tool'}`
 })
 
-const statusIconName = computed(() => {
-  switch (props.item.status) {
-    case 'in_progress':
-      return 'i-lucide-loader-2'
-    case 'completed':
-      return 'i-lucide-check'
-    case 'failed':
-      return 'i-lucide-x'
-    default:
-      return 'i-lucide-circle'
+const icon = computed(() => {
+  if (props.item.status === 'failed') {
+    return 'i-lucide-triangle-alert'
   }
-})
 
-const statusIconClass = computed(() => {
-  switch (props.item.status) {
-    case 'in_progress':
-      return 'h-3.5 w-3.5 animate-spin text-amber-500'
-    case 'completed':
-      return 'h-3.5 w-3.5 text-emerald-500'
-    case 'failed':
-      return 'h-3.5 w-3.5 text-rose-500'
+  switch (toolKind.value) {
+    case 'memory':
+      return 'i-lucide-database'
+    case 'workflow':
+      return 'i-lucide-workflow'
     default:
-      return 'h-3.5 w-3.5 text-muted'
+      return 'i-lucide-wrench'
   }
 })
 </script>
 
 <template>
-  <div class="flex min-w-0 items-center gap-2 py-0.5 text-muted">
-    <UBadge
-      color="primary"
-      variant="subtle"
-      size="xs"
-    >
-      {{ badgeLabel }}
-    </UBadge>
-    <span class="min-w-0 flex-1 whitespace-pre-wrap break-all text-xs text-default">{{ summaryText }}</span>
-    <UIcon
-      :name="statusIconName"
-      :class="statusIconClass"
-    />
-  </div>
+  <CzMessageItemChatTool
+    :text="summaryText"
+    :icon="icon"
+    :status="item.status"
+    :ui="{ label: 'whitespace-pre-wrap break-all text-xs text-default' }"
+  />
 </template>
