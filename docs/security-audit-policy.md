@@ -28,5 +28,7 @@ This policy defines how Corazon handles dependency vulnerabilities detected by `
 
 1. Run `pnpm run security:audit` locally or via manual workflow dispatch.
 2. If CI fails, inspect vulnerable package paths and identify upgrade-safe candidates first.
-3. Ship fixes in small PR batches grouped by package domain.
-4. Link remediation PRs back to the tracking issue.
+3. Use `pnpm.overrides` in `package.json` to force-upgrade transitive dependencies when direct package upgrades are not yet available.
+4. If risk acceptance is required for a finding, document the rationale in an issue and suppress only the specific advisory via `pnpm.auditConfig.ignoreAdvisories`.
+5. Ship fixes in small PR batches grouped by package domain.
+6. Link remediation PRs back to the tracking issue.
