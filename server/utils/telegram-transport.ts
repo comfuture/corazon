@@ -69,6 +69,7 @@ import { deleteRuntimeThread, deleteRuntimeTurnControl } from './runtime.ts'
 const TELEGRAM_POLL_TIMEOUT_SECONDS = 20
 const TELEGRAM_DISABLED_RETRY_MS = 5000
 const TELEGRAM_ERROR_RETRY_MS = 3000
+const TELEGRAM_POLL_CONFLICT_RETRY_MS = 30000
 const TELEGRAM_STATE_KEY = 'default'
 const TELEGRAM_TEXT_MAX_LENGTH = 3500
 const TELEGRAM_STEER_RETRY_ATTEMPTS = 5
@@ -1074,6 +1075,12 @@ const isTelegramMessageNotModifiedError = (error: unknown) => {
   return message.includes('message is not modified')
 }
 
+const isTelegramPollingConflictError = (error: unknown) => {
+  const message = formatTelegramApiError(error).toLowerCase()
+  return message.includes('terminated by other getupdates request')
+    || (message.includes('conflict:') && message.includes('getupdates'))
+}
+
 const renderTelegramMessageContent = async (input: {
   text: string
   threadId: string | null
@@ -1925,16 +1932,21 @@ const pollTelegramLoop = async () => {
       })
     } catch (error) {
       const message = formatTelegramApiError(error)
-      console.error('[telegram] polling failed:', message)
+      const isConflict = isTelegramPollingConflictError(error)
+      if (isConflict) {
+        console.debug('[telegram] polling omitted:', message)
+      } else {
+        console.error('[telegram] polling failed:', message)
+      }
       upsertTelegramTransportState({
         key: TELEGRAM_STATE_KEY,
         lastUpdateId: state?.lastUpdateId ?? null,
         lastPollStartedAt: startedAt,
         lastPollSucceededAt: state?.lastPollSucceededAt ?? null,
-        lastPollError: message,
+        lastPollError: isConflict ? null : message,
         updatedAt: Date.now()
       })
-      await sleep(TELEGRAM_ERROR_RETRY_MS)
+      await sleep(isConflict ? TELEGRAM_POLL_CONFLICT_RETRY_MS : TELEGRAM_ERROR_RETRY_MS)
     }
   }
 }

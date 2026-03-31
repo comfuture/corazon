@@ -84,9 +84,23 @@ export type RememberCodexMessagesInput = {
 export type MemoryUpsertResult = {
   memories: MemoryRecord[]
   messageCount: number
+  skipped?: boolean
 }
 
 let memoryEnginePromise: Promise<Mem0Engine> | null = null
+const MEMORY_BACKEND_UNAVAILABLE_PATTERNS = [
+  'failed to connect to chromadb',
+  'econnrefused',
+  'connect econnrefused',
+  'connection refused',
+  'fetch failed',
+  'socket hang up',
+  'econnreset',
+  'enotfound',
+  'getaddrinfo',
+  'timed out',
+  'timeout'
+]
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -107,6 +121,63 @@ const clampSearchLimit = (value: unknown) => {
     return 1
   }
   return Math.min(rounded, MAX_SEARCH_LIMIT)
+}
+
+const resetMemoryEngine = () => {
+  memoryEnginePromise = null
+}
+
+const collectErrorMessages = (error: unknown, messages = new Set<string>()) => {
+  if (!error) {
+    return messages
+  }
+
+  if (typeof error === 'string') {
+    const normalized = error.trim()
+    if (normalized) {
+      messages.add(normalized)
+    }
+    return messages
+  }
+
+  if (error instanceof Error) {
+    const normalized = error.message.trim()
+    if (normalized) {
+      messages.add(normalized)
+    }
+
+    const cause = Reflect.get(error, 'cause')
+    if (cause) {
+      collectErrorMessages(cause, messages)
+    }
+    return messages
+  }
+
+  if (isObject(error)) {
+    const code = normalizeText(error.code)
+    const message = normalizeText(error.message)
+    const cause = error.cause
+    if (code) {
+      messages.add(code)
+    }
+    if (message) {
+      messages.add(message)
+    }
+    if (cause) {
+      collectErrorMessages(cause, messages)
+    }
+  }
+
+  return messages
+}
+
+export const isMemoryBackendUnavailableError = (error: unknown) => {
+  const messages = [...collectErrorMessages(error)]
+    .map(message => message.toLowerCase())
+
+  return messages.some(message =>
+    MEMORY_BACKEND_UNAVAILABLE_PATTERNS.some(pattern => message.includes(pattern))
+  )
 }
 
 const resolveMemoryUserId = (value?: string | null) => {
@@ -282,7 +353,7 @@ const createMemoryEngine = async (): Promise<Mem0Engine> => {
 const getMemoryEngine = async () => {
   if (!memoryEnginePromise) {
     memoryEnginePromise = createMemoryEngine().catch((error) => {
-      memoryEnginePromise = null
+      resetMemoryEngine()
       throw error
     })
   }
@@ -369,11 +440,25 @@ export const isMemoryConfigured = () => Boolean(process.env.OPENAI_API_KEY?.trim
 
 export const getMemoryHealth = async () => {
   requireOpenAiApiKey()
-  await ensureMemoryBackendReady()
-  await getMemoryEngine()
+  try {
+    await ensureMemoryBackendReady()
+    await getMemoryEngine()
+  } catch (error) {
+    if (!isMemoryBackendUnavailableError(error)) {
+      throw error
+    }
+    resetMemoryEngine()
+    return {
+      configured: true,
+      vectorStore: 'chromadb',
+      available: false,
+      degraded: true
+    }
+  }
   return {
     configured: true,
-    vectorStore: 'chromadb'
+    vectorStore: 'chromadb',
+    available: true
   }
 }
 
@@ -383,14 +468,24 @@ export const searchMemories = async (input: MemorySearchInput) => {
     throw new Error('query is required')
   }
 
-  const engine = await getMemoryEngine()
-  const response = await engine.search(query, {
-    userId: resolveMemoryUserId(input.userId),
-    limit: clampSearchLimit(input.limit),
-    filters: input.filters ?? {}
-  })
+  try {
+    await ensureMemoryBackendReady()
 
-  return normalizeMemoryResults(response.results)
+    const engine = await getMemoryEngine()
+    const response = await engine.search(query, {
+      userId: resolveMemoryUserId(input.userId),
+      limit: clampSearchLimit(input.limit),
+      filters: input.filters ?? {}
+    })
+
+    return normalizeMemoryResults(response.results)
+  } catch (error) {
+    if (!isMemoryBackendUnavailableError(error)) {
+      throw error
+    }
+    resetMemoryEngine()
+    return []
+  }
 }
 
 export const rememberMessages = async (input: RememberMessagesInput): Promise<MemoryUpsertResult> => {
@@ -399,15 +494,29 @@ export const rememberMessages = async (input: RememberMessagesInput): Promise<Me
     throw new Error('messages must contain at least one text entry')
   }
 
-  const engine = await getMemoryEngine()
-  const response = await engine.add(messages, {
-    userId: resolveMemoryUserId(input.userId),
-    metadata: input.metadata ?? {}
-  })
+  try {
+    await ensureMemoryBackendReady()
 
-  return {
-    memories: normalizeMemoryResults(response.results),
-    messageCount: messages.length
+    const engine = await getMemoryEngine()
+    const response = await engine.add(messages, {
+      userId: resolveMemoryUserId(input.userId),
+      metadata: input.metadata ?? {}
+    })
+
+    return {
+      memories: normalizeMemoryResults(response.results),
+      messageCount: messages.length
+    }
+  } catch (error) {
+    if (!isMemoryBackendUnavailableError(error)) {
+      throw error
+    }
+    resetMemoryEngine()
+    return {
+      memories: [],
+      messageCount: 0,
+      skipped: true
+    }
   }
 }
 

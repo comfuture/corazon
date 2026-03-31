@@ -5,7 +5,13 @@ import {
   markThreadMemorySyncFailure,
   markThreadMemorySyncSuccess
 } from './db.ts'
-import { ensureMemoryBackendReady, isMemoryConfigured, rememberCodexMessages } from './memory.ts'
+import {
+  convertCodexMessagesToOpenAICompat,
+  ensureMemoryBackendReady,
+  isMemoryBackendUnavailableError,
+  isMemoryConfigured,
+  rememberCodexMessages
+} from './memory.ts'
 
 const STALE_THREAD_MS = 15 * 60 * 1000
 const SYNC_INTERVAL_MS = 15 * 60 * 1000
@@ -47,6 +53,15 @@ const toErrorMessage = (error: unknown) =>
     ? error.message
     : String(error)
 
+const applyMemoryBackendBackoff = (error: unknown) => {
+  const message = toErrorMessage(error)
+  const backoffMs = resolveBackoffMs()
+  memorySyncBlockedUntil = Date.now() + backoffMs
+  console.debug(
+    `[memory-sync] backend unavailable; skipping for ${Math.floor(backoffMs / 1000)}s: ${message}`
+  )
+}
+
 const buildSyncMetadata = (thread: ThreadMemorySyncCandidate) => ({
   source: 'stale-thread-sync',
   threadId: thread.id,
@@ -56,10 +71,19 @@ const buildSyncMetadata = (thread: ThreadMemorySyncCandidate) => ({
 
 const syncStaleThread = async (thread: ThreadMemorySyncCandidate) => {
   const messages = loadThreadMessages(thread.id) ?? []
-  await rememberCodexMessages({
+  const memoryMessages = convertCodexMessagesToOpenAICompat(messages)
+  if (!memoryMessages.length) {
+    markThreadMemorySyncSuccess(thread.id, thread.updatedAt)
+    return
+  }
+
+  const result = await rememberCodexMessages({
     messages,
     metadata: buildSyncMetadata(thread)
   })
+  if (result.skipped) {
+    throw new Error('Failed to connect to ChromaDB during memory sync.')
+  }
   markThreadMemorySyncSuccess(thread.id, thread.updatedAt)
 }
 
@@ -81,12 +105,16 @@ export const runMemorySyncTick = async () => {
     try {
       await ensureMemoryBackendReady()
     } catch (error) {
-      const message = toErrorMessage(error)
-      const backoffMs = resolveBackoffMs()
-      memorySyncBlockedUntil = Date.now() + backoffMs
-      console.error(
-        `[memory-sync] backend unavailable; retry after ${Math.floor(backoffMs / 1000)}s: ${message}`
-      )
+      if (isMemoryBackendUnavailableError(error)) {
+        applyMemoryBackendBackoff(error)
+      } else {
+        const message = toErrorMessage(error)
+        const backoffMs = resolveBackoffMs()
+        memorySyncBlockedUntil = Date.now() + backoffMs
+        console.error(
+          `[memory-sync] backend unavailable; retry after ${Math.floor(backoffMs / 1000)}s: ${message}`
+        )
+      }
       return
     }
 
@@ -97,6 +125,11 @@ export const runMemorySyncTick = async () => {
       try {
         await syncStaleThread(thread)
       } catch (error) {
+        if (isMemoryBackendUnavailableError(error)) {
+          applyMemoryBackendBackoff(error)
+          return
+        }
+
         const message = toErrorMessage(error)
         markThreadMemorySyncFailure(thread.id, thread.updatedAt, message)
         console.error(`[memory-sync] failed thread=${thread.id}: ${message}`)

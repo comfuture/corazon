@@ -309,6 +309,9 @@ export class Mem0ChromaVectorStore {
           name: this.collectionName,
           embeddingFunction: createDirectEmbeddingsOnlyFunction()
         })
+      }).catch((error) => {
+        this.collectionPromise = null
+        throw error
       })
     }
 

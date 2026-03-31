@@ -2,7 +2,7 @@ export default defineEventHandler(async () => {
   try {
     const health = await getMemoryHealth()
     return {
-      ok: true,
+      ok: health.available,
       ...health
     }
   } catch (error) {
