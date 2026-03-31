@@ -63,6 +63,10 @@ export interface CodexSubagentPanelItem {
   messages: CodexUIMessage[]
 }
 
+export type CodexWebSearchItem = WebSearchItem & {
+  status: 'in_progress' | 'completed'
+}
+
 export type CodexThreadEventData
   = {
     kind: 'thread.started'
@@ -120,7 +124,7 @@ export type CodexItemData
   }
   | {
     kind: 'web_search'
-    item: WebSearchItem
+    item: CodexWebSearchItem
   }
   | {
     kind: 'todo_list'

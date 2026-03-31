@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CodexItemData } from '@@/types/chat-ui'
+import CzMessageItemChatTool from './chat-tool.vue'
 
 type WebSearchItem = Extract<CodexItemData, { kind: 'web_search' }>['item']
 
@@ -9,14 +10,10 @@ defineProps<{
 </script>
 
 <template>
-  <UAlert
-    color="info"
-    variant="soft"
+  <CzMessageItemChatTool
     icon="i-lucide-search"
-    title="Web search"
-  >
-    <template #description>
-      {{ item.query }}
-    </template>
-  </UAlert>
+    text="Web Search"
+    :suffix="item.query"
+    :status="item.status"
+  />
 </template>

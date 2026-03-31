@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CodexItemData } from '@@/types/chat-ui'
+import CzMessageItemChatTool from './chat-tool.vue'
 
 type InternalToolCallItem = Extract<CodexItemData, { kind: 'mcp_tool_call' }>['item']
 
@@ -152,10 +153,9 @@ const icon = computed(() => {
 </script>
 
 <template>
-  <UChatTool
+  <CzMessageItemChatTool
     :text="summaryText"
     :icon="icon"
-    :loading="item.status === 'in_progress'"
-    :streaming="item.status === 'in_progress'"
+    :status="item.status"
   />
 </template>

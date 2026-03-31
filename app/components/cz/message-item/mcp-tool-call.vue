@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CodexItemData } from '@@/types/chat-ui'
+import CzMessageItemChatTool from './chat-tool.vue'
 
 type McpToolCallItem = Extract<CodexItemData, { kind: 'mcp_tool_call' }>['item']
 
@@ -67,12 +68,11 @@ const icon = computed(() =>
 </script>
 
 <template>
-  <UChatTool
+  <CzMessageItemChatTool
     :text="title"
     :suffix="callPreview"
     :icon="icon"
-    :loading="item.status === 'in_progress'"
-    :streaming="item.status === 'in_progress'"
+    :status="item.status"
     variant="card"
     :default-open="item.status === 'failed'"
   >
@@ -126,5 +126,5 @@ const icon = computed(() =>
         {{ item.error.message }}
       </p>
     </div>
-  </UChatTool>
+  </CzMessageItemChatTool>
 </template>

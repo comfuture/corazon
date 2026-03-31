@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CodexItemData } from '@@/types/chat-ui'
+import CzMessageItemChatTool from './chat-tool.vue'
 import CzMessageItemUnifiedDiffViewer from './unified-diff-viewer.vue'
 
 type FileChangeItem = Extract<CodexItemData, { kind: 'file_change' }>['item']
@@ -74,13 +75,12 @@ const changeKindClass = (kind?: string) => {
 </script>
 
 <template>
-  <UChatTool
+  <CzMessageItemChatTool
     v-if="hasDetails"
     :text="title"
     :suffix="filePreview"
     :icon="icon"
-    :loading="item.status === 'in_progress'"
-    :streaming="item.status === 'in_progress'"
+    :status="item.status"
     variant="card"
     :default-open="item.status === 'failed'"
   >
@@ -107,14 +107,13 @@ const changeKindClass = (kind?: string) => {
         </div>
       </li>
     </ul>
-  </UChatTool>
+  </CzMessageItemChatTool>
 
-  <UChatTool
+  <CzMessageItemChatTool
     v-else
     :text="title"
     :suffix="filePreview"
     :icon="icon"
-    :loading="item.status === 'in_progress'"
-    :streaming="item.status === 'in_progress'"
+    :status="item.status"
   />
 </template>

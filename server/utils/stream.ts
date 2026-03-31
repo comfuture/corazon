@@ -163,7 +163,10 @@ const toThreadEventData = (event: CodexThreadEvent): CodexThreadEventData | null
   }
 }
 
-const toItemData = (item: CodexThreadItem): CodexItemData | null => {
+const toItemData = (
+  item: CodexThreadItem,
+  done = false
+): CodexItemData | null => {
   switch (item.type) {
     case 'command_execution':
       return { kind: 'command_execution', item }
@@ -174,7 +177,13 @@ const toItemData = (item: CodexThreadItem): CodexItemData | null => {
     case 'mcp_tool_call':
       return { kind: 'mcp_tool_call', item }
     case 'web_search':
-      return { kind: 'web_search', item }
+      return {
+        kind: 'web_search',
+        item: {
+          ...item,
+          status: done ? 'completed' : 'in_progress'
+        }
+      }
     case 'todo_list':
       return { kind: 'todo_list', item }
     case 'error':
@@ -280,7 +289,7 @@ export const createThreadEventHandler = (
         return
       }
 
-      const itemData = toItemData(item)
+      const itemData = toItemData(item, done)
       if (itemData) {
         if (!emitProgressItems && !done) {
           return

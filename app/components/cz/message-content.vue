@@ -21,7 +21,9 @@ defineProps<{
   <div class="space-y-2">
     <MessagePartRenderer
       v-for="(part, index) in message?.parts ?? []"
-      :key="`${message?.id}-${part?.type}-${index}`"
+      :key="('id' in (part ?? {}) && typeof part.id === 'string')
+        ? part.id
+        : `${message?.id}-${part?.type}-${index}`"
       :message="message"
       :part="part"
     />
