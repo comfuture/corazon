@@ -15,6 +15,7 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "setup": "node scripts/corazon-setup.mjs",
+    "security:audit": "pnpm audit --audit-level=high",
     "lint": "eslint .",
     "typecheck": "nuxt typecheck"
   },

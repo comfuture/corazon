@@ -36,6 +36,14 @@ MISE_CONFIG_FILE=./docker/mise.toml mise install
 pnpm dev
 ```
 
+Dependency security audit:
+
+```bash
+pnpm run security:audit
+```
+
+Policy and CI workflow details are documented in [`docs/security-audit-policy.md`](docs/security-audit-policy.md).
+
 Optional runtime mode:
 - `CORAZON_CODEX_CLIENT_MODE=app-server` (default)
 - `CORAZON_CODEX_CLIENT_MODE=sdk` (fallback)
