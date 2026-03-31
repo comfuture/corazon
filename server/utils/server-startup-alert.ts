@@ -1,13 +1,10 @@
 import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import {
   createSimpleChatgptCodexInput,
   formatChatgptCodexResponsesError,
   runChatgptCodexTextResponse
-} from '../../lib/chatgpt-codex-responses.ts'
-import { sendOperatorNotification } from './operator-notifications.ts'
-import { readTelegramSettings } from './settings-config.ts'
+} from '@@/lib/chatgpt-codex-responses.ts'
 
 const STARTUP_ALERT_MODEL = 'gpt-5.4-mini'
 const STARTUP_ALERT_MAX_LLM_MESSAGE_LENGTH = 220
@@ -23,11 +20,11 @@ const truncate = (value: string, maxLength: number) => {
   return `${value.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`
 }
 
-const resolveRepositoryRoot = () => resolve(import.meta.dirname, '..', '..')
+const resolveRepositoryRoot = () => process.cwd()
 
 const readPackageVersion = () => {
   try {
-    const raw = readFileSync(resolve(resolveRepositoryRoot(), 'package.json'), 'utf8')
+    const raw = readFileSync(`${resolveRepositoryRoot()}/package.json`, 'utf8')
     const parsed = JSON.parse(raw) as { version?: unknown }
     return typeof parsed.version === 'string' ? parsed.version.trim() : ''
   } catch {
@@ -39,7 +36,8 @@ const runGitCommand = (args: string[]) => {
   try {
     return execFileSync('git', args, {
       cwd: resolveRepositoryRoot(),
-      encoding: 'utf8'
+      encoding: 'utf8',
+      timeout: 5000
     }).trim()
   } catch {
     return ''
