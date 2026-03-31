@@ -46,9 +46,35 @@ const setOutput = (key, value) => {
   appendFileSync(process.env.GITHUB_OUTPUT, text)
 }
 
+const parseReport = (reportFile) => {
+  const raw = readFileSync(reportFile, 'utf8')
+
+  try {
+    return JSON.parse(raw)
+  } catch (error) {
+    const preview = raw
+      .split(/\r?\n/)
+      .slice(0, 3)
+      .join('\n')
+      .trim()
+
+    const hint = preview.startsWith('>')
+      ? ' The report appears to include shell or pnpm stdout before the JSON payload.'
+      : ''
+
+    const message = error instanceof Error
+      ? error.message
+      : 'Unknown JSON parse failure.'
+
+    throw new Error(
+      `Failed to parse post-deploy recovery report at ${reportFile}: ${message}.${hint} First lines: ${JSON.stringify(preview)}`
+    )
+  }
+}
+
 const main = () => {
   const options = parseArgs(process.argv.slice(2))
-  const report = JSON.parse(readFileSync(options.reportFile, 'utf8'))
+  const report = parseReport(options.reportFile)
   const status = String(report?.summary?.status ?? 'unknown')
   const previousStatus = options.previousStatus.trim()
 

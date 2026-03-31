@@ -111,7 +111,7 @@ jobs:
 
       - name: Run post-deploy recovery check
         run: |
-          docker --context production compose exec -T corazon pnpm recovery:post-deploy --json > post-deploy-recovery.json
+          docker --context production compose exec -T corazon node scripts/post-deploy-recovery.mjs --json > post-deploy-recovery.json
           cat post-deploy-recovery.json
 
       - name: Evaluate post-deploy recovery gate
