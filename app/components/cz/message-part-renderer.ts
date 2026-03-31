@@ -1,11 +1,10 @@
-import { defineComponent, h, type PropType } from 'vue'
+import { defineComponent, h, resolveComponent, type PropType } from 'vue'
 import {
   CODEX_EVENT_PART,
   CODEX_ITEM_PART
 } from '@@/types/chat-ui'
 import CzMessagePartText from './message-part/text.vue'
 import CzMessagePartFile from './message-part/file.vue'
-import CzMessagePartReasoning from './message-part/reasoning.vue'
 import CzMessagePartEvent from './message-part/event.vue'
 import CzMessagePartItem from './message-part/item'
 
@@ -31,6 +30,7 @@ export default defineComponent({
     }
   },
   setup(props) {
+    const chatReasoning = resolveComponent('UChatReasoning')
     const partSnapshot = () => (props.part ? { ...props.part } : null)
 
     const debugFallback = () => {
@@ -60,8 +60,10 @@ export default defineComponent({
             part: snapshot
           })
         case 'reasoning':
-          return h(CzMessagePartReasoning, {
-            part: snapshot
+          return h(chatReasoning, {
+            icon: 'i-lucide-brain',
+            text: typeof snapshot.text === 'string' ? snapshot.text : '',
+            streaming: snapshot.state === 'streaming' && snapshot.ended !== true
           })
         case CODEX_EVENT_PART:
           return h(CzMessagePartEvent, {
