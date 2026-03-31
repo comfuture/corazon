@@ -1,21 +1,12 @@
 <script setup lang="ts">
 import type { CodexItemData } from '@@/types/chat-ui'
+import CzMessageItemChatTool from './chat-tool.vue'
 
 type McpToolCallItem = Extract<CodexItemData, { kind: 'mcp_tool_call' }>['item']
 
 const props = defineProps<{
   item: McpToolCallItem
 }>()
-
-const open = ref(false)
-
-const formatOneLineJson = (value: unknown) => {
-  try {
-    return JSON.stringify(value) ?? ''
-  } catch {
-    return String(value)
-  }
-}
 
 const formatPrettyJson = (value: unknown) => {
   try {
@@ -28,10 +19,10 @@ const formatPrettyJson = (value: unknown) => {
 const callPreview = computed(() => {
   const server = props.item.server?.trim() || 'mcp'
   const tool = props.item.tool?.trim() || 'tool'
-  const args = formatOneLineJson(props.item.arguments)
-  return args ? `${server} ${tool} ${args}` : `${server} ${tool}`
+  return `${server} ${tool}`
 })
 
+const argumentsText = computed(() => formatPrettyJson(props.item.arguments))
 const resultText = computed(() => formatPrettyJson(props.item.result))
 
 const progressLines = computed(() => {
@@ -58,57 +49,50 @@ const progressLines = computed(() => {
   })
 })
 
-const toggleOpen = () => {
-  open.value = !open.value
-}
+const title = computed(() => {
+  switch (props.item.status) {
+    case 'in_progress':
+      return 'MCP 도구 실행 중'
+    case 'completed':
+      return 'MCP 도구 실행'
+    case 'failed':
+      return 'MCP 도구 실행 실패'
+    default:
+      return 'MCP 도구'
+  }
+})
+
+const icon = computed(() =>
+  props.item.status === 'failed' ? 'i-lucide-triangle-alert' : 'i-lucide-plug-zap'
+)
 </script>
 
 <template>
-  <div class="space-y-2">
-    <UButton
-      color="neutral"
-      variant="ghost"
-      size="sm"
-      class="w-full justify-between px-0 py-0.5 text-muted"
-      @click="toggleOpen"
-    >
-      <span class="min-w-0 flex flex-1 items-center gap-2 text-left">
-        <UBadge
-          color="primary"
-          variant="subtle"
-          size="xs"
-        >
-          MCP
-        </UBadge>
-        <span class="block truncate font-mono text-xs">{{ callPreview }}</span>
-      </span>
-      <template #trailing>
-        <div class="flex items-center gap-2">
-          <UIcon
-            v-if="item.status === 'in_progress'"
-            name="i-lucide-loader-2"
-            class="h-3.5 w-3.5 animate-spin text-amber-500"
-          />
-          <UIcon
-            v-else-if="item.status === 'completed'"
-            name="i-lucide-check"
-            class="h-3.5 w-3.5 text-emerald-500"
-          />
-          <UIcon
-            v-else-if="item.status === 'failed'"
-            name="i-lucide-x"
-            class="h-3.5 w-3.5 text-rose-500"
-          />
-          <UIcon
-            name="i-lucide-chevron-right"
-            class="size-3.5 text-muted transition-transform"
-            :class="open ? 'rotate-90' : ''"
-          />
-        </div>
-      </template>
-    </UButton>
+  <CzMessageItemChatTool
+    :text="title"
+    :suffix="callPreview"
+    :icon="icon"
+    :status="item.status"
+    variant="card"
+    :default-open="item.status === 'failed'"
+    :ui="{
+      label: 'min-w-0 truncate',
+      suffix: 'truncate font-mono text-xs',
+      trigger: 'px-2 py-1.5',
+      body: 'max-h-[320px] overflow-y-auto border-default p-2'
+    }"
+  >
+    <div class="space-y-2">
+      <div
+        v-if="item.arguments != null"
+        class="rounded-md border border-muted/60 bg-muted/10 px-3 py-2"
+      >
+        <p class="mb-2 text-xs font-medium text-muted-foreground">
+          Arguments
+        </p>
+        <pre class="whitespace-pre-wrap break-words text-xs text-muted-foreground">{{ argumentsText }}</pre>
+      </div>
 
-    <template v-if="open">
       <div
         v-if="progressLines.length > 0"
         class="rounded-md border border-muted/60 bg-muted/10 px-3 py-2"
@@ -147,6 +131,6 @@ const toggleOpen = () => {
       >
         {{ item.error.message }}
       </p>
-    </template>
-  </div>
+    </div>
+  </CzMessageItemChatTool>
 </template>
