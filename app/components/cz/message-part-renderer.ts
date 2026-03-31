@@ -32,6 +32,27 @@ export default defineComponent({
   setup(props) {
     const chatReasoning = resolveComponent('UChatReasoning')
     const partSnapshot = () => (props.part ? { ...props.part } : null)
+    const getReasoningDurationSeconds = (part?: MessagePart | null) => {
+      const providerMetadata = part?.providerMetadata
+      if (!providerMetadata || typeof providerMetadata !== 'object') {
+        return undefined
+      }
+
+      const raw = 'thinkingDurationMs' in providerMetadata
+        ? (providerMetadata as { thinkingDurationMs?: unknown }).thinkingDurationMs
+        : undefined
+
+      if (typeof raw === 'number') {
+        return Math.max(1, Math.ceil(raw / 1000))
+      }
+
+      if (raw && typeof raw === 'object' && 'value' in raw) {
+        const value = (raw as { value?: unknown }).value
+        return typeof value === 'number' ? Math.max(1, Math.ceil(value / 1000)) : undefined
+      }
+
+      return undefined
+    }
 
     const debugFallback = () => {
       const snapshot = partSnapshot()
@@ -63,7 +84,8 @@ export default defineComponent({
           return h(chatReasoning, {
             icon: 'i-lucide-brain',
             text: typeof snapshot.text === 'string' ? snapshot.text : '',
-            streaming: snapshot.state === 'streaming' && snapshot.ended !== true
+            streaming: snapshot.state === 'streaming' && snapshot.ended !== true,
+            duration: getReasoningDurationSeconds(snapshot)
           })
         case CODEX_EVENT_PART:
           return h(CzMessagePartEvent, {
