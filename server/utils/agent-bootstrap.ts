@@ -19,6 +19,7 @@ const SEED_DIRECTORIES = ['skills', 'rules', 'vendor_imports'] as const
 const AUTH_FILE = 'auth.json'
 const AGENTS_FILE = 'AGENTS.md'
 const AGENTS_SKELETON_FILE = 'agent-behavior.md'
+const RIPGREP_IGNORE_FILE = '.ignore'
 const SYSTEM_SKILL_SYNC_NAMES = new Set(['shared-memory', 'manage-workflows'])
 const SHARED_MEMORY_GUIDANCE_PATTERN = /## Shared memory[\s\S]*?(?=\n## |\n# |$)/i
 const WORKFLOW_GUIDANCE_PATTERN = /## Workflow management[\s\S]*?(?=\n## |\n# |$)/i
@@ -195,6 +196,15 @@ const ensureDefaultAgentsFile = (agentHomeDir: string) => {
   writeFileSync(destinationPath, '# Corazon Assistant\n', 'utf8')
 }
 
+const ensureDefaultRipgrepIgnoreFile = (agentHomeDir: string) => {
+  const destinationPath = join(agentHomeDir, RIPGREP_IGNORE_FILE)
+  if (existsSync(destinationPath)) {
+    return
+  }
+
+  writeFileSync(destinationPath, 'workflow-data/\n', 'utf8')
+}
+
 const updateGuidanceSection = (content: string, pattern: RegExp, guidance: string) =>
   content.match(pattern)
     ? content.replace(pattern, `${guidance}\n`)
@@ -355,6 +365,7 @@ export const ensureAgentBootstrap = () => {
   ensureBundledSkills(agentHomeDir)
   ensureSkillScriptPermissions(agentHomeDir)
   ensureDefaultAgentsFile(agentHomeDir)
+  ensureDefaultRipgrepIgnoreFile(agentHomeDir)
   migrateLegacyAgentsFile(agentHomeDir)
   bootstrapDone = true
   return agentHomeDir

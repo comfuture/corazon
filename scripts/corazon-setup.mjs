@@ -20,6 +20,7 @@ const SEED_DIRECTORIES = ['skills', 'rules', 'vendor_imports']
 const AUTH_FILE = 'auth.json'
 const AGENTS_FILE = 'AGENTS.md'
 const AGENTS_SKELETON_FILE = 'agent-behavior.md'
+const RIPGREP_IGNORE_FILE = '.ignore'
 const SYSTEM_SKILL_SYNC_NAMES = ['shared-memory', 'manage-workflows']
 const LEGACY_MEMORY_GUIDANCE_PATTERN = /## Shared memory[\s\S]*?(?=\n## |\n# |$)/i
 const UPDATED_SHARED_MEMORY_GUIDANCE = [
@@ -250,6 +251,17 @@ const ensureAgentsFile = (runtimeRoot, overwrite, counters) => {
   counters.copied += 1
 }
 
+const ensureRipgrepIgnoreFile = (runtimeRoot, overwrite, counters) => {
+  const destinationPath = join(runtimeRoot, RIPGREP_IGNORE_FILE)
+  if (existsSync(destinationPath) && !overwrite) {
+    counters.skipped += 1
+    return
+  }
+
+  writeFileSync(destinationPath, 'workflow-data/\n', 'utf8')
+  counters.copied += 1
+}
+
 const migrateLegacyAgentsFile = (runtimeRoot) => {
   const destinationPath = join(runtimeRoot, AGENTS_FILE)
   if (!existsSync(destinationPath)) {
@@ -459,6 +471,7 @@ export const run = (args = []) => {
   }
 
   ensureAgentsFile(runtimeRoot, options.overwrite, counters)
+  ensureRipgrepIgnoreFile(runtimeRoot, options.overwrite, counters)
   migrateLegacyAgentsFile(runtimeRoot)
   ensureSkillScriptPermissions(runtimeRoot)
 
