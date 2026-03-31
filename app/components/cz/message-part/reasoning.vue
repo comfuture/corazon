@@ -2,7 +2,7 @@
 import MarkdownRender from 'markstream-vue'
 import 'markstream-vue/index.css'
 
-const props = defineProps<{
+defineProps<{
   part?: {
     text?: string
     state?: 'streaming' | 'done'
@@ -11,29 +11,13 @@ const props = defineProps<{
     [key: string]: unknown
   } | null
 }>()
-
-const getReasoningDurationSeconds = () => {
-  const raw = props.part?.providerMetadata?.thinkingDurationMs
-  if (typeof raw === 'number') {
-    return Math.max(1, Math.ceil(raw / 1000))
-  }
-  if (raw && typeof raw === 'object' && 'value' in raw) {
-    const value = (raw as { value?: unknown }).value
-    return typeof value === 'number' ? Math.max(1, Math.ceil(value / 1000)) : undefined
-  }
-  return undefined
-}
-
-const reasoningDurationSeconds = computed(getReasoningDurationSeconds)
-const isStreaming = computed(() => props.part?.state === 'streaming' && props.part?.ended !== true)
 </script>
 
 <template>
   <UChatReasoning
     icon="i-lucide-brain"
     :text="part?.text ?? ''"
-    :streaming="isStreaming"
-    :duration="reasoningDurationSeconds"
+    :streaming="part?.state === 'streaming' && part?.ended !== true"
     :ui="{
       root: 'flex flex-col gap-2',
       body: 'reasoning-muted max-h-[200px] pt-2 overflow-y-auto text-sm text-dimmed'
