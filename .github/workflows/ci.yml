@@ -32,3 +32,6 @@ jobs:
 
       - name: Typecheck
         run: pnpm run typecheck
+
+      - name: Verify post-deploy recovery regression guards
+        run: pnpm run recovery:verify
