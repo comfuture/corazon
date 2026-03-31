@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { CodexItemData } from '@@/types/chat-ui'
-import CzMessageItemChatTool from './chat-tool.vue'
 
 type CommandExecutionItem = Extract<CodexItemData, { kind: 'command_execution' }>['item']
 
@@ -32,19 +31,14 @@ const icon = computed(() =>
 </script>
 
 <template>
-  <CzMessageItemChatTool
+  <UChatTool
     :text="title"
     :suffix="commandPreview"
     :icon="icon"
-    :status="item.status"
+    :loading="item.status === 'in_progress'"
+    :streaming="item.status === 'in_progress'"
     variant="card"
     :default-open="item.status === 'failed'"
-    :ui="{
-      label: 'min-w-0 truncate',
-      suffix: 'truncate font-mono text-xs',
-      trigger: 'px-2 py-1.5',
-      body: 'max-h-[320px] overflow-y-auto border-default p-2'
-    }"
   >
     <div
       v-if="item.aggregated_output"
@@ -58,5 +52,5 @@ const icon = computed(() =>
     >
       No output yet.
     </p>
-  </CzMessageItemChatTool>
+  </UChatTool>
 </template>

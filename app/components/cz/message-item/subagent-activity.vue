@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { CodexItemData, CodexSubagentAgentState } from '@@/types/chat-ui'
-import CzMessageItemChatTool from './chat-tool.vue'
 
 type SubagentActivityItem = Extract<CodexItemData, { kind: 'subagent_activity' }>['item']
 
@@ -111,18 +110,14 @@ const agentStatusLabel = (status: CodexSubagentAgentState['status']) => {
     v-if="!isHidden"
     class="space-y-1.5"
   >
-    <CzMessageItemChatTool
+    <UChatTool
       v-if="hasDetails"
       :text="summaryText"
       :icon="icon"
-      :status="item.status"
+      :loading="item.status === 'in_progress'"
+      :streaming="item.status === 'in_progress'"
       variant="card"
       :default-open="item.status === 'failed'"
-      :ui="{
-        label: 'whitespace-pre-wrap break-all text-xs text-default',
-        trigger: 'px-2 py-1.5',
-        body: 'max-h-[320px] overflow-y-auto border-default p-2'
-      }"
     >
       <div class="space-y-2">
         <div class="rounded-md border border-muted/60 bg-muted/10 px-3 py-2">
@@ -186,14 +181,14 @@ const agentStatusLabel = (status: CodexSubagentAgentState['status']) => {
           </ul>
         </div>
       </div>
-    </CzMessageItemChatTool>
+    </UChatTool>
 
-    <CzMessageItemChatTool
+    <UChatTool
       v-else
       :text="summaryText"
       :icon="icon"
-      :status="item.status"
-      :ui="{ label: 'whitespace-pre-wrap break-all text-xs text-default' }"
+      :loading="item.status === 'in_progress'"
+      :streaming="item.status === 'in_progress'"
     />
   </div>
 </template>
