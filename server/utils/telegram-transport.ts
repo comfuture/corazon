@@ -18,6 +18,7 @@ import type {
 } from '@@/types/chat-ui'
 import { codexChatTurnWorkflow } from '../workflows/chat-turn'
 import {
+  acquireTelegramPollLease,
   assignTelegramSessionThread,
   clearThreadActiveRun,
   createTelegramSession,
@@ -32,6 +33,8 @@ import {
   loadThreadMessages,
   recordTelegramSessionInbound,
   recordTelegramSessionOutbound,
+  releaseTelegramPollLease,
+  renewTelegramPollLease,
   setTelegramSessionActiveRun,
   setTelegramSessionSummary,
   setThreadOrigin,
@@ -72,6 +75,9 @@ const TELEGRAM_ERROR_RETRY_MS = 3000
 const TELEGRAM_POLL_CONFLICT_RETRY_MIN_MS = 15000
 const TELEGRAM_POLL_CONFLICT_RETRY_MAX_MS = 45000
 const TELEGRAM_POLL_STARTUP_JITTER_MAX_MS = 5000
+const TELEGRAM_POLL_LEASE_MS = 60_000
+const TELEGRAM_POLL_LEASE_WAIT_MIN_MS = 2000
+const TELEGRAM_POLL_LEASE_WAIT_MAX_MS = 5000
 const TELEGRAM_STATE_KEY = 'default'
 const TELEGRAM_TEXT_MAX_LENGTH = 3500
 const TELEGRAM_STEER_RETRY_ATTEMPTS = 5
@@ -137,6 +143,9 @@ const getTelegramConflictRetryMs = () =>
 const getTelegramPollStartupJitterMs = () =>
   Math.floor(Math.random() * (TELEGRAM_POLL_STARTUP_JITTER_MAX_MS + 1))
 
+const getTelegramPollLeaseWaitMs = () =>
+  TELEGRAM_POLL_LEASE_WAIT_MIN_MS
+  + Math.floor(Math.random() * (TELEGRAM_POLL_LEASE_WAIT_MAX_MS - TELEGRAM_POLL_LEASE_WAIT_MIN_MS + 1))
 const normalizeChatId = (value: string | number) => String(value).trim()
 
 const compactWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim()
@@ -2057,15 +2066,32 @@ const enqueueTelegramUpdate = async (
 }
 
 const pollTelegramLoop = async () => {
+  const pollerId = randomUUID()
+
   while (true) {
     const settings = readTelegramSettings()
     if (!settings.enabled) {
+      releaseTelegramPollLease({
+        key: TELEGRAM_STATE_KEY,
+        pollerId
+      })
       await sleep(TELEGRAM_DISABLED_RETRY_MS)
       continue
     }
 
-    const state = getTelegramTransportState(TELEGRAM_STATE_KEY)
     const startedAt = Date.now()
+    const lease = acquireTelegramPollLease({
+      key: TELEGRAM_STATE_KEY,
+      pollerId,
+      leaseExpiresAt: startedAt + TELEGRAM_POLL_LEASE_MS,
+      updatedAt: startedAt
+    })
+    if (!lease.acquired) {
+      await sleep(getTelegramPollLeaseWaitMs())
+      continue
+    }
+
+    const state = lease.state ?? getTelegramTransportState(TELEGRAM_STATE_KEY)
     let currentLastUpdateId = state?.lastUpdateId ?? null
     let currentLastPollSucceededAt = state?.lastPollSucceededAt ?? null
     upsertTelegramTransportState({
@@ -2074,6 +2100,8 @@ const pollTelegramLoop = async () => {
       lastPollStartedAt: startedAt,
       lastPollSucceededAt: currentLastPollSucceededAt,
       lastPollError: state?.lastPollError ?? null,
+      pollerId,
+      pollerLeaseExpiresAt: startedAt + TELEGRAM_POLL_LEASE_MS,
       updatedAt: startedAt
     })
 
@@ -2083,6 +2111,11 @@ const pollTelegramLoop = async () => {
         timeoutSeconds: TELEGRAM_POLL_TIMEOUT_SECONDS
       })
 
+      renewTelegramPollLease({
+        key: TELEGRAM_STATE_KEY,
+        pollerId,
+        leaseExpiresAt: Date.now() + TELEGRAM_POLL_LEASE_MS
+      })
       for (const update of updates) {
         await enqueueTelegramUpdate(settings, update)
         currentLastUpdateId = update.update_id
@@ -2093,6 +2126,8 @@ const pollTelegramLoop = async () => {
           lastPollStartedAt: startedAt,
           lastPollSucceededAt: currentLastPollSucceededAt,
           lastPollError: null,
+          pollerId,
+          pollerLeaseExpiresAt: Date.now() + TELEGRAM_POLL_LEASE_MS,
           updatedAt: Date.now()
         })
       }
@@ -2104,6 +2139,8 @@ const pollTelegramLoop = async () => {
         lastPollStartedAt: startedAt,
         lastPollSucceededAt: currentLastPollSucceededAt,
         lastPollError: null,
+        pollerId,
+        pollerLeaseExpiresAt: Date.now() + TELEGRAM_POLL_LEASE_MS,
         updatedAt: Date.now()
       })
     } catch (error) {
@@ -2120,8 +2157,16 @@ const pollTelegramLoop = async () => {
         lastPollStartedAt: startedAt,
         lastPollSucceededAt: currentLastPollSucceededAt,
         lastPollError: message,
+        pollerId,
+        pollerLeaseExpiresAt: Date.now() + TELEGRAM_POLL_LEASE_MS,
         updatedAt: Date.now()
       })
+      if (isConflict) {
+        releaseTelegramPollLease({
+          key: TELEGRAM_STATE_KEY,
+          pollerId
+        })
+      }
       await sleep(isConflict ? getTelegramConflictRetryMs() : TELEGRAM_ERROR_RETRY_MS)
     }
   }
