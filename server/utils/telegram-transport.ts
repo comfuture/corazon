@@ -1902,11 +1902,13 @@ const pollTelegramLoop = async () => {
 
     const state = getTelegramTransportState(TELEGRAM_STATE_KEY)
     const startedAt = Date.now()
+    let currentLastUpdateId = state?.lastUpdateId ?? null
+    let currentLastPollSucceededAt = state?.lastPollSucceededAt ?? null
     upsertTelegramTransportState({
       key: TELEGRAM_STATE_KEY,
-      lastUpdateId: state?.lastUpdateId ?? null,
+      lastUpdateId: currentLastUpdateId,
       lastPollStartedAt: startedAt,
-      lastPollSucceededAt: state?.lastPollSucceededAt ?? null,
+      lastPollSucceededAt: currentLastPollSucceededAt,
       lastPollError: state?.lastPollError ?? null,
       updatedAt: startedAt
     })
@@ -1917,25 +1919,26 @@ const pollTelegramLoop = async () => {
         timeoutSeconds: TELEGRAM_POLL_TIMEOUT_SECONDS
       })
 
-      let lastUpdateId = state?.lastUpdateId ?? null
       for (const update of updates) {
         await enqueueTelegramUpdate(settings, update)
-        lastUpdateId = update.update_id
+        currentLastUpdateId = update.update_id
+        currentLastPollSucceededAt = Date.now()
         upsertTelegramTransportState({
           key: TELEGRAM_STATE_KEY,
-          lastUpdateId,
+          lastUpdateId: currentLastUpdateId,
           lastPollStartedAt: startedAt,
-          lastPollSucceededAt: Date.now(),
+          lastPollSucceededAt: currentLastPollSucceededAt,
           lastPollError: null,
           updatedAt: Date.now()
         })
       }
 
+      currentLastPollSucceededAt = Date.now()
       upsertTelegramTransportState({
         key: TELEGRAM_STATE_KEY,
-        lastUpdateId,
+        lastUpdateId: currentLastUpdateId,
         lastPollStartedAt: startedAt,
-        lastPollSucceededAt: Date.now(),
+        lastPollSucceededAt: currentLastPollSucceededAt,
         lastPollError: null,
         updatedAt: Date.now()
       })
@@ -1949,9 +1952,9 @@ const pollTelegramLoop = async () => {
       }
       upsertTelegramTransportState({
         key: TELEGRAM_STATE_KEY,
-        lastUpdateId: state?.lastUpdateId ?? null,
+        lastUpdateId: currentLastUpdateId,
         lastPollStartedAt: startedAt,
-        lastPollSucceededAt: state?.lastPollSucceededAt ?? null,
+        lastPollSucceededAt: currentLastPollSucceededAt,
         lastPollError: message,
         updatedAt: Date.now()
       })
