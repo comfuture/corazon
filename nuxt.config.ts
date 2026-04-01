@@ -40,6 +40,9 @@ export default defineNuxtConfig({
   vite: {
     optimizeDeps: {
       include: [
+        'markstream-vue',
+        'stream-monaco',
+        'monaco-editor/esm/vs/editor/editor.api',
         'monaco-editor/esm/vs/editor/editor.worker',
         'monaco-editor/esm/vs/language/json/json.worker',
         'monaco-editor/esm/vs/language/css/css.worker',
