@@ -47,6 +47,8 @@ export type TelegramTransportState = {
   lastPollStartedAt: number | null
   lastPollSucceededAt: number | null
   lastPollError: string | null
+  pollerId: string | null
+  pollerLeaseExpiresAt: number | null
   updatedAt: number
 }
 
@@ -127,6 +129,8 @@ type TelegramTransportStateRow = {
   last_poll_started_at: number | null
   last_poll_succeeded_at: number | null
   last_poll_error: string | null
+  poller_id: string | null
+  poller_lease_expires_at: number | null
   updated_at: number
 }
 
@@ -291,6 +295,8 @@ const getDb = () => {
       last_poll_started_at INTEGER,
       last_poll_succeeded_at INTEGER,
       last_poll_error TEXT,
+      poller_id TEXT,
+      poller_lease_expires_at INTEGER,
       updated_at INTEGER NOT NULL
     );
 
@@ -344,6 +350,9 @@ const getDb = () => {
 
   const columns = db.prepare('PRAGMA table_info(threads)').all() as { name: string }[]
   const hasColumn = (name: string) => columns.some(column => column.name === name)
+  const telegramTransportStateColumns = db.prepare('PRAGMA table_info(telegram_transport_state)').all() as { name: string }[]
+  const hasTelegramTransportStateColumn = (name: string) =>
+    telegramTransportStateColumns.some(column => column.name === name)
   const telegramSessionColumns = db.prepare('PRAGMA table_info(telegram_sessions)').all() as { name: string }[]
   const hasTelegramSessionColumn = (name: string) =>
     telegramSessionColumns.some(column => column.name === name)
@@ -386,6 +395,14 @@ const getDb = () => {
 
   if (!hasColumn('memory_sync_error')) {
     db.exec('ALTER TABLE threads ADD COLUMN memory_sync_error TEXT')
+  }
+
+  if (!hasTelegramTransportStateColumn('poller_id')) {
+    db.exec('ALTER TABLE telegram_transport_state ADD COLUMN poller_id TEXT')
+  }
+
+  if (!hasTelegramTransportStateColumn('poller_lease_expires_at')) {
+    db.exec('ALTER TABLE telegram_transport_state ADD COLUMN poller_lease_expires_at INTEGER')
   }
 
   if (!hasTelegramSessionColumn('session_summary')) {
@@ -891,6 +908,8 @@ const toTelegramTransportState = (row: TelegramTransportStateRow): TelegramTrans
   lastPollStartedAt: row.last_poll_started_at ?? null,
   lastPollSucceededAt: row.last_poll_succeeded_at ?? null,
   lastPollError: row.last_poll_error ?? null,
+  pollerId: row.poller_id ?? null,
+  pollerLeaseExpiresAt: row.poller_lease_expires_at ?? null,
   updatedAt: row.updated_at
 })
 
@@ -997,6 +1016,8 @@ export const getTelegramTransportState = (key = 'default'): TelegramTransportSta
         last_poll_started_at,
         last_poll_succeeded_at,
         last_poll_error,
+        poller_id,
+        poller_lease_expires_at,
         updated_at
       FROM telegram_transport_state
       WHERE key = ?
@@ -1013,6 +1034,8 @@ export const upsertTelegramTransportState = (input: {
   lastPollStartedAt?: number | null
   lastPollSucceededAt?: number | null
   lastPollError?: string | null
+  pollerId?: string | null
+  pollerLeaseExpiresAt?: number | null
   updatedAt?: number
 }) => {
   const key = input.key?.trim() || 'default'
@@ -1027,14 +1050,18 @@ export const upsertTelegramTransportState = (input: {
         last_poll_started_at,
         last_poll_succeeded_at,
         last_poll_error,
+        poller_id,
+        poller_lease_expires_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(key) DO UPDATE SET
         last_update_id = excluded.last_update_id,
         last_poll_started_at = excluded.last_poll_started_at,
         last_poll_succeeded_at = excluded.last_poll_succeeded_at,
         last_poll_error = excluded.last_poll_error,
+        poller_id = excluded.poller_id,
+        poller_lease_expires_at = excluded.poller_lease_expires_at,
         updated_at = excluded.updated_at
     `
     )
@@ -1044,10 +1071,126 @@ export const upsertTelegramTransportState = (input: {
       input.lastPollStartedAt ?? null,
       input.lastPollSucceededAt ?? null,
       input.lastPollError ?? null,
+      input.pollerId ?? null,
+      input.pollerLeaseExpiresAt ?? null,
       updatedAt
     )
 
   return getTelegramTransportState(key)
+}
+
+export const acquireTelegramPollLease = (input: {
+  key?: string
+  pollerId: string
+  leaseExpiresAt: number
+  updatedAt?: number
+}) => {
+  const key = input.key?.trim() || 'default'
+  const pollerId = input.pollerId.trim()
+  const updatedAt = input.updatedAt ?? Date.now()
+  const database = getDb()
+
+  database
+    .prepare(
+      `
+      INSERT INTO telegram_transport_state (
+        key,
+        updated_at
+      )
+      VALUES (?, ?)
+      ON CONFLICT(key) DO NOTHING
+    `
+    )
+    .run(key, updatedAt)
+
+  const result = database
+    .prepare(
+      `
+      UPDATE telegram_transport_state
+      SET
+        poller_id = ?,
+        poller_lease_expires_at = ?,
+        updated_at = ?
+      WHERE key = ?
+        AND (
+          poller_id IS NULL
+          OR poller_id = ?
+          OR poller_lease_expires_at IS NULL
+          OR poller_lease_expires_at <= ?
+        )
+    `
+    )
+    .run(
+      pollerId,
+      input.leaseExpiresAt,
+      updatedAt,
+      key,
+      pollerId,
+      updatedAt
+    )
+
+  return {
+    acquired: result.changes > 0,
+    state: getTelegramTransportState(key)
+  }
+}
+
+export const renewTelegramPollLease = (input: {
+  key?: string
+  pollerId: string
+  leaseExpiresAt: number
+  updatedAt?: number
+}) => {
+  const key = input.key?.trim() || 'default'
+  const pollerId = input.pollerId.trim()
+  const updatedAt = input.updatedAt ?? Date.now()
+  const database = getDb()
+  const result = database
+    .prepare(
+      `
+      UPDATE telegram_transport_state
+      SET
+        poller_lease_expires_at = ?,
+        updated_at = ?
+      WHERE key = ?
+        AND poller_id = ?
+    `
+    )
+    .run(input.leaseExpiresAt, updatedAt, key, pollerId)
+
+  return {
+    renewed: result.changes > 0,
+    state: getTelegramTransportState(key)
+  }
+}
+
+export const releaseTelegramPollLease = (input: {
+  key?: string
+  pollerId: string
+  updatedAt?: number
+}) => {
+  const key = input.key?.trim() || 'default'
+  const pollerId = input.pollerId.trim()
+  const updatedAt = input.updatedAt ?? Date.now()
+  const database = getDb()
+  const result = database
+    .prepare(
+      `
+      UPDATE telegram_transport_state
+      SET
+        poller_id = NULL,
+        poller_lease_expires_at = NULL,
+        updated_at = ?
+      WHERE key = ?
+        AND poller_id = ?
+    `
+    )
+    .run(updatedAt, key, pollerId)
+
+  return {
+    released: result.changes > 0,
+    state: getTelegramTransportState(key)
+  }
 }
 
 export const upsertTelegramRecentChat = (input: {
