@@ -16,9 +16,12 @@ export type McpSettingsUpdateRequest = {
 
 export type AgentHomeInfo = {
   agentHome: string
+  runtimeRoot: string
   configPath: string
   skillsPath: string
   authPath: string
+  threadsPath: string
+  workflowDataPath: string
 }
 
 export type TelegramSettings = {

@@ -35,7 +35,7 @@
 5. 생성: `data/`, `threads/`
 
 ## 아키텍처 변경점
-- `server/utils/agent-home.ts`: runtime root 해석
+- `server/utils/agent-home.ts`: agent home / runtime root 해석
 - `server/utils/agent-bootstrap.ts`: seed/link/bootstrap
 - `server/plugins/db.server.ts`: DB init 전에 bootstrap 실행
 - `server/utils/chat-turn.ts`: Codex SDK `env.CODEX_HOME` 강제 오버라이드

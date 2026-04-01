@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { AgentHomeInfo } from '@@/types/settings'
+
 definePageMeta({
   layout: 'settings'
 })
@@ -38,6 +40,8 @@ const onFontSizeChange = (value: FontSize) => {
 const onEnableNotificationsChange = async (value: boolean) => {
   await setEnableNotifications(value)
 }
+
+const { data: agentHome } = await useFetch<AgentHomeInfo>('/api/settings/agent-home')
 </script>
 
 <template>
@@ -102,6 +106,43 @@ const onEnableNotificationsChange = async (value: boolean) => {
                   @update:model-value="onFontSizeChange"
                 />
               </div>
+            </UCard>
+          </section>
+
+          <section class="space-y-3">
+            <h2 class="text-xl font-semibold tracking-tight">
+              Runtime Paths
+            </h2>
+
+            <UCard :ui="{ body: 'space-y-3' }">
+              <UAlert
+                color="neutral"
+                variant="soft"
+                icon="i-lucide-house"
+                title="Corazon agent home"
+                :description="agentHome?.agentHome ?? 'Loading...'"
+              />
+              <UAlert
+                color="neutral"
+                variant="soft"
+                icon="i-lucide-folder-root"
+                title="App runtime root"
+                :description="agentHome?.runtimeRoot ?? 'Loading...'"
+              />
+              <UAlert
+                color="neutral"
+                variant="soft"
+                icon="i-lucide-folders"
+                title="Thread workspaces"
+                :description="agentHome?.threadsPath ?? 'Loading...'"
+              />
+              <UAlert
+                color="neutral"
+                variant="soft"
+                icon="i-lucide-database"
+                title="Workflow local data"
+                :description="agentHome?.workflowDataPath ?? 'Loading...'"
+              />
             </UCard>
           </section>
 
