@@ -13,8 +13,9 @@ Provide an out-of-band recovery check path that still runs when the normal agent
     - `GET /api/settings/mcp`
     - `GET /api/chat/threads?limit=1` (non-critical signal)
   - Runs local runtime checks:
+    - agent home existence
     - runtime root existence
-    - `config.toml`
+    - `config.toml` under agent home
     - `workflow-data`
     - `threads`
     - `auth.json` (optional signal)
@@ -28,14 +29,14 @@ Provide an out-of-band recovery check path that still runs when the normal agent
 
 ## Safety model
 - Default mode is read-only diagnostics.
-- Optional `--apply-safe-fixes` only bootstraps missing required directories (`workflow-data`, `threads`) under runtime root.
+- Optional `--apply-safe-fixes` only bootstraps missing required directories (`runtime-root`, `workflow-data`, `threads`) under the split runtime layout.
 - Optional `--probe-agent` can test `/api/chat` stream acceptance, but is disabled by default to avoid unnecessary runtime side effects.
 
 ## Usage
 ```bash
 pnpm recovery:post-deploy
 pnpm recovery:post-deploy --json
-pnpm recovery:post-deploy --base-url http://127.0.0.1:3000 --runtime-root /root/.corazon
+pnpm recovery:post-deploy --agent-home /root/.corazon --runtime-root /root/.corazon-runtime
 pnpm recovery:post-deploy --apply-safe-fixes
 ```
 

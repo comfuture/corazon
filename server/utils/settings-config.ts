@@ -7,6 +7,11 @@ import type {
   TelegramSettings
 } from '@@/types/settings'
 import { ensureAgentBootstrap } from './agent-bootstrap.ts'
+import {
+  resolveCorazonRuntimeRootDir,
+  resolveCorazonThreadsDir,
+  resolveWorkflowLocalDataDir
+} from './agent-home.ts'
 
 type JsonObject = Record<string, unknown>
 type TomlInput = Parameters<typeof stringify>[0]
@@ -43,9 +48,12 @@ export const getAgentHomeInfo = (): AgentHomeInfo => {
   const agentHome = getAgentHomeDir()
   return {
     agentHome,
+    runtimeRoot: resolveCorazonRuntimeRootDir(),
     configPath: join(agentHome, 'config.toml'),
     skillsPath: join(agentHome, 'skills'),
-    authPath: join(agentHome, 'auth.json')
+    authPath: join(agentHome, 'auth.json'),
+    threadsPath: resolveCorazonThreadsDir(),
+    workflowDataPath: resolveWorkflowLocalDataDir()
   }
 }
 

@@ -60,9 +60,10 @@ Prepare a host state root. Compose will bind-mount role-specific subdirectories 
 ```bash
 export CORAZON_HOST_STATE_DIR="$(pwd)/.docker-state"
 export CORAZON_CODEX_HOST_DIR="$HOME/.codex"
-mkdir -p "$CORAZON_HOST_STATE_DIR"/{.corazon,.ssh,chroma}
+mkdir -p "$CORAZON_HOST_STATE_DIR"/{.corazon,.corazon-runtime,.ssh,chroma}
 npx corazon setup \
-  --runtime-root "$CORAZON_HOST_STATE_DIR/.corazon" \
+  --agent-home "$CORAZON_HOST_STATE_DIR/.corazon" \
+  --app-runtime-root "$CORAZON_HOST_STATE_DIR/.corazon-runtime" \
   --codex-home "$CORAZON_CODEX_HOST_DIR"
 ```
 
@@ -87,26 +88,30 @@ Or build and run with Docker directly:
 docker build -t corazon .
 docker run --rm -p 3000:3000 \
   -v "$CORAZON_HOST_STATE_DIR/.corazon:/root/.corazon" \
+  -v "$CORAZON_HOST_STATE_DIR/.corazon-runtime:/root/.corazon-runtime" \
   -v "$CORAZON_HOST_STATE_DIR/.ssh:/root/.ssh" \
   -v "$CORAZON_CODEX_HOST_DIR:/root/.codex-seed:ro" \
   corazon
 ```
 
 Notes:
-- `${CORAZON_HOST_STATE_DIR}` contains Corazon runtime state (`.corazon/`), SSH material (`.ssh/`), and Chroma persistence (`chroma/`).
+- `${CORAZON_HOST_STATE_DIR}` contains Corazon agent home (`.corazon/`), app runtime workspaces (`.corazon-runtime/`), SSH material (`.ssh/`), and Chroma persistence (`chroma/`).
 - `${CORAZON_CODEX_HOST_DIR}` points to the host Codex home mounted read-only at `/root/.codex-seed`. By default, Compose uses `${HOME}/.codex`.
-- The runtime root (for example `${CORAZON_HOST_STATE_DIR}/.corazon`) should contain `config.toml`, `skills/`, `data/`, and `threads/`.
+- The agent home (for example `${CORAZON_HOST_STATE_DIR}/.corazon`) should contain `config.toml`, `skills/`, `data/`, and Corazon-managed config/auth state.
+- The app runtime root (for example `${CORAZON_HOST_STATE_DIR}/.corazon-runtime`) should contain `threads/` and `workflow-data/`.
 - GitHub CLI (`gh`) is installed in the image, and entrypoint wiring persists `gh` auth/config under `${CORAZON_HOST_STATE_DIR}/.corazon/gh` via `/root/.config/gh`.
 - Entrypoint wiring also persists `/root/.gitconfig` under `${CORAZON_HOST_STATE_DIR}/.corazon/gitconfig`, so `gh auth setup-git` survives redeploys.
 - Keep the host Codex home available when you want `auth.json` and other seed files to survive redeploys.
-- Workflow local metadata is stored at `${WORKFLOW_LOCAL_DATA_DIR}` (default: `${CORAZON_ROOT_DIR}/workflow-data`).
+- Workflow local metadata is stored at `${WORKFLOW_LOCAL_DATA_DIR}` (default: `${CORAZON_RUNTIME_ROOT_DIR}/workflow-data`).
 
 ## Data & storage
 
 - SQLite database: `${CORAZON_ROOT_DIR}/data/codex.sqlite` (default: `~/.corazon/data/codex.sqlite`)
-- Thread working directories: `${CORAZON_ROOT_DIR}/threads/{threadId}` (default: `~/.corazon/threads/{threadId}`)
+- Agent home / Codex state: `${CORAZON_ROOT_DIR}` (default: `~/.corazon`)
+- App runtime root: `${CORAZON_RUNTIME_ROOT_DIR}` (default: sibling `~/.corazon-runtime` or platform equivalent)
+- Thread working directories: `${CORAZON_THREADS_DIR}/{threadId}` (default: `${CORAZON_RUNTIME_ROOT_DIR}/threads/{threadId}`)
 - Attachments are stored under each thread’s `attachments/` directory.
-- Workflow local metadata: `${WORKFLOW_LOCAL_DATA_DIR}` (default: `${CORAZON_ROOT_DIR}/workflow-data`)
+- Workflow local metadata: `${WORKFLOW_LOCAL_DATA_DIR}` (default: `${CORAZON_RUNTIME_ROOT_DIR}/workflow-data`)
 
 ## TODO
 

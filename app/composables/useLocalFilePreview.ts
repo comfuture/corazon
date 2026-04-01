@@ -189,6 +189,11 @@ const deriveFallbackDisplayPath = (source: string) => {
     return normalized.slice(corazonMarkerIndex + '/.corazon/'.length)
   }
 
+  const corazonRuntimeMarkerIndex = normalized.lastIndexOf('/.corazon-runtime/')
+  if (corazonRuntimeMarkerIndex !== -1) {
+    return normalized.slice(corazonRuntimeMarkerIndex + '/.corazon-runtime/'.length)
+  }
+
   const projectMarker = '/corazon/'
   const projectMarkerIndex = normalized.toLowerCase().lastIndexOf(projectMarker)
   if (projectMarkerIndex !== -1) {
