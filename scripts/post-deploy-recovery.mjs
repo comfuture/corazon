@@ -50,6 +50,10 @@ const parseArgs = (argv) => {
     runtimeRoot: DEFAULT_RUNTIME_ROOT,
     threadsRoot: DEFAULT_THREADS_ROOT,
     workflowLocalDataDir: DEFAULT_WORKFLOW_LOCAL_DATA_DIR,
+    agentHomeExplicit: false,
+    runtimeRootExplicit: false,
+    threadsRootExplicit: false,
+    workflowLocalDataDirExplicit: false,
     timeoutMs: DEFAULT_TIMEOUT_MS,
     applySafeFixes: false,
     probeAgent: false,
@@ -87,38 +91,46 @@ const parseArgs = (argv) => {
     }
     if (arg === '--agent-home') {
       options.agentHome = argv[index + 1] ?? ''
+      options.agentHomeExplicit = true
       index += 1
       continue
     }
     if (arg.startsWith('--agent-home=')) {
       options.agentHome = arg.split('=', 2)[1] ?? ''
+      options.agentHomeExplicit = true
       continue
     }
     if (arg === '--runtime-root') {
       options.runtimeRoot = argv[index + 1] ?? ''
+      options.runtimeRootExplicit = true
       index += 1
       continue
     }
     if (arg.startsWith('--runtime-root=')) {
       options.runtimeRoot = arg.split('=', 2)[1] ?? ''
+      options.runtimeRootExplicit = true
       continue
     }
     if (arg === '--threads-root') {
       options.threadsRoot = argv[index + 1] ?? ''
+      options.threadsRootExplicit = true
       index += 1
       continue
     }
     if (arg.startsWith('--threads-root=')) {
       options.threadsRoot = arg.split('=', 2)[1] ?? ''
+      options.threadsRootExplicit = true
       continue
     }
     if (arg === '--workflow-local-data-dir') {
       options.workflowLocalDataDir = argv[index + 1] ?? ''
+      options.workflowLocalDataDirExplicit = true
       index += 1
       continue
     }
     if (arg.startsWith('--workflow-local-data-dir=')) {
       options.workflowLocalDataDir = arg.split('=', 2)[1] ?? ''
+      options.workflowLocalDataDirExplicit = true
       continue
     }
     if (arg === '--timeout-ms') {
@@ -157,6 +169,14 @@ const parseArgs = (argv) => {
   options.baseUrl = options.baseUrl.replace(/\/+$/, '')
   options.agentHome = resolve(options.agentHome.trim())
   options.runtimeRoot = resolve(options.runtimeRoot.trim())
+  if (options.runtimeRootExplicit) {
+    if (!options.threadsRootExplicit) {
+      options.threadsRoot = join(options.runtimeRoot, 'threads')
+    }
+    if (!options.workflowLocalDataDirExplicit) {
+      options.workflowLocalDataDir = join(options.runtimeRoot, 'workflow-data')
+    }
+  }
   options.threadsRoot = resolve(options.threadsRoot.trim())
   options.workflowLocalDataDir = resolve(options.workflowLocalDataDir.trim())
   return options
@@ -467,7 +487,10 @@ const main = async () => {
 
   if (options.applySafeFixes) {
     for (const check of localChecks) {
-      if ((check.name === 'workflow-data' || check.name === 'threads') && existsSync(check.path)) {
+      if (
+        (check.name === 'runtime-root' || check.name === 'workflow-data' || check.name === 'threads')
+        && existsSync(check.path)
+      ) {
         check.exists = true
       }
     }
