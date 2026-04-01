@@ -69,7 +69,9 @@ import { deleteRuntimeThread, deleteRuntimeTurnControl } from './runtime.ts'
 const TELEGRAM_POLL_TIMEOUT_SECONDS = 20
 const TELEGRAM_DISABLED_RETRY_MS = 5000
 const TELEGRAM_ERROR_RETRY_MS = 3000
-const TELEGRAM_POLL_CONFLICT_RETRY_MS = 30000
+const TELEGRAM_POLL_CONFLICT_RETRY_MIN_MS = 15000
+const TELEGRAM_POLL_CONFLICT_RETRY_MAX_MS = 45000
+const TELEGRAM_POLL_STARTUP_JITTER_MAX_MS = 5000
 const TELEGRAM_STATE_KEY = 'default'
 const TELEGRAM_TEXT_MAX_LENGTH = 3500
 const TELEGRAM_STEER_RETRY_ATTEMPTS = 5
@@ -113,6 +115,13 @@ const sleep = async (ms: number) => {
     setTimeout(resolve, ms)
   })
 }
+
+const getTelegramConflictRetryMs = () =>
+  TELEGRAM_POLL_CONFLICT_RETRY_MIN_MS
+  + Math.floor(Math.random() * (TELEGRAM_POLL_CONFLICT_RETRY_MAX_MS - TELEGRAM_POLL_CONFLICT_RETRY_MIN_MS + 1))
+
+const getTelegramPollStartupJitterMs = () =>
+  Math.floor(Math.random() * (TELEGRAM_POLL_STARTUP_JITTER_MAX_MS + 1))
 
 const normalizeChatId = (value: string | number) => String(value).trim()
 
@@ -1898,7 +1907,7 @@ const pollTelegramLoop = async () => {
       lastUpdateId: state?.lastUpdateId ?? null,
       lastPollStartedAt: startedAt,
       lastPollSucceededAt: state?.lastPollSucceededAt ?? null,
-      lastPollError: null,
+      lastPollError: state?.lastPollError ?? null,
       updatedAt: startedAt
     })
 
@@ -1934,7 +1943,7 @@ const pollTelegramLoop = async () => {
       const message = formatTelegramApiError(error)
       const isConflict = isTelegramPollingConflictError(error)
       if (isConflict) {
-        console.debug('[telegram] polling omitted:', message)
+        console.warn('[telegram] polling conflict:', message)
       } else {
         console.error('[telegram] polling failed:', message)
       }
@@ -1943,10 +1952,10 @@ const pollTelegramLoop = async () => {
         lastUpdateId: state?.lastUpdateId ?? null,
         lastPollStartedAt: startedAt,
         lastPollSucceededAt: state?.lastPollSucceededAt ?? null,
-        lastPollError: isConflict ? null : message,
+        lastPollError: message,
         updatedAt: Date.now()
       })
-      await sleep(isConflict ? TELEGRAM_POLL_CONFLICT_RETRY_MS : TELEGRAM_ERROR_RETRY_MS)
+      await sleep(isConflict ? getTelegramConflictRetryMs() : TELEGRAM_ERROR_RETRY_MS)
     }
   }
 }
@@ -1956,5 +1965,8 @@ export const initializeTelegramTransport = () => {
     return
   }
   telegramTransportInitialized = true
-  void pollTelegramLoop()
+  void (async () => {
+    await sleep(getTelegramPollStartupJitterMs())
+    await pollTelegramLoop()
+  })()
 }
