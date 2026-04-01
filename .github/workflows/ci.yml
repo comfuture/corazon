@@ -35,3 +35,6 @@ jobs:
 
       - name: Verify post-deploy recovery regression guards
         run: pnpm run recovery:verify
+
+      - name: Verify startup alert regression guards
+        run: pnpm run startup-alert:smoke

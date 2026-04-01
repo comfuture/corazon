@@ -5,20 +5,11 @@ import {
   formatChatgptCodexResponsesError,
   runChatgptCodexTextResponse
 } from '@@/lib/chatgpt-codex-responses.ts'
+import { buildStartupAlertPayload } from '@@/lib/startup-alert-payload.ts'
 
 const STARTUP_ALERT_MODEL = 'gpt-5.4-mini'
-const STARTUP_ALERT_MAX_LLM_MESSAGE_LENGTH = 220
 
 let startupAlertInitialized = false
-
-const compactWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim()
-
-const truncate = (value: string, maxLength: number) => {
-  if (value.length <= maxLength) {
-    return value
-  }
-  return `${value.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`
-}
 
 const resolveRepositoryRoot = () => process.cwd()
 
@@ -102,7 +93,7 @@ const runStartupCodexProbe = async (facts: string[]) => {
     textVerbosity: 'low'
   })
 
-  const message = truncate(compactWhitespace(response.outputText), STARTUP_ALERT_MAX_LLM_MESSAGE_LENGTH)
+  const message = response.outputText.replace(/\s+/g, ' ').trim()
   if (!message) {
     throw new Error('Startup Codex probe returned an empty message.')
   }
@@ -111,33 +102,21 @@ const runStartupCodexProbe = async (facts: string[]) => {
 }
 
 const sendStartupAlert = async () => {
-  const telegram = readTelegramSettings()
-  if (!telegram.enabled) {
+  const boot = buildBootFacts()
+  const payload = await buildStartupAlertPayload({
+    telegramEnabled: readTelegramSettings().enabled,
+    facts: boot.facts,
+    branch: boot.branch,
+    runCodexProbe: runStartupCodexProbe,
+    formatProbeError: formatChatgptCodexResponsesError
+  })
+  if (!payload) {
     return
   }
 
-  const boot = buildBootFacts()
-  let severity: 'info' | 'warning' = 'info'
-  let codexLine = ''
-  let nextAction: string | null = null
-
-  try {
-    codexLine = await runStartupCodexProbe(boot.facts)
-  } catch (error) {
-    severity = 'warning'
-    codexLine = `Codex startup probe failed: ${truncate(compactWhitespace(formatChatgptCodexResponsesError(error)), 260)}`
-    nextAction = 'Check ChatGPT/Codex auth and app-server runtime health before trusting this deploy.'
-  }
-
   const result = await sendOperatorNotification({
-    severity,
-    source: 'system',
-    title: 'Corazon server restarted',
-    message: [...boot.facts, '', `Codex probe: ${codexLine}`].join('\n'),
-    nextAction,
-    context: {
-      branch: boot.branch
-    }
+    ...payload,
+    source: 'system'
   })
 
   if (!result.delivered) {
