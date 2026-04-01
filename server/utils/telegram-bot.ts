@@ -75,6 +75,8 @@ type TelegramFileResult = {
 const TELEGRAM_API_BASE = 'https://api.telegram.org'
 const TELEGRAM_FILE_DOWNLOAD_MAX_REDIRECTS = 3
 const TELEGRAM_FILE_REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308])
+const TELEGRAM_DEFAULT_REQUEST_TIMEOUT_MS = 30_000
+const TELEGRAM_LONG_POLL_GRACE_MS = 10_000
 
 const toTelegramApiUrl = (botToken: string, method: string) =>
   `${TELEGRAM_API_BASE}/bot${encodeURIComponent(botToken)}/${method}`
@@ -85,12 +87,19 @@ const toTelegramFileUrl = (botToken: string, filePath: string) =>
 const toErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
 
+const resolveTelegramRequestTimeoutMs = (timeoutSeconds?: number) =>
+  Math.max(
+    TELEGRAM_DEFAULT_REQUEST_TIMEOUT_MS,
+    ((timeoutSeconds ?? 0) * 1000) + TELEGRAM_LONG_POLL_GRACE_MS
+  )
+
 const requestTelegramApiRaw = (input: {
   botToken: string
   method: string
   httpMethod?: 'GET' | 'POST'
   params?: Record<string, unknown>
   body?: Record<string, unknown>
+  timeoutMs?: number
 }) =>
   new Promise<{ statusCode: number, raw: string }>((resolve, reject) => {
     const url = new URL(toTelegramApiUrl(input.botToken, input.method))
@@ -101,6 +110,7 @@ const requestTelegramApiRaw = (input: {
       url.searchParams.set(key, String(value))
     }
     const payload = input.httpMethod === 'GET' ? null : JSON.stringify(input.body ?? {})
+    const timeoutMs = input.timeoutMs ?? TELEGRAM_DEFAULT_REQUEST_TIMEOUT_MS
     const request = httpsRequest({
       protocol: url.protocol,
       hostname: url.hostname,
@@ -129,10 +139,21 @@ const requestTelegramApiRaw = (input: {
       })
     })
 
-    request.setTimeout(30_000, () => {
+    const absoluteTimeout = setTimeout(() => {
+      request.destroy(new Error(`Telegram API request timed out after ${timeoutMs}ms`))
+    }, timeoutMs)
+    const clearAbsoluteTimeout = () => {
+      clearTimeout(absoluteTimeout)
+    }
+
+    request.setTimeout(timeoutMs, () => {
       request.destroy(new Error('Telegram API request timed out'))
     })
-    request.on('error', reject)
+    request.on('error', (error) => {
+      clearAbsoluteTimeout()
+      reject(error)
+    })
+    request.on('close', clearAbsoluteTimeout)
     if (payload) {
       request.write(payload)
     }
@@ -145,6 +166,7 @@ const requestTelegramApi = async <T>(input: {
   httpMethod?: 'GET' | 'POST'
   params?: Record<string, unknown>
   body?: Record<string, unknown>
+  timeoutMs?: number
 }) => {
   const { statusCode, raw } = await requestTelegramApiRaw(input)
   const payload = JSON.parse(raw) as TelegramApiOk<T> | TelegramApiError
@@ -175,7 +197,8 @@ export const getTelegramUpdates = async (
       offset: options.offset,
       timeout: options.timeoutSeconds ?? 20,
       allowed_updates: allowedUpdates
-    }
+    },
+    timeoutMs: resolveTelegramRequestTimeoutMs(options.timeoutSeconds ?? 20)
   })
 }
 
@@ -196,10 +219,12 @@ export const downloadTelegramFile = async (input: {
   botToken: string
   filePath: string
   maxBytes?: number
+  timeoutMs?: number
 }) => {
   const maxBytes = typeof input.maxBytes === 'number' && input.maxBytes > 0
     ? input.maxBytes
     : null
+  const timeoutMs = input.timeoutMs ?? TELEGRAM_DEFAULT_REQUEST_TIMEOUT_MS
   const downloadFromUrl = (url: URL, redirectCount: number): Promise<Buffer> =>
     new Promise<Buffer>((resolve, reject) => {
       let settled = false
@@ -281,12 +306,21 @@ export const downloadTelegramFile = async (input: {
         })
       })
 
-      request.setTimeout(30_000, () => {
+      const absoluteTimeout = setTimeout(() => {
+        request.destroy(new Error(`Telegram file download timed out after ${timeoutMs}ms`))
+      }, timeoutMs)
+      const clearAbsoluteTimeout = () => {
+        clearTimeout(absoluteTimeout)
+      }
+
+      request.setTimeout(timeoutMs, () => {
         request.destroy(new Error('Telegram file download timed out'))
       })
       request.on('error', (error) => {
+        clearAbsoluteTimeout()
         rejectOnce(error)
       })
+      request.on('close', clearAbsoluteTimeout)
       request.end()
     })
 
