@@ -15,8 +15,10 @@ services:
       NITRO_PORT: 3000
       CORAZON_ROOT_DIR: /root/.corazon
       CODEX_HOME: /root/.corazon
+      CORAZON_RUNTIME_ROOT_DIR: /root/.corazon-runtime
+      CORAZON_THREADS_DIR: /root/.corazon-runtime/threads
       CORAZON_CODEX_SEED_SOURCE: /root/.codex-seed
-      WORKFLOW_LOCAL_DATA_DIR: /root/.corazon/workflow-data
+      WORKFLOW_LOCAL_DATA_DIR: /root/.corazon-runtime/workflow-data
       CORAZON_MEMORY_CHROMA_URL: ${CORAZON_MEMORY_CHROMA_URL:-http://chroma:8000}
       CORAZON_MEMORY_CHROMA_COLLECTION: ${CORAZON_MEMORY_CHROMA_COLLECTION:-mem0}
       CORAZON_MEMORY_SYNC_ENABLED: ${CORAZON_MEMORY_SYNC_ENABLED:-true}
@@ -28,6 +30,9 @@ services:
       - type: bind
         source: ${CORAZON_HOST_STATE_DIR:-./.docker-state}/.corazon
         target: /root/.corazon
+      - type: bind
+        source: ${CORAZON_HOST_STATE_DIR:-./.docker-state}/.corazon-runtime
+        target: /root/.corazon-runtime
       - type: bind
         source: ${CORAZON_HOST_STATE_DIR:-./.docker-state}/.ssh
         target: /root/.ssh

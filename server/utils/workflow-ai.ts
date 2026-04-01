@@ -34,6 +34,10 @@ const getCodexEnv = () => {
     }
   }
   env.CODEX_HOME = ensureAgentBootstrap()
+  const runtimePaths = ensureCorazonRuntimeEnvironment()
+  env.CORAZON_RUNTIME_ROOT_DIR = runtimePaths.runtimeRootDir
+  env.CORAZON_THREADS_DIR = runtimePaths.threadsDir
+  env.WORKFLOW_LOCAL_DATA_DIR = runtimePaths.workflowLocalDataDir
   return env
 }
 
@@ -155,8 +159,8 @@ export const inferWorkflowDraftWithAI = async (input: {
       '- Include only sections and steps that materially change execution.',
       '- When the final deliverable has no fixed language requirement, follow the user\'s prompt language.',
       '- If the workflow needs reusable helper code, a custom executable, or long-lived operating guidance, prefer a supporting skill under `${CODEX_HOME}/skills` created with `skill-creator` instead of ad hoc files.',
-      '- Do not direct the workflow to place helper scripts in `${CODEX_HOME}/threads` or in shared directories such as `${CODEX_HOME}/threads/scripts`.',
-      '- If a standalone script is still necessary, assume reusable scripts live under `${CODEX_HOME}/scripts` and thread-local scripts live only under a concrete `${CODEX_HOME}/threads/<threadId>/...` directory.',
+      '- Do not direct the workflow to place helper scripts in `${CORAZON_THREADS_DIR}` or in shared directories such as `${CORAZON_THREADS_DIR}/scripts`.',
+      '- If a standalone script is still necessary, assume reusable scripts live under `${CODEX_HOME}/scripts` and thread-local scripts live only under a concrete `${CORAZON_THREADS_DIR}/<threadId>/...` directory.',
       '- Do not tell the workflow to create, register, update, save, or manage a workflow.',
       '- Do not mention cadence or schedule inside suggestedDescription or enhancedInstruction.',
       '- If the user request contains cadence or timing language, infer it into trigger fields and remove it completely from enhancedInstruction.',

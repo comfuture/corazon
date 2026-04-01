@@ -2,6 +2,7 @@
 .output
 .data
 .corazon
+.corazon-runtime
 .docker-state
 .workflow-data/
 .nuxt

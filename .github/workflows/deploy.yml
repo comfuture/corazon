@@ -74,7 +74,7 @@ jobs:
       - name: Prepare remote bind mount directories
         run: |
           ssh "${{ secrets.DEPLOY_HOST }}" '
-            mkdir -p /home/ubuntu/.corazon /home/ubuntu/chroma
+            mkdir -p /home/ubuntu/.corazon /home/ubuntu/.corazon-runtime /home/ubuntu/chroma
             mkdir -p /home/ubuntu/.ssh
             chmod 700 /home/ubuntu/.ssh
           '

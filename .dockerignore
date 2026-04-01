@@ -5,6 +5,7 @@
 .data
 .workflow-data
 .corazon
+.corazon-runtime
 .docker-state
 .chroma
 node_modules
