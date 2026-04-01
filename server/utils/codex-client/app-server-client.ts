@@ -155,8 +155,8 @@ const NATIVE_TOOL_PRIORITY_DEVELOPER_INSTRUCTIONS = [
   '- Include the goal, required context/resources, concrete execution steps, and expected output or completion criteria in the workflow instruction.',
   '- If reusable helper code, a custom executable, or long-lived operating guidance is required, create/update a supporting skill under `${CODEX_HOME}/skills` with `skill-creator` before finalizing the workflow, then include that skill in workflow skills.',
   '- If a standalone script is still necessary, place reusable scripts under `${CODEX_HOME}/scripts`.',
-  '- Use `${CODEX_HOME}/threads/<threadId>/...` only for thread-local artifacts when the concrete thread directory is known.',
-  '- Never place scripts in `${CODEX_HOME}/threads` itself or in shared directories such as `${CODEX_HOME}/threads/scripts`.',
+  '- Use `${CORAZON_THREADS_DIR}/<threadId>/...` only for thread-local artifacts when the concrete thread directory is known.',
+  '- Never place scripts in `${CORAZON_THREADS_DIR}` itself or in shared directories such as `${CORAZON_THREADS_DIR}/scripts`.',
   '- For long-term memory operations, prefer dynamic tool `sharedMemory` with `search` and `upsert` directly before the `shared-memory` skill.',
   '- Do not call `manage-workflows` or `shared-memory` skills preemptively. Use them only as explicit fallback after a dynamic tool failure.'
 ].join('\n')

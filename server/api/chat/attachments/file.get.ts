@@ -1,5 +1,5 @@
 import { readFile, stat } from 'node:fs/promises'
-import { basename, isAbsolute, relative, resolve } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import type { H3Event } from 'h3'
 import { lookup } from 'mime-types'
 
@@ -20,10 +20,13 @@ export default defineEventHandler(async (event: H3Event) => {
     throw createError({ statusCode: 400, statusMessage: 'Missing file path.' })
   }
 
-  const runtimeRoot = resolve(ensureThreadRootDirectory())
+  const allowedRoots = [
+    resolve(ensureThreadRootDirectory()),
+    resolve(join(resolveCorazonRootDir(), 'threads'))
+  ]
   const resolvedPath = resolve(pathQuery)
 
-  if (!isInsideDirectory(resolvedPath, runtimeRoot)) {
+  if (!allowedRoots.some(root => isInsideDirectory(resolvedPath, root))) {
     throw createError({ statusCode: 403, statusMessage: 'Invalid attachment path.' })
   }
 

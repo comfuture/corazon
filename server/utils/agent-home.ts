@@ -1,8 +1,9 @@
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, parse, resolve } from 'node:path'
+import { basename, dirname, join, parse, resolve } from 'node:path'
 
 let cachedCorazonRootDir: string | null = null
+let cachedCorazonRuntimeRootDir: string | null = null
 
 const getLegacyCorazonRootDir = () => join(homedir(), '.corazon')
 
@@ -60,6 +61,27 @@ const normalizeCorazonRootCandidate = (value: string) => {
   return resolved
 }
 
+const normalizePathCandidate = (value: string) => {
+  const trimmed = value.trim()
+  return trimmed ? resolve(trimmed) : trimmed
+}
+
+const getDefaultRuntimeRootBasename = (corazonRootDir: string) => {
+  const currentName = basename(corazonRootDir)
+  if (!currentName) {
+    return '.corazon-runtime'
+  }
+  if (currentName.startsWith('.') || currentName === currentName.toLowerCase()) {
+    return `${currentName}-runtime`
+  }
+  return `${currentName}Runtime`
+}
+
+const getDefaultCorazonRuntimeRootDir = () => {
+  const corazonRootDir = resolveCorazonRootDir()
+  return join(dirname(corazonRootDir), getDefaultRuntimeRootBasename(corazonRootDir))
+}
+
 export const getPlatformDefaultCorazonRootDir = () => {
   if (process.platform === 'darwin') {
     return join(homedir(), 'Library', 'Application Support', 'Corazon')
@@ -96,6 +118,21 @@ export const resolveCorazonRootDir = () => {
   return cachedCorazonRootDir
 }
 
+export const resolveCorazonRuntimeRootDir = () => {
+  if (cachedCorazonRuntimeRootDir) {
+    return cachedCorazonRuntimeRootDir
+  }
+
+  const configuredRoot = process.env.CORAZON_RUNTIME_ROOT_DIR?.trim()
+  if (configuredRoot) {
+    cachedCorazonRuntimeRootDir = normalizePathCandidate(configuredRoot)
+    return cachedCorazonRuntimeRootDir
+  }
+
+  cachedCorazonRuntimeRootDir = getDefaultCorazonRuntimeRootDir()
+  return cachedCorazonRuntimeRootDir
+}
+
 export const getDefaultCodexSeedSourceDir = () => join(homedir(), '.codex')
 
 export const resolveCorazonSkillsDir = () =>
@@ -105,7 +142,38 @@ export const resolveCorazonScriptsDir = () =>
   join(resolveCorazonRootDir(), 'scripts')
 
 export const resolveCorazonThreadsDir = () =>
-  join(resolveCorazonRootDir(), 'threads')
+  process.env.CORAZON_THREADS_DIR?.trim()
+    ? normalizePathCandidate(process.env.CORAZON_THREADS_DIR)
+    : join(resolveCorazonRuntimeRootDir(), 'threads')
 
 export const resolveWorkflowLocalDataDir = () =>
-  join(resolveCorazonRootDir(), 'workflow-data')
+  process.env.WORKFLOW_LOCAL_DATA_DIR?.trim()
+    ? normalizePathCandidate(process.env.WORKFLOW_LOCAL_DATA_DIR)
+    : join(resolveCorazonRuntimeRootDir(), 'workflow-data')
+
+export const ensureCorazonRuntimeEnvironment = () => {
+  const corazonRootDir = resolveCorazonRootDir()
+  const runtimeRootDir = resolveCorazonRuntimeRootDir()
+  const threadsDir = resolveCorazonThreadsDir()
+  const workflowLocalDataDir = resolveWorkflowLocalDataDir()
+
+  if (!process.env.CORAZON_ROOT_DIR?.trim()) {
+    process.env.CORAZON_ROOT_DIR = corazonRootDir
+  }
+  if (!process.env.CORAZON_RUNTIME_ROOT_DIR?.trim()) {
+    process.env.CORAZON_RUNTIME_ROOT_DIR = runtimeRootDir
+  }
+  if (!process.env.CORAZON_THREADS_DIR?.trim()) {
+    process.env.CORAZON_THREADS_DIR = threadsDir
+  }
+  if (!process.env.WORKFLOW_LOCAL_DATA_DIR?.trim()) {
+    process.env.WORKFLOW_LOCAL_DATA_DIR = workflowLocalDataDir
+  }
+
+  return {
+    corazonRootDir,
+    runtimeRootDir,
+    threadsDir,
+    workflowLocalDataDir
+  }
+}

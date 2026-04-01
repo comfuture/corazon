@@ -1,10 +1,10 @@
 import Database from 'better-sqlite3'
 import { existsSync, mkdirSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, isAbsolute, join, relative } from 'node:path'
 import type { Usage } from '@openai/codex-sdk'
 import type { WorkflowRunStatus, WorkflowRunSummary, WorkflowTriggerType } from '@@/types/workflow'
 import { CODEX_ITEM_PART, type CodexUIMessage } from '../../types/chat-ui.ts'
-import { resolveCorazonRootDir } from './agent-home.ts'
+import { resolveCorazonRootDir, resolveCorazonThreadsDir } from './agent-home.ts'
 
 export type ThreadSummary = {
   id: string
@@ -203,13 +203,25 @@ const normalizeCodexItemParts = (messages: CodexUIMessage[]) =>
     }
   })
 
-const getRuntimeRoot = () => resolveCorazonRootDir()
+const getDataDirectory = () => join(resolveCorazonRootDir(), 'data')
 
-const getThreadRootDirectory = () => join(getRuntimeRoot(), 'threads')
+const getThreadRootDirectory = () => resolveCorazonThreadsDir()
+
+const resolveStoredThreadWorkingDirectory = (threadId: string) => {
+  const database = getDb()
+  const row = database
+    .prepare('SELECT working_directory FROM threads WHERE id = ?')
+    .get(threadId) as { working_directory?: string | null } | undefined
+  const stored = row?.working_directory?.trim()
+  return stored || null
+}
+
+const isInsideDirectory = (targetPath: string, directory: string) => {
+  const relativePath = relative(directory, targetPath)
+  return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath))
+}
 
 let db: Database.Database | null = null
-
-const getDataDirectory = () => join(getRuntimeRoot(), 'data')
 
 const getDb = () => {
   if (db) {
@@ -420,8 +432,8 @@ export const ensureThreadRootDirectory = () => {
 }
 
 export const ensureThreadWorkingDirectory = (threadId: string) => {
-  const root = ensureThreadRootDirectory()
-  const directory = join(root, threadId)
+  const storedDirectory = resolveStoredThreadWorkingDirectory(threadId)
+  const directory = storedDirectory || join(ensureThreadRootDirectory(), threadId)
   mkdirSync(directory, { recursive: true })
   setThreadWorkingDirectory(threadId, directory)
   return directory
@@ -829,13 +841,31 @@ export const deleteThread = (threadId: string) => {
     return false
   }
   const database = getDb()
+  const storedWorkingDirectory = resolveStoredThreadWorkingDirectory(threadId)
   const result = database.prepare('DELETE FROM threads WHERE id = ?').run(threadId)
   if (result.changes === 0) {
     return false
   }
 
-  const threadDirectory = join(getThreadRootDirectory(), threadId)
-  if (existsSync(threadDirectory)) {
+  const candidateDirectories = [
+    storedWorkingDirectory,
+    join(getThreadRootDirectory(), threadId),
+    join(resolveCorazonRootDir(), 'threads', threadId)
+  ].filter((value): value is string => Boolean(value))
+
+  for (const threadDirectory of new Set(candidateDirectories)) {
+    if (!existsSync(threadDirectory)) {
+      continue
+    }
+    if (
+      basename(threadDirectory) !== threadId
+      || (
+        !isInsideDirectory(threadDirectory, getThreadRootDirectory())
+        && !isInsideDirectory(threadDirectory, join(resolveCorazonRootDir(), 'threads'))
+      )
+    ) {
+      continue
+    }
     rmSync(threadDirectory, { recursive: true, force: true })
   }
 

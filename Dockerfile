@@ -36,13 +36,15 @@ ENV NITRO_HOST=0.0.0.0
 ENV NITRO_PORT=3000
 ENV CORAZON_ROOT_DIR=/root/.corazon
 ENV CODEX_HOME=/root/.corazon
-ENV WORKFLOW_LOCAL_DATA_DIR=/root/.corazon/workflow-data
+ENV CORAZON_RUNTIME_ROOT_DIR=/root/.corazon-runtime
+ENV CORAZON_THREADS_DIR=/root/.corazon-runtime/threads
+ENV WORKFLOW_LOCAL_DATA_DIR=/root/.corazon-runtime/workflow-data
 
 COPY scripts/docker-entrypoint.sh /usr/local/bin/corazon-entrypoint
 RUN chmod +x /usr/local/bin/corazon-entrypoint
 
 EXPOSE 3000
-VOLUME ["/root/.corazon", "/root/.ssh"]
+VOLUME ["/root/.corazon", "/root/.corazon-runtime", "/root/.ssh"]
 
 ENTRYPOINT ["corazon-entrypoint"]
 CMD ["node", ".output/server/index.mjs"]

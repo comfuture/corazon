@@ -12,7 +12,11 @@ import {
   writeFileSync
 } from 'node:fs'
 import { dirname, join, relative, resolve as resolvePath } from 'node:path'
-import { getDefaultCodexSeedSourceDir, resolveCorazonRootDir } from './agent-home.ts'
+import {
+  ensureCorazonRuntimeEnvironment,
+  getDefaultCodexSeedSourceDir,
+  resolveCorazonRootDir
+} from './agent-home.ts'
 
 const SEED_FILES = ['config.toml'] as const
 const SEED_DIRECTORIES = ['skills', 'rules', 'vendor_imports'] as const
@@ -44,8 +48,8 @@ const UPDATED_WORKFLOW_GUIDANCE = [
   '- When the workflow deliverable has no fixed language requirement, follow the user\'s prompt language.',
   '- If reusable helper code, a custom executable, or long-lived operating guidance is required, create/update a supporting skill under `${CODEX_HOME}/skills` with `skill-creator` before finalizing the workflow, then include that skill in the workflow skills list.',
   '- If a standalone script is still necessary, place reusable scripts under `${CODEX_HOME}/scripts`.',
-  '- Use `${CODEX_HOME}/threads/<threadId>/...` only for thread-local artifacts when the concrete thread directory is known.',
-  '- Never place scripts in `${CODEX_HOME}/threads` itself or in shared directories such as `${CODEX_HOME}/threads/scripts`.',
+  '- Use `${CORAZON_THREADS_DIR}/<threadId>/...` only for thread-local artifacts when the concrete thread directory is known.',
+  '- Never place scripts in `${CORAZON_THREADS_DIR}` itself or in shared directories such as `${CORAZON_THREADS_DIR}/scripts`.',
   '- In sdk mode or fallback paths, use the `manage-workflows` skill.',
   '- Prefer `rrule` for recurring schedules that are hard to express or maintain with cron, and use cron when it is sufficient.',
   '- Never use OS-level schedulers (`crontab`, `systemd`, `launchd`) for Corazon workflow requests.',
@@ -340,6 +344,7 @@ const getCodexSeedSourceDir = () => {
 
 export const ensureAgentBootstrap = () => {
   const agentHomeDir = resolveCorazonRootDir()
+  const runtimePaths = ensureCorazonRuntimeEnvironment()
   if (bootstrapDone) {
     return agentHomeDir
   }
@@ -348,8 +353,9 @@ export const ensureAgentBootstrap = () => {
   mkdirSync(join(agentHomeDir, 'data'), { recursive: true })
   mkdirSync(join(agentHomeDir, 'skills'), { recursive: true })
   mkdirSync(join(agentHomeDir, 'scripts'), { recursive: true })
-  mkdirSync(join(agentHomeDir, 'threads'), { recursive: true })
-  mkdirSync(join(agentHomeDir, 'workflow-data'), { recursive: true })
+  mkdirSync(runtimePaths.runtimeRootDir, { recursive: true })
+  mkdirSync(runtimePaths.threadsDir, { recursive: true })
+  mkdirSync(runtimePaths.workflowLocalDataDir, { recursive: true })
 
   const sourceRootDir = getCodexSeedSourceDir()
   if (existsSync(sourceRootDir)) {

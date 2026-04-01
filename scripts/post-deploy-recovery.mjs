@@ -1,17 +1,40 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:3000'
 const DEFAULT_TIMEOUT_MS = 8000
-const DEFAULT_RUNTIME_ROOT = resolve(process.env.HOME ?? '/root', '.corazon')
+const DEFAULT_AGENT_HOME = resolve(
+  process.env.CORAZON_ROOT_DIR?.trim() || join(process.env.HOME ?? '/root', '.corazon')
+)
+
+const getDefaultRuntimeRoot = (agentHome) => {
+  const currentName = basename(agentHome) || '.corazon'
+  const runtimeName = currentName.startsWith('.') || currentName === currentName.toLowerCase()
+    ? `${currentName}-runtime`
+    : `${currentName}Runtime`
+  return join(dirname(agentHome), runtimeName)
+}
+
+const DEFAULT_RUNTIME_ROOT = resolve(
+  process.env.CORAZON_RUNTIME_ROOT_DIR?.trim() || getDefaultRuntimeRoot(DEFAULT_AGENT_HOME)
+)
+const DEFAULT_THREADS_ROOT = resolve(
+  process.env.CORAZON_THREADS_DIR?.trim() || join(DEFAULT_RUNTIME_ROOT, 'threads')
+)
+const DEFAULT_WORKFLOW_LOCAL_DATA_DIR = resolve(
+  process.env.WORKFLOW_LOCAL_DATA_DIR?.trim() || join(DEFAULT_RUNTIME_ROOT, 'workflow-data')
+)
 
 const printHelp = () => {
   console.log(`Usage: node scripts/post-deploy-recovery.mjs [options]
 
 Options:
   --base-url <url>           Target Corazon base URL (default: ${DEFAULT_BASE_URL})
+  --agent-home <path>        Corazon agent home for config/auth checks (default: ${DEFAULT_AGENT_HOME})
   --runtime-root <path>      Runtime root for local checks (default: ${DEFAULT_RUNTIME_ROOT})
+  --threads-root <path>      Thread workspace root (default: ${DEFAULT_THREADS_ROOT})
+  --workflow-local-data-dir <path>  Workflow local data directory (default: ${DEFAULT_WORKFLOW_LOCAL_DATA_DIR})
   --timeout-ms <ms>          HTTP timeout per check (default: ${DEFAULT_TIMEOUT_MS})
   --apply-safe-fixes         Apply narrow safe local fixes (directory bootstrap only)
   --probe-agent              Add lightweight /api/chat stream probe
@@ -23,7 +46,10 @@ Options:
 const parseArgs = (argv) => {
   const options = {
     baseUrl: DEFAULT_BASE_URL,
+    agentHome: DEFAULT_AGENT_HOME,
     runtimeRoot: DEFAULT_RUNTIME_ROOT,
+    threadsRoot: DEFAULT_THREADS_ROOT,
+    workflowLocalDataDir: DEFAULT_WORKFLOW_LOCAL_DATA_DIR,
     timeoutMs: DEFAULT_TIMEOUT_MS,
     applySafeFixes: false,
     probeAgent: false,
@@ -59,6 +85,15 @@ const parseArgs = (argv) => {
       options.baseUrl = arg.split('=', 2)[1] ?? ''
       continue
     }
+    if (arg === '--agent-home') {
+      options.agentHome = argv[index + 1] ?? ''
+      index += 1
+      continue
+    }
+    if (arg.startsWith('--agent-home=')) {
+      options.agentHome = arg.split('=', 2)[1] ?? ''
+      continue
+    }
     if (arg === '--runtime-root') {
       options.runtimeRoot = argv[index + 1] ?? ''
       index += 1
@@ -66,6 +101,24 @@ const parseArgs = (argv) => {
     }
     if (arg.startsWith('--runtime-root=')) {
       options.runtimeRoot = arg.split('=', 2)[1] ?? ''
+      continue
+    }
+    if (arg === '--threads-root') {
+      options.threadsRoot = argv[index + 1] ?? ''
+      index += 1
+      continue
+    }
+    if (arg.startsWith('--threads-root=')) {
+      options.threadsRoot = arg.split('=', 2)[1] ?? ''
+      continue
+    }
+    if (arg === '--workflow-local-data-dir') {
+      options.workflowLocalDataDir = argv[index + 1] ?? ''
+      index += 1
+      continue
+    }
+    if (arg.startsWith('--workflow-local-data-dir=')) {
+      options.workflowLocalDataDir = arg.split('=', 2)[1] ?? ''
       continue
     }
     if (arg === '--timeout-ms') {
@@ -88,12 +141,24 @@ const parseArgs = (argv) => {
     throw new Error('`--base-url` must include http:// or https://')
   }
 
+  if (!options.agentHome.trim()) {
+    throw new Error('`--agent-home` must not be empty.')
+  }
   if (!options.runtimeRoot.trim()) {
     throw new Error('`--runtime-root` must not be empty.')
   }
+  if (!options.threadsRoot.trim()) {
+    throw new Error('`--threads-root` must not be empty.')
+  }
+  if (!options.workflowLocalDataDir.trim()) {
+    throw new Error('`--workflow-local-data-dir` must not be empty.')
+  }
 
   options.baseUrl = options.baseUrl.replace(/\/+$/, '')
+  options.agentHome = resolve(options.agentHome.trim())
   options.runtimeRoot = resolve(options.runtimeRoot.trim())
+  options.threadsRoot = resolve(options.threadsRoot.trim())
+  options.workflowLocalDataDir = resolve(options.workflowLocalDataDir.trim())
   return options
 }
 
@@ -209,13 +274,14 @@ const runAgentProbe = async ({ baseUrl, timeoutMs }) => {
   }
 }
 
-const collectLocalChecks = (runtimeRoot) => {
+const collectLocalChecks = (agentHome, runtimeRoot, threadsRoot, workflowLocalDataDir) => {
   const checks = [
+    { name: 'agent-home', path: agentHome, required: true },
     { name: 'runtime-root', path: runtimeRoot, required: true },
-    { name: 'config.toml', path: join(runtimeRoot, 'config.toml'), required: true },
-    { name: 'workflow-data', path: join(runtimeRoot, 'workflow-data'), required: true },
-    { name: 'threads', path: join(runtimeRoot, 'threads'), required: true },
-    { name: 'auth.json', path: join(runtimeRoot, 'auth.json'), required: false }
+    { name: 'config.toml', path: join(agentHome, 'config.toml'), required: true },
+    { name: 'workflow-data', path: workflowLocalDataDir, required: true },
+    { name: 'threads', path: threadsRoot, required: true },
+    { name: 'auth.json', path: join(agentHome, 'auth.json'), required: false }
   ]
 
   return checks.map(check => ({
@@ -230,7 +296,7 @@ const applySafeFixes = (localChecks) => {
     if (check.exists || !check.required) {
       continue
     }
-    if (check.name === 'workflow-data' || check.name === 'threads') {
+    if (check.name === 'runtime-root' || check.name === 'workflow-data' || check.name === 'threads') {
       mkdirSync(check.path, { recursive: true })
       actions.push({
         action: `mkdir -p ${check.path}`,
@@ -389,7 +455,12 @@ const main = async () => {
     critical: false
   }))
 
-  const localChecks = collectLocalChecks(options.runtimeRoot)
+  const localChecks = collectLocalChecks(
+    options.agentHome,
+    options.runtimeRoot,
+    options.threadsRoot,
+    options.workflowLocalDataDir
+  )
   const attemptedActions = options.applySafeFixes
     ? applySafeFixes(localChecks)
     : []

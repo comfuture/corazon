@@ -73,9 +73,20 @@ const getDefaultCodexHome = () => {
   return join(homedir(), '.codex')
 }
 
+const getDefaultAppRuntimeRoot = (agentHome) => {
+  const resolvedAgentHome = resolvePath(agentHome)
+  const parent = dirname(resolvedAgentHome)
+  const currentName = resolvedAgentHome.split(/[\\/]/).filter(Boolean).at(-1) || '.corazon'
+  const runtimeName = currentName.startsWith('.') || currentName === currentName.toLowerCase()
+    ? `${currentName}-runtime`
+    : `${currentName}Runtime`
+  return join(parent, runtimeName)
+}
+
 const parseArgs = (args) => {
   const options = {
-    runtimeRoot: null,
+    agentHome: null,
+    appRuntimeRoot: null,
     codexHome: null,
     overwrite: false,
     quiet: false
@@ -83,13 +94,31 @@ const parseArgs = (args) => {
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
+    if (arg === '--agent-home' || arg === '-a') {
+      options.agentHome = args[index + 1]
+      index += 1
+      continue
+    }
+    if (arg.startsWith('--agent-home=')) {
+      options.agentHome = arg.split('=', 2)[1]
+      continue
+    }
     if (arg === '--runtime-root' || arg === '-r') {
-      options.runtimeRoot = args[index + 1]
+      options.agentHome = args[index + 1]
       index += 1
       continue
     }
     if (arg.startsWith('--runtime-root=')) {
-      options.runtimeRoot = arg.split('=', 2)[1]
+      options.agentHome = arg.split('=', 2)[1]
+      continue
+    }
+    if (arg === '--app-runtime-root') {
+      options.appRuntimeRoot = args[index + 1]
+      index += 1
+      continue
+    }
+    if (arg.startsWith('--app-runtime-root=')) {
+      options.appRuntimeRoot = arg.split('=', 2)[1]
       continue
     }
     if (arg === '--codex-home' || arg === '-c') {
@@ -392,16 +421,18 @@ Usage:
   corazon setup [options]
 
 Options:
-  -r, --runtime-root <path>  Destination runtime root directory
-  -c, --codex-home <path>    Source Codex home directory (default: ~/.codex)
-  --overwrite, --force       Overwrite existing seeded files
-  -q, --quiet                Suppress logs
-  -h, --help                 Show this help
+  -a, --agent-home <path>      Destination Corazon agent home
+  -r, --runtime-root <path>    Backward-compatible alias for --agent-home
+      --app-runtime-root <path>  Destination app runtime root for thread workspaces and workflow data
+  -c, --codex-home <path>      Source Codex home directory (default: ~/.codex)
+  --overwrite, --force         Overwrite existing seeded files
+  -q, --quiet                  Suppress logs
+  -h, --help                   Show this help
 
 Examples:
-  corazon setup --runtime-root ./.corazon
+  corazon setup --agent-home ./.corazon
   corazon setup --codex-home ~/.codex
-  corazon setup --runtime-root ./.docker-state/.corazon --codex-home ~/.codex
+  corazon setup --agent-home ./.docker-state/.corazon --app-runtime-root ./.docker-state/.corazon-runtime --codex-home ~/.codex
 `)
 }
 
@@ -412,7 +443,8 @@ export const run = (args = []) => {
     return
   }
 
-  const runtimeRoot = resolvePath(options.runtimeRoot || getDefaultRuntimeRoot())
+  const agentHome = resolvePath(options.agentHome || getDefaultRuntimeRoot())
+  const appRuntimeRoot = resolvePath(options.appRuntimeRoot || getDefaultAppRuntimeRoot(agentHome))
   const codexHome = resolvePath(options.codexHome || getDefaultCodexHome())
   const counters = {
     copied: 0,
@@ -421,18 +453,20 @@ export const run = (args = []) => {
   }
 
   log(options, 'Corazon setup starting...')
-  log(options, `Runtime root: ${runtimeRoot}`)
+  log(options, `Agent home: ${agentHome}`)
+  log(options, `App runtime root: ${appRuntimeRoot}`)
   log(options, `Codex seed source: ${codexHome}`)
 
-  mkdirSync(runtimeRoot, { recursive: true })
-  mkdirSync(join(runtimeRoot, 'data'), { recursive: true })
-  mkdirSync(join(runtimeRoot, 'threads'), { recursive: true })
-  mkdirSync(join(runtimeRoot, 'workflow-data'), { recursive: true })
+  mkdirSync(agentHome, { recursive: true })
+  mkdirSync(join(agentHome, 'data'), { recursive: true })
+  mkdirSync(appRuntimeRoot, { recursive: true })
+  mkdirSync(join(appRuntimeRoot, 'threads'), { recursive: true })
+  mkdirSync(join(appRuntimeRoot, 'workflow-data'), { recursive: true })
 
   if (existsSync(codexHome)) {
     const configSeeded = ensureSeededFile(
       join(codexHome, 'config.toml'),
-      join(runtimeRoot, 'config.toml'),
+      join(agentHome, 'config.toml'),
       options.overwrite,
       counters
     )
@@ -440,19 +474,19 @@ export const run = (args = []) => {
     for (const directoryName of SEED_DIRECTORIES) {
       ensureSeededDirectory(
         join(codexHome, directoryName),
-        join(runtimeRoot, directoryName),
+        join(agentHome, directoryName),
         options.overwrite,
         counters
       )
     }
 
     if (configSeeded) {
-      stripImageGenerationFeature(join(runtimeRoot, 'config.toml'))
+      stripImageGenerationFeature(join(agentHome, 'config.toml'))
     }
 
     ensureLinkedAuthFile(
       join(codexHome, AUTH_FILE),
-      join(runtimeRoot, AUTH_FILE),
+      join(agentHome, AUTH_FILE),
       options.overwrite,
       counters
     )
@@ -464,19 +498,19 @@ export const run = (args = []) => {
   for (const skillName of SYSTEM_SKILL_SYNC_NAMES) {
     ensureSeededDirectory(
       resolvePath(scriptDir, '..', 'templates', 'skills', skillName),
-      join(runtimeRoot, 'skills', skillName),
+      join(agentHome, 'skills', skillName),
       true,
       counters
     )
   }
 
-  ensureAgentsFile(runtimeRoot, options.overwrite, counters)
-  ensureRipgrepIgnoreFile(runtimeRoot, options.overwrite, counters)
-  migrateLegacyAgentsFile(runtimeRoot)
-  ensureSkillScriptPermissions(runtimeRoot)
+  ensureAgentsFile(agentHome, options.overwrite, counters)
+  ensureRipgrepIgnoreFile(agentHome, options.overwrite, counters)
+  migrateLegacyAgentsFile(agentHome)
+  ensureSkillScriptPermissions(agentHome)
 
   log(options, `Seeded/copied ${counters.copied} item(s), linked ${counters.linked} item(s), skipped ${counters.skipped} item(s).`)
-  log(options, `Done. Mount ${runtimeRoot} into the container runtime root.`)
+  log(options, `Done. Mount ${agentHome} as CODEX_HOME and ${appRuntimeRoot} as CORAZON_RUNTIME_ROOT_DIR.`)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

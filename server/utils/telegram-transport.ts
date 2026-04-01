@@ -631,6 +631,10 @@ const getSummaryCodexEnv = () => {
     }
   }
   env.CODEX_HOME = ensureAgentBootstrap()
+  const runtimePaths = ensureCorazonRuntimeEnvironment()
+  env.CORAZON_RUNTIME_ROOT_DIR = runtimePaths.runtimeRootDir
+  env.CORAZON_THREADS_DIR = runtimePaths.threadsDir
+  env.WORKFLOW_LOCAL_DATA_DIR = runtimePaths.workflowLocalDataDir
   return env
 }
 

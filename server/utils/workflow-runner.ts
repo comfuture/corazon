@@ -66,6 +66,10 @@ const getCodexEnv = () => {
     }
   }
   env.CODEX_HOME = ensureAgentBootstrap()
+  const runtimePaths = ensureCorazonRuntimeEnvironment()
+  env.CORAZON_RUNTIME_ROOT_DIR = runtimePaths.runtimeRootDir
+  env.CORAZON_THREADS_DIR = runtimePaths.threadsDir
+  env.WORKFLOW_LOCAL_DATA_DIR = runtimePaths.workflowLocalDataDir
   return env
 }
 
@@ -142,6 +146,7 @@ const buildRunContextPrompt = (
     `corazon_skills_directory: ${corazonSkillsDir}`,
     `corazon_scripts_directory: ${corazonScriptsDir}`,
     `corazon_threads_directory: ${corazonThreadsDir}`,
+    `corazon_runtime_root_directory: ${resolveCorazonRuntimeRootDir()}`,
     `thread_local_directory_pattern: ${corazonThreadsDir}/<threadId>`,
     `trigger_type: ${triggerType}`,
     `trigger_value: ${triggerValue ?? ''}`,

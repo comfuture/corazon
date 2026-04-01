@@ -13,8 +13,8 @@ When dynamic tools are unavailable, use the helper script for deterministic fall
 2. Optional: run `scripts/manage-workflows.py` when deterministic CLI automation is necessary.
 3. Do not use OS-level schedulers (`crontab`, `systemd`, `launchd`) for Corazon workflows.
 4. If the workflow needs reusable helper code, a custom executable, or long-lived operating guidance, create or update a supporting skill under `${CODEX_HOME}/skills` with `skill-creator` before finalizing the workflow.
-5. If a standalone script is still necessary, use `${CODEX_HOME}/scripts` for reusable scripts and `${CODEX_HOME}/threads/<threadId>/...` only for thread-local artifacts.
-6. Never place scripts in `${CODEX_HOME}/threads` itself or in shared directories such as `${CODEX_HOME}/threads/scripts`.
+5. If a standalone script is still necessary, use `${CODEX_HOME}/scripts` for reusable scripts and `${CORAZON_THREADS_DIR}/<threadId>/...` only for thread-local artifacts.
+6. Never place scripts in `${CORAZON_THREADS_DIR}` itself or in shared directories such as `${CORAZON_THREADS_DIR}/scripts`.
 
 ## Workflow File Format
 Each workflow file must be Markdown with YAML frontmatter.
