@@ -1951,11 +1951,14 @@ const pollTelegramLoop = async () => {
         timeoutSeconds: TELEGRAM_POLL_TIMEOUT_SECONDS
       })
 
-      renewTelegramPollLease({
+      const renewal = renewTelegramPollLease({
         key: TELEGRAM_STATE_KEY,
         pollerId,
         leaseExpiresAt: Date.now() + TELEGRAM_POLL_LEASE_MS
       })
+      if (!renewal.renewed) {
+        continue
+      }
       for (const update of updates) {
         await enqueueTelegramUpdate(settings, update)
         currentLastUpdateId = update.update_id
