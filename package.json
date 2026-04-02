@@ -11,6 +11,7 @@
     "chatgpt:compact:smoke": "node scripts/chatgpt-codex-compaction-smoke.ts",
     "chatgpt:smoke": "node scripts/chatgpt-codex-responses-smoke.ts",
     "startup-alert:smoke": "node scripts/startup-alert-smoke.ts",
+    "telegram:lease:smoke": "node scripts/telegram-poll-lease-regression.ts",
     "recovery:verify": "node scripts/verify-post-deploy-recovery.mjs",
     "types:codex-app-server": "node scripts/generate-codex-app-server-types.mjs",
     "preview": "nuxt preview",
