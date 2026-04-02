@@ -34,6 +34,8 @@ export type TelegramMessage = {
   caption?: string
   photo?: TelegramPhotoSize[]
   document?: TelegramDocument
+  voice?: TelegramVoice
+  audio?: TelegramAudio
   chat: TelegramChat
   from?: TelegramUser
 }
@@ -49,6 +51,25 @@ export type TelegramPhotoSize = {
 export type TelegramDocument = {
   file_id: string
   file_unique_id: string
+  file_name?: string
+  mime_type?: string
+  file_size?: number
+}
+
+export type TelegramVoice = {
+  file_id: string
+  file_unique_id: string
+  duration?: number
+  mime_type?: string
+  file_size?: number
+}
+
+export type TelegramAudio = {
+  file_id: string
+  file_unique_id: string
+  duration?: number
+  performer?: string
+  title?: string
   file_name?: string
   mime_type?: string
   file_size?: number
