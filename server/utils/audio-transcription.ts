@@ -37,6 +37,24 @@ const extractTranscriptText = (payload: unknown) => {
   return fallback
 }
 
+const extractErrorMessage = (payload: unknown) => {
+  if (!payload || typeof payload !== 'object') {
+    return ''
+  }
+
+  const direct = normalizeTranscript(Reflect.get(payload, 'message'))
+  if (direct) {
+    return direct
+  }
+
+  const nestedError = Reflect.get(payload, 'error')
+  if (!nestedError || typeof nestedError !== 'object') {
+    return ''
+  }
+
+  return normalizeTranscript(Reflect.get(nestedError, 'message'))
+}
+
 export const transcribeAudioAttachment = async (input: {
   url: string
   filename?: string
@@ -68,7 +86,15 @@ export const transcribeAudioAttachment = async (input: {
   })
 
   if (!response.ok) {
-    const errorText = (await response.text()).trim()
+    const rawErrorText = (await response.text()).trim()
+    let errorText = rawErrorText
+    if (rawErrorText) {
+      try {
+        errorText = extractErrorMessage(JSON.parse(rawErrorText)) || rawErrorText
+      } catch {
+        errorText = rawErrorText
+      }
+    }
     throw new Error(
       `Audio transcription failed for ${fileName}: ${response.status} ${response.statusText}${errorText ? ` - ${errorText}` : ''}`
     )

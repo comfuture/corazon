@@ -319,7 +319,7 @@ const transcribeAudioAttachmentsInLatestUserMessage = async (messages: CodexUIMe
     return messages
   }
 
-  const latestUserIndex = [...messages].findLastIndex(message => message?.role === 'user')
+  const latestUserIndex = messages.findLastIndex(message => message?.role === 'user')
   if (latestUserIndex < 0) {
     return messages
   }
@@ -459,7 +459,7 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
         : null
       const unsubscribeSubagentNotifications = subagentPanelManager?.subscribe() ?? null
       let resolvedThreadId: string | null = threadId
-      const baseMessages = await transcribeAudioAttachmentsInLatestUserMessage(messages)
+      let baseMessages = messages
       let firstAssistantText = ''
       const executeStartedAt = Date.now()
       let turnStartedAt: number | null = null
@@ -530,6 +530,8 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
       writer.write = writeChunk
 
       try {
+        baseMessages = await transcribeAudioAttachmentsInLatestUserMessage(messages)
+
         const thread = (() => {
           const developerInstructions = harnessInstructions || undefined
           if (threadId && hasRuntimeThread(threadId)) {
@@ -566,8 +568,8 @@ export const createCodexChatTurnStream = (input: CodexChatWorkflowInput) => {
           : inputPrefix
 
         const inputMessage = prependRoutingHint(
-          prependInputPrefix(buildCodexInput(messages), effectiveInputPrefix),
-          getLatestUserText(messages)
+          prependInputPrefix(buildCodexInput(baseMessages), effectiveInputPrefix),
+          getLatestUserText(baseMessages)
         )
 
         if (!inputMessage || (Array.isArray(inputMessage) && inputMessage.length === 0)) {
