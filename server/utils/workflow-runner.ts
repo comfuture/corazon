@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import type { WorkflowDefinition, WorkflowRunSummary, WorkflowTriggerType } from '@@/types/workflow'
 import { createCodexClient } from './codex-client/index.ts'
 import type { CodexClient, CodexThreadEvent, CodexUsage } from './codex-client/types.ts'
@@ -101,6 +102,210 @@ const shouldApplySelfEvolutionNoOpCommentPolicy = (definition: WorkflowDefinitio
   definition.fileSlug === 'corazon-self-evolution'
   || definition.frontmatter.name.trim().toLowerCase() === 'corazon self evolution'
 
+type SelfEvolutionRepoHygieneSnapshot = {
+  repoPath: string
+  probeTimestampIso: string
+  available: boolean
+  currentBranch: string | null
+  detachedHead: boolean
+  worktreeDirty: boolean
+  goneTrackingBranches: string[]
+  mergedBranchCleanupCandidates: string[]
+  autoRecoverableActions: string[]
+  manualInterventionReasons: string[]
+  probeError: string | null
+}
+
+const SELF_EVOLUTION_REPO_DEFAULT_RELATIVE_PATH = 'repos/corazon'
+
+const runGitCommand = (
+  repoPath: string,
+  args: string[]
+) => {
+  try {
+    const output = execFileSync('git', ['-C', repoPath, ...args], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    return {
+      ok: true,
+      output
+    } as const
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      ok: false,
+      output: '',
+      error: message
+    } as const
+  }
+}
+
+const resolveSelfEvolutionRepoPath = () => {
+  const configured = process.env.CORAZON_SELF_EVOLUTION_REPO_DIR?.trim()
+  if (configured) {
+    return configured
+  }
+  return `${resolveCorazonRootDir()}/${SELF_EVOLUTION_REPO_DEFAULT_RELATIVE_PATH}`
+}
+
+const collectSelfEvolutionRepoHygieneSnapshot = (): SelfEvolutionRepoHygieneSnapshot => {
+  const snapshot: SelfEvolutionRepoHygieneSnapshot = {
+    repoPath: resolveSelfEvolutionRepoPath(),
+    probeTimestampIso: new Date().toISOString(),
+    available: false,
+    currentBranch: null,
+    detachedHead: false,
+    worktreeDirty: false,
+    goneTrackingBranches: [],
+    mergedBranchCleanupCandidates: [],
+    autoRecoverableActions: [],
+    manualInterventionReasons: [],
+    probeError: null
+  }
+
+  const insideWorktree = runGitCommand(snapshot.repoPath, ['rev-parse', '--is-inside-work-tree'])
+  if (!insideWorktree.ok || insideWorktree.output.trim() !== 'true') {
+    snapshot.probeError = insideWorktree.ok
+      ? 'Repository path is not a git worktree.'
+      : insideWorktree.error
+    snapshot.manualInterventionReasons.push('Repository path is unavailable or not a valid git worktree.')
+    return snapshot
+  }
+  snapshot.available = true
+
+  const statusResult = runGitCommand(snapshot.repoPath, ['status', '--porcelain=2', '--branch'])
+  if (!statusResult.ok) {
+    snapshot.probeError = statusResult.error
+    snapshot.manualInterventionReasons.push('Failed to inspect worktree status.')
+    return snapshot
+  }
+
+  const statusLines = statusResult.output.split('\n').map(line => line.trimEnd())
+  for (const line of statusLines) {
+    if (!line) {
+      continue
+    }
+    if (line.startsWith('# branch.head ')) {
+      const head = line.slice('# branch.head '.length).trim()
+      if (head === '(detached)') {
+        snapshot.detachedHead = true
+      } else if (head && head !== '(unknown)') {
+        snapshot.currentBranch = head
+      }
+      continue
+    }
+    if (!line.startsWith('#')) {
+      snapshot.worktreeDirty = true
+    }
+  }
+
+  if (snapshot.detachedHead) {
+    snapshot.manualInterventionReasons.push('HEAD is detached.')
+  }
+  if (snapshot.worktreeDirty) {
+    snapshot.manualInterventionReasons.push('Worktree has uncommitted or untracked changes.')
+  }
+
+  const trackingResult = runGitCommand(snapshot.repoPath, [
+    'for-each-ref',
+    '--format=%(refname:short)%09%(upstream:trackshort)',
+    'refs/heads'
+  ])
+  if (trackingResult.ok) {
+    snapshot.goneTrackingBranches = trackingResult.output
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .flatMap((line) => {
+        const [branch, tracking] = line.split('\t')
+        if (!branch || !tracking?.includes('[gone]')) {
+          return []
+        }
+        return [branch]
+      })
+      .sort((a, b) => a.localeCompare(b))
+  } else {
+    snapshot.manualInterventionReasons.push('Failed to inspect local tracking branches.')
+    snapshot.probeError = snapshot.probeError ?? trackingResult.error
+  }
+
+  const mergedBranchesResult = runGitCommand(snapshot.repoPath, [
+    'branch',
+    '--format=%(refname:short)',
+    '--merged',
+    'origin/main'
+  ])
+  if (mergedBranchesResult.ok) {
+    const protectedBranches = new Set(['main', 'master', snapshot.currentBranch].filter(Boolean) as string[])
+    snapshot.mergedBranchCleanupCandidates = mergedBranchesResult.output
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .filter(branch => !protectedBranches.has(branch))
+      .sort((a, b) => a.localeCompare(b))
+  } else {
+    snapshot.manualInterventionReasons.push('Failed to inspect merged local branches against origin/main.')
+    snapshot.probeError = snapshot.probeError ?? mergedBranchesResult.error
+  }
+
+  if (snapshot.goneTrackingBranches.length > 0) {
+    const currentBranch = snapshot.currentBranch
+    const includesCurrentBranch = currentBranch
+      ? snapshot.goneTrackingBranches.includes(currentBranch)
+      : false
+    if (includesCurrentBranch) {
+      snapshot.manualInterventionReasons.push(`Current branch ${currentBranch} tracks a missing upstream.`)
+    }
+    const nonCurrentBranches = snapshot.goneTrackingBranches.filter(branch => branch !== currentBranch)
+    if (nonCurrentBranches.length > 0) {
+      snapshot.autoRecoverableActions.push(
+        `Prune ${nonCurrentBranches.length} local branch(es) tracking [gone] upstream refs after merge-state verification.`
+      )
+    }
+  }
+
+  if (snapshot.mergedBranchCleanupCandidates.length > 0) {
+    snapshot.autoRecoverableActions.push(
+      `Delete ${snapshot.mergedBranchCleanupCandidates.length} merged local branch(es) that are no longer needed.`
+    )
+  }
+
+  return snapshot
+}
+
+const renderSelfEvolutionRepoHygieneSnapshot = (snapshot: SelfEvolutionRepoHygieneSnapshot) => {
+  const autoRecoverable = snapshot.autoRecoverableActions.length > 0
+    ? snapshot.autoRecoverableActions.join(' | ')
+    : 'none'
+  const manual = snapshot.manualInterventionReasons.length > 0
+    ? snapshot.manualInterventionReasons.join(' | ')
+    : 'none'
+  const goneBranches = snapshot.goneTrackingBranches.length > 0
+    ? snapshot.goneTrackingBranches.join(', ')
+    : 'none'
+  const mergedBranches = snapshot.mergedBranchCleanupCandidates.length > 0
+    ? snapshot.mergedBranchCleanupCandidates.join(', ')
+    : 'none'
+  const currentBranch = snapshot.currentBranch ?? '(unknown)'
+  const probeError = snapshot.probeError ?? 'none'
+
+  return [
+    'Self-evolution repo hygiene preflight:',
+    `- repo_path: ${snapshot.repoPath}`,
+    `- checked_at: ${snapshot.probeTimestampIso}`,
+    `- available: ${snapshot.available ? 'yes' : 'no'}`,
+    `- current_branch: ${currentBranch}`,
+    `- detached_head: ${snapshot.detachedHead ? 'yes' : 'no'}`,
+    `- worktree_dirty: ${snapshot.worktreeDirty ? 'yes' : 'no'}`,
+    `- gone_tracking_branches: ${goneBranches}`,
+    `- merged_branch_cleanup_candidates: ${mergedBranches}`,
+    `- auto_recoverable_actions: ${autoRecoverable}`,
+    `- manual_intervention_reasons: ${manual}`,
+    `- probe_error: ${probeError}`
+  ]
+}
+
 const buildRunContextPrompt = (
   definition: WorkflowDefinition,
   triggerType: WorkflowTriggerType,
@@ -114,6 +319,9 @@ const buildRunContextPrompt = (
   const corazonScriptsDir = resolveCorazonScriptsDir()
   const corazonThreadsDir = resolveCorazonThreadsDir()
   const includeSelfEvolutionNoOpCommentPolicy = shouldApplySelfEvolutionNoOpCommentPolicy(definition)
+  const selfEvolutionRepoHygieneSnapshot = includeSelfEvolutionNoOpCommentPolicy
+    ? collectSelfEvolutionRepoHygieneSnapshot()
+    : null
 
   return [
     `Workflow description: ${definition.frontmatter.description}`,
@@ -129,8 +337,12 @@ const buildRunContextPrompt = (
     ...(includeSelfEvolutionNoOpCommentPolicy
       ? [
           'For self-evolution PR maintenance, do not post routine no-op PR timeline comments.',
-          'Post a PR comment only when at least one condition is true: code was pushed, review feedback was explicitly answered/resolved, PR check/review state changed since the previous run, or a new follow-up issue was created and linked.'
+          'Post a PR comment only when at least one condition is true: code was pushed, review feedback was explicitly answered/resolved, PR check/review state changed since the previous run, or a new follow-up issue was created and linked.',
+          'Include `Repo hygiene` in the final run report and distinguish `auto-recoverable` vs `manual intervention` outcomes.'
         ]
+      : []),
+    ...(selfEvolutionRepoHygieneSnapshot
+      ? renderSelfEvolutionRepoHygieneSnapshot(selfEvolutionRepoHygieneSnapshot)
       : []),
     'If reusable helper code, a custom executable, or long-lived operating guidance is required, create or update a supporting skill under the Corazon skills directory with `skill-creator` before relying on ad hoc files.',
     'If a standalone script is still necessary, place reusable scripts under the Corazon scripts directory.',
