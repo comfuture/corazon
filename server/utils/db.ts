@@ -1040,6 +1040,12 @@ export const upsertTelegramTransportState = (input: {
 }) => {
   const key = input.key?.trim() || 'default'
   const updatedAt = input.updatedAt ?? Date.now()
+  const hasPollerId = Object.prototype.hasOwnProperty.call(input, 'pollerId')
+  const hasPollerLeaseExpiresAt = Object.prototype.hasOwnProperty.call(
+    input,
+    'pollerLeaseExpiresAt'
+  )
+  const shouldUpdatePollerLease = hasPollerId || hasPollerLeaseExpiresAt
   const database = getDb()
   database
     .prepare(
@@ -1060,9 +1066,20 @@ export const upsertTelegramTransportState = (input: {
         last_poll_started_at = excluded.last_poll_started_at,
         last_poll_succeeded_at = excluded.last_poll_succeeded_at,
         last_poll_error = excluded.last_poll_error,
-        poller_id = excluded.poller_id,
-        poller_lease_expires_at = excluded.poller_lease_expires_at,
+        poller_id = CASE
+          WHEN ? THEN excluded.poller_id
+          ELSE telegram_transport_state.poller_id
+        END,
+        poller_lease_expires_at = CASE
+          WHEN ? THEN excluded.poller_lease_expires_at
+          ELSE telegram_transport_state.poller_lease_expires_at
+        END,
         updated_at = excluded.updated_at
+      WHERE ? = 0
+        OR telegram_transport_state.poller_id IS NULL
+        OR telegram_transport_state.poller_id = excluded.poller_id
+        OR telegram_transport_state.poller_lease_expires_at IS NULL
+        OR telegram_transport_state.poller_lease_expires_at <= excluded.updated_at
     `
     )
     .run(
@@ -1073,7 +1090,10 @@ export const upsertTelegramTransportState = (input: {
       input.lastPollError ?? null,
       input.pollerId ?? null,
       input.pollerLeaseExpiresAt ?? null,
-      updatedAt
+      updatedAt,
+      shouldUpdatePollerLease ? 1 : 0,
+      shouldUpdatePollerLease ? 1 : 0,
+      shouldUpdatePollerLease ? 1 : 0
     )
 
   return getTelegramTransportState(key)
