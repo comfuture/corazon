@@ -68,6 +68,8 @@ const appendCodexInputParts = (parts: InputMessagePart[], output: CodexInputPart
         const filePath = stripFileUrl(fileUrl)
         if (part.mediaType?.startsWith('image/')) {
           output.push(asInputImage(filePath))
+        } else if (part.mediaType?.startsWith('audio/')) {
+          continue
         } else {
           const fileLabel = part.filename ? `Attached file: ${part.filename}` : 'Attached file'
           output.push(asInputText(`${fileLabel}\n${filePath}`))
@@ -82,9 +84,11 @@ const toCodexInput = (parts: CodexInputPart[]): Input => {
     return emptyInput
   }
 
-  const firstPart = parts[0]
-  if (firstPart?.type === 'text') {
-    return firstPart.text
+  if (parts.length === 1) {
+    const firstPart = parts[0]
+    if (firstPart?.type === 'text') {
+      return firstPart.text
+    }
   }
 
   return parts

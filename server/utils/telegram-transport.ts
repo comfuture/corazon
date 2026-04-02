@@ -93,12 +93,26 @@ const TELEGRAM_RESUME_CONFIDENCE_THRESHOLD = 0.72
 const TELEGRAM_CARRYOVER_CONFIDENCE_THRESHOLD = 0.55
 const TELEGRAM_NEW_CONFIDENCE_THRESHOLD = 0.65
 const TELEGRAM_MAX_IMAGE_BYTES = 20 * 1024 * 1024
+const TELEGRAM_MAX_AUDIO_BYTES = 25 * 1024 * 1024
 const TELEGRAM_SUPPORTED_IMAGE_MIME_PREFIX = 'image/'
+const TELEGRAM_SUPPORTED_AUDIO_MIME_PREFIX = 'audio/'
 const TELEGRAM_IMAGE_EXTENSION_MAP: Record<string, string> = {
   'image/jpeg': '.jpg',
   'image/png': '.png',
   'image/webp': '.webp',
   'image/gif': '.gif'
+}
+const TELEGRAM_AUDIO_EXTENSION_MAP: Record<string, string> = {
+  'audio/ogg': '.ogg',
+  'audio/opus': '.ogg',
+  'audio/mpeg': '.mp3',
+  'audio/mp3': '.mp3',
+  'audio/mp4': '.m4a',
+  'audio/x-m4a': '.m4a',
+  'audio/aac': '.aac',
+  'audio/wav': '.wav',
+  'audio/x-wav': '.wav',
+  'audio/webm': '.webm'
 }
 const TELEGRAM_IMAGE_MEDIA_TYPE_BY_EXTENSION: Record<string, string> = {
   '.jpg': 'image/jpeg',
@@ -412,6 +426,19 @@ const resolveTelegramImageExtension = (filePath: string, mediaType: string | nul
   return '.jpg'
 }
 
+const resolveTelegramAudioExtension = (filePath: string, mediaType: string | null) => {
+  const fromPath = extname(filePath).toLowerCase()
+  if (fromPath) {
+    return fromPath
+  }
+
+  if (mediaType && mediaType in TELEGRAM_AUDIO_EXTENSION_MAP) {
+    return TELEGRAM_AUDIO_EXTENSION_MAP[mediaType]
+  }
+
+  return '.ogg'
+}
+
 const hasTelegramPhotoAttachment = (message: TelegramMessage) =>
   Array.isArray(message.photo) && message.photo.length > 0
 
@@ -448,6 +475,56 @@ const hasTelegramImageDocumentAttachment = (message: TelegramMessage) =>
 
 const hasTelegramImageAttachment = (message: TelegramMessage) =>
   hasTelegramPhotoAttachment(message) || hasTelegramImageDocumentAttachment(message)
+
+const resolveTelegramAudioMediaType = (
+  mediaType: string | null | undefined,
+  fallbackName?: string | null
+) => {
+  const normalizedMediaType = mediaType?.trim().toLowerCase() ?? ''
+  if (normalizedMediaType.startsWith(TELEGRAM_SUPPORTED_AUDIO_MIME_PREFIX)) {
+    return normalizedMediaType
+  }
+
+  const normalizedName = fallbackName?.trim().toLowerCase() ?? ''
+  const matchedExtension = Object.entries(TELEGRAM_AUDIO_EXTENSION_MAP)
+    .find(([, extension]) => normalizedName.endsWith(extension))
+  return matchedExtension?.[0] ?? null
+}
+
+const hasTelegramVoiceAttachment = (message: TelegramMessage) =>
+  typeof message.voice?.file_id === 'string'
+
+const hasTelegramAudioAttachment = (message: TelegramMessage) =>
+  typeof message.audio?.file_id === 'string' || hasTelegramVoiceAttachment(message)
+
+const resolveTelegramAudioAttachmentTarget = (message: TelegramMessage) => {
+  if (hasTelegramVoiceAttachment(message)) {
+    const mediaType = resolveTelegramAudioMediaType(message.voice?.mime_type, 'voice.ogg') ?? 'audio/ogg'
+    return {
+      fileId: message.voice!.file_id,
+      mediaType,
+      sourceName: null as string | null,
+      fallbackPrefix: 'telegram-voice'
+    }
+  }
+
+  const audio = message.audio
+  if (typeof audio?.file_id !== 'string') {
+    return null
+  }
+
+  const mediaType = resolveTelegramAudioMediaType(audio.mime_type, audio.file_name)
+  if (!mediaType) {
+    return null
+  }
+
+  return {
+    fileId: audio.file_id,
+    mediaType,
+    sourceName: audio.file_name?.trim() || null,
+    fallbackPrefix: 'telegram-audio'
+  }
+}
 
 const resolveTelegramAttachmentTarget = (message: TelegramMessage) => {
   if (hasTelegramPhotoAttachment(message)) {
@@ -545,6 +622,66 @@ const buildTelegramImageAttachment = async (
   }
 }
 
+const buildTelegramAudioAttachment = async (
+  settings: ReturnType<typeof readTelegramSettings>,
+  message: TelegramMessage,
+  input?: {
+    threadId?: string | null
+  }
+) => {
+  const target = resolveTelegramAudioAttachmentTarget(message)
+  if (!target) {
+    return null
+  }
+
+  const fileMeta = await getTelegramFile({
+    botToken: settings.botToken,
+    fileId: target.fileId
+  })
+  const filePath = fileMeta.file_path?.trim() ?? ''
+  if (!filePath) {
+    throw new Error('Telegram audio file path is missing.')
+  }
+  if ((fileMeta.file_size ?? 0) > TELEGRAM_MAX_AUDIO_BYTES) {
+    throw new Error('Telegram audio is too large to process (max 25MB).')
+  }
+
+  const payload = await downloadTelegramFile({
+    botToken: settings.botToken,
+    filePath,
+    maxBytes: TELEGRAM_MAX_AUDIO_BYTES
+  })
+  if (!payload.length) {
+    throw new Error('Telegram audio download returned empty payload.')
+  }
+
+  const uploadId = input?.threadId ? null : randomUUID()
+  const directory = input?.threadId
+    ? ensureThreadAttachmentsDirectory(input.threadId)
+    : ensurePendingAttachmentsDirectory(uploadId!)
+  const fallbackName = `${target.fallbackPrefix}-${message.message_id}${resolveTelegramAudioExtension(filePath, target.mediaType)}`
+  const filename = sanitizeTelegramFilename(target.sourceName || fallbackName)
+  const filePathOnDisk = ensureUniqueTelegramAttachmentPath(directory, filename)
+  try {
+    await writeFile(filePathOnDisk, payload)
+  } catch (error) {
+    if (uploadId) {
+      rmSync(directory, { recursive: true, force: true })
+    }
+    throw error
+  }
+
+  return {
+    uploadId,
+    part: {
+      type: 'file' as const,
+      url: `file://${filePathOnDisk}`,
+      filename: basename(filePathOnDisk),
+      mediaType: target.mediaType
+    }
+  }
+}
+
 const cleanupPendingTelegramAttachment = (uploadId: string | null | undefined) => {
   if (!uploadId) {
     return
@@ -556,8 +693,10 @@ const cleanupPendingTelegramAttachment = (uploadId: string | null | undefined) =
   rmSync(pendingDirectory, { recursive: true, force: true })
 }
 
-const cleanupTelegramImageAttachment = (
-  attachment: Awaited<ReturnType<typeof buildTelegramImageAttachment>>
+const cleanupTelegramAttachment = (
+  attachment:
+    | Awaited<ReturnType<typeof buildTelegramImageAttachment>>
+    | Awaited<ReturnType<typeof buildTelegramAudioAttachment>>
 ) => {
   if (!attachment) {
     return
@@ -580,7 +719,7 @@ const cleanupTelegramImageAttachment = (
 }
 
 const toTelegramUserMessage = (message: TelegramMessage, input?: {
-  imagePart?: {
+  attachmentPart?: {
     type: 'file'
     url: string
     filename: string
@@ -589,11 +728,11 @@ const toTelegramUserMessage = (message: TelegramMessage, input?: {
   includeCaption?: boolean
 }): CodexChatUserMessage => {
   const parts: CodexChatUserMessage['parts'] = []
-  if (input?.imagePart) {
-    parts.push(input.imagePart)
+  if (input?.attachmentPart) {
+    parts.push(input.attachmentPart)
   }
   const userText = formatTelegramUserText(message, {
-    includeCaption: input?.includeCaption ?? Boolean(input?.imagePart)
+    includeCaption: input?.includeCaption ?? Boolean(input?.attachmentPart)
   })
   if (userText) {
     parts.push({
@@ -1673,20 +1812,23 @@ const handleTelegramTextMessage = async (
   message: TelegramMessage
 ) => {
   const hasImageAttachment = hasTelegramImageAttachment(message)
+  const hasAudioAttachment = hasTelegramAudioAttachment(message)
+  const hasSupportedAttachment = hasImageAttachment || hasAudioAttachment
   const messageText = formatTelegramUserText(message, {
-    includeCaption: hasImageAttachment
+    includeCaption: hasSupportedAttachment
   })
-  if (!messageText && !hasImageAttachment) {
+  if (!messageText && !hasSupportedAttachment) {
     await handleUnsupportedTelegramMessage(settings, message)
     return
   }
   let imageAttachment: Awaited<ReturnType<typeof buildTelegramImageAttachment>> = null
+  let audioAttachment: Awaited<ReturnType<typeof buildTelegramAudioAttachment>> = null
 
   const recentSessions = loadRecentTelegramSessions(settings.chatId, TELEGRAM_ROUTE_CANDIDATE_LIMIT)
   const route = await resolveSemanticTelegramSessionRoute({
     sessions: recentSessions,
     idleTimeoutMinutes: settings.idleTimeoutMinutes,
-    messageText: messageText || '[Image attachment]'
+    messageText: messageText || (hasAudioAttachment ? '[Audio attachment]' : '[Image attachment]')
   })
   const fallbackReplyToMessageId = shouldReplyInTelegramChat(message)
     ? message.message_id
@@ -1715,6 +1857,7 @@ const handleTelegramTextMessage = async (
   }
 
   let imageAttachmentProcessingFailed = false
+  let audioAttachmentProcessingFailed = false
   if (hasImageAttachment) {
     try {
       imageAttachment = await buildTelegramImageAttachment(settings, message, {
@@ -1731,16 +1874,33 @@ const handleTelegramTextMessage = async (
       })
     }
   }
-  if (!messageText && !imageAttachment) {
-    if (!imageAttachmentProcessingFailed) {
+  if (hasAudioAttachment) {
+    try {
+      audioAttachment = await buildTelegramAudioAttachment(settings, message, {
+        threadId: route.kind === 'reuse' ? route.session.threadId : null
+      })
+    } catch (error) {
+      audioAttachmentProcessingFailed = true
+      const failureMessage = `Audio attachment could not be processed: ${formatTelegramApiError(error)}`
+      await sendTelegramMessage({
+        botToken: settings.botToken,
+        chatId: settings.chatId,
+        text: failureMessage,
+        replyToMessageId: shouldReplyInTelegramChat(message) ? message.message_id : undefined
+      })
+    }
+  }
+  const attachment = imageAttachment ?? audioAttachment
+  if (!messageText && !attachment) {
+    if (!imageAttachmentProcessingFailed && !audioAttachmentProcessingFailed) {
       await handleUnsupportedTelegramMessage(settings, message)
     }
     return
   }
 
   const userMessage = toTelegramUserMessage(message, {
-    imagePart: imageAttachment?.part ?? null,
-    includeCaption: hasImageAttachment
+    attachmentPart: attachment?.part ?? null,
+    includeCaption: hasSupportedAttachment
   })
 
   if (route.kind === 'reuse') {
@@ -1758,7 +1918,7 @@ const handleTelegramTextMessage = async (
       }
 
       if (steerResult.kind === 'error') {
-        cleanupTelegramImageAttachment(imageAttachment)
+        cleanupTelegramAttachment(attachment)
         stopTelegramTypingController(settings.chatId)
         await sendSessionTelegramMessage({
           sessionId: route.session.id,
@@ -1821,7 +1981,7 @@ const handleTelegramTextMessage = async (
     run = await start(codexChatTurnWorkflow, [{
       threadId: session.threadId,
       resume: Boolean(session.threadId),
-      attachmentUploadId: imageAttachment?.uploadId ?? null,
+      attachmentUploadId: attachment?.uploadId ?? null,
       origin: 'telegram',
       originChannelId: settings.chatId,
       streamMode: 'telegram',
@@ -1829,7 +1989,7 @@ const handleTelegramTextMessage = async (
       messages: nextMessages
     }])
   } catch (error) {
-    cleanupTelegramImageAttachment(imageAttachment)
+    cleanupTelegramAttachment(attachment)
     throw error
   }
 
@@ -1851,7 +2011,7 @@ const handleUnsupportedTelegramMessage = async (
   await sendTelegramMessage({
     botToken: settings.botToken,
     chatId: settings.chatId,
-    text: 'Unsupported message type. Telegram transport currently supports text and image attachments.',
+    text: 'Unsupported message type. Telegram transport currently supports text, image attachments, and audio recordings.',
     replyToMessageId: shouldReplyInTelegramChat(message) ? message.message_id : undefined
   })
 }
