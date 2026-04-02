@@ -36,6 +36,12 @@ MISE_CONFIG_FILE=./docker/mise.toml mise install
 pnpm dev
 ```
 
+Lease ownership regression check (Telegram poller safety):
+
+```bash
+pnpm telegram:lease:smoke
+```
+
 Optional runtime mode:
 - `CORAZON_CODEX_CLIENT_MODE=app-server` (default)
 - `CORAZON_CODEX_CLIENT_MODE=sdk` (fallback)
