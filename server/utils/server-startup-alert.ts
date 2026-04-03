@@ -6,6 +6,7 @@ import {
   runChatgptCodexTextResponse
 } from '@@/lib/chatgpt-codex-responses.ts'
 import { buildStartupAlertPayload } from '@@/lib/startup-alert-payload.ts'
+import { shouldSendStartupAlertForRuntime } from '@@/lib/startup-alert-runtime.ts'
 
 const STARTUP_ALERT_MODEL = 'gpt-5.4-mini'
 
@@ -126,6 +127,15 @@ const sendStartupAlert = async () => {
 
 export const initializeServerStartupAlert = () => {
   if (startupAlertInitialized) {
+    return
+  }
+
+  if (!shouldSendStartupAlertForRuntime({
+    argv: process.argv,
+    env: process.env,
+    dev: Boolean(import.meta.dev),
+    prerender: Boolean(import.meta.prerender)
+  })) {
     return
   }
 

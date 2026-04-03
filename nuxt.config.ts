@@ -28,6 +28,7 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-01-15',
 
   nitro: {
+    entry: './nitro/node-server.mjs',
     typescript: {
       tsConfig: {
         compilerOptions: {
@@ -70,11 +71,12 @@ export default defineNuxtConfig({
   },
 
   icon: {
-    serverBundle: {
-      collections: ['lucide'],
-      externalizeIconsJson: true
-    },
+    provider: 'none',
     clientBundle: {
+      icons: [
+        'lucide:panel-left-close',
+        'lucide:panel-left-open'
+      ],
       scan: {
         globInclude: ['app/**/*.{vue,ts}'],
         globExclude: ['node_modules']
