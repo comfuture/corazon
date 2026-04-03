@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
+import { join } from 'node:path'
 import type { WorkflowDefinition, WorkflowRunSummary, WorkflowTriggerType } from '@@/types/workflow'
 import { createCodexClient } from './codex-client/index.ts'
 import type { CodexClient, CodexThreadEvent, CodexUsage } from './codex-client/types.ts'
@@ -125,14 +126,19 @@ const runGitCommand = (
   try {
     const output = execFileSync('git', ['-C', repoPath, ...args], {
       encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe']
+      stdio: ['ignore', 'pipe', 'pipe'],
+      maxBuffer: 10 * 1024 * 1024
     })
     return {
       ok: true,
       output
     } as const
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
+    const message = error instanceof Error
+      ? ('stderr' in error && error.stderr
+          ? `${error.message}\n${String(error.stderr).trim()}`
+          : error.message)
+      : String(error)
     return {
       ok: false,
       output: '',
@@ -146,7 +152,7 @@ const resolveSelfEvolutionRepoPath = () => {
   if (configured) {
     return configured
   }
-  return `${resolveCorazonRootDir()}/${SELF_EVOLUTION_REPO_DEFAULT_RELATIVE_PATH}`
+  return join(resolveCorazonRootDir(), SELF_EVOLUTION_REPO_DEFAULT_RELATIVE_PATH)
 }
 
 const collectSelfEvolutionRepoHygieneSnapshot = (): SelfEvolutionRepoHygieneSnapshot => {
