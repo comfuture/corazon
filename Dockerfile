@@ -47,4 +47,4 @@ EXPOSE 3000
 VOLUME ["/root/.corazon", "/root/.corazon-runtime", "/root/.ssh"]
 
 ENTRYPOINT ["corazon-entrypoint"]
-CMD ["node", ".output/server/index.mjs"]
+CMD ["node", "scripts/start-server.mjs"]

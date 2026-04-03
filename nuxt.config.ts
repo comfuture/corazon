@@ -28,7 +28,6 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-01-15',
 
   nitro: {
-    entry: './nitro/node-server.mjs',
     typescript: {
       tsConfig: {
         compilerOptions: {

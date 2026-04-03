@@ -57,13 +57,13 @@ const run = async () => {
   }), false, 'nuxi build should not send startup alerts')
 
   assert.equal(shouldSendStartupAlertForRuntime({
-    argv: ['node', '/workspace/.output/server/index.mjs'],
+    argv: ['node', '/workspace/scripts/start-server.mjs'],
     env: {
       NODE_ENV: 'production'
     },
     dev: false,
     prerender: false
-  }), true, 'production node server runtime should send startup alerts')
+  }), true, 'production server launcher should send startup alerts')
 
   console.log('startup alert smoke checks passed')
 }
