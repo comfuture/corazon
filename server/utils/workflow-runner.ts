@@ -209,7 +209,7 @@ const collectSelfEvolutionRepoHygieneSnapshot = (): SelfEvolutionRepoHygieneSnap
 
   const trackingResult = runGitCommand(snapshot.repoPath, [
     'for-each-ref',
-    '--format=%(refname:short)%09%(upstream:trackshort)',
+    '--format=%(refname:short)%09%(upstream:track)',
     'refs/heads'
   ])
   if (trackingResult.ok) {
