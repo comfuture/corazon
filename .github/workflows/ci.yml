@@ -38,3 +38,6 @@ jobs:
 
       - name: Verify startup alert regression guards
         run: pnpm run startup-alert:smoke
+
+      - name: Verify audio transcription regression guards
+        run: pnpm run audio-transcription:verify
