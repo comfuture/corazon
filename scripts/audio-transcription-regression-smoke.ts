@@ -141,9 +141,7 @@ const run = async () => {
       'chat-turn audio integration should propagate transcription failures'
     )
   } finally {
-    if (originalFetch) {
-      globalThis.fetch = originalFetch
-    }
+    globalThis.fetch = originalFetch
     if (typeof originalApiKey === 'string') {
       process.env.OPENAI_API_KEY = originalApiKey
     } else {
