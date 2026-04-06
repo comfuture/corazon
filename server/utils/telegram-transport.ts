@@ -2099,7 +2099,7 @@ const pollTelegramLoop = async () => {
       lastUpdateId: currentLastUpdateId,
       lastPollStartedAt: startedAt,
       lastPollSucceededAt: currentLastPollSucceededAt,
-      lastPollError: state?.lastPollError ?? null,
+      lastPollError: null,
       pollerId,
       pollerLeaseExpiresAt: startedAt + TELEGRAM_POLL_LEASE_MS,
       updatedAt: startedAt
@@ -2159,7 +2159,7 @@ const pollTelegramLoop = async () => {
         lastUpdateId: currentLastUpdateId,
         lastPollStartedAt: startedAt,
         lastPollSucceededAt: currentLastPollSucceededAt,
-        lastPollError: message,
+        lastPollError: isConflict ? null : message,
         pollerId,
         pollerLeaseExpiresAt: Date.now() + TELEGRAM_POLL_LEASE_MS,
         updatedAt: Date.now()
