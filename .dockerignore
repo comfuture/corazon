@@ -13,3 +13,5 @@ node_modules
 .env
 .env.local
 .env.*.local
+.mise.toml
+mise.toml
