@@ -17,6 +17,7 @@ import {
   getDefaultCodexSeedSourceDir,
   resolveCorazonRootDir
 } from './agent-home.ts'
+import { ensureCopiedAuthFile, resolveAuthSeedMode } from '@@/lib/auth-seed-utils.js'
 
 const SEED_FILES = ['config.toml'] as const
 const SEED_DIRECTORIES = ['skills', 'rules', 'vendor_imports'] as const
@@ -65,8 +66,6 @@ const OPERATOR_NOTIFICATION_GUIDANCE = [
 ].join('\n')
 
 let bootstrapDone = false
-
-type AuthSeedMode = 'link' | 'copy-once'
 
 const pathExists = (targetPath: string) => {
   try {
@@ -168,36 +167,6 @@ const ensureLinkedAuthFile = (sourcePath: string, destinationPath: string) => {
   }
   mkdirSync(dirname(destinationPath), { recursive: true })
   symlinkSync(getSymlinkTarget(sourcePath, destinationPath), destinationPath, 'file')
-}
-
-const ensureCopiedAuthFile = (sourcePath: string, destinationPath: string) => {
-  if (!existsSync(sourcePath)) {
-    return
-  }
-
-  if (pathExists(destinationPath)) {
-    try {
-      const destinationStats = lstatSync(destinationPath)
-      if (!destinationStats.isSymbolicLink()) {
-        return
-      }
-    } catch {
-      // Fall through and try to replace the existing entry.
-    }
-
-    rmSync(destinationPath, { recursive: true, force: true })
-  }
-
-  mkdirSync(dirname(destinationPath), { recursive: true })
-  copyFileSync(sourcePath, destinationPath)
-}
-
-const resolveAuthSeedMode = (): AuthSeedMode => {
-  const raw = process.env.CORAZON_AUTH_SEED_MODE?.trim().toLowerCase()
-  if (raw === 'copy' || raw === 'copy-once' || raw === 'seed-copy') {
-    return 'copy-once'
-  }
-  return 'link'
 }
 
 const ensureSeededFile = (sourcePath: string, destinationPath: string) => {
@@ -400,7 +369,7 @@ export const ensureAgentBootstrap = () => {
     const sourceAuthPath = join(sourceRootDir, AUTH_FILE)
     const destinationAuthPath = join(agentHomeDir, AUTH_FILE)
     if (resolveAuthSeedMode() === 'copy-once') {
-      ensureCopiedAuthFile(sourceAuthPath, destinationAuthPath)
+      ensureCopiedAuthFile({ sourcePath: sourceAuthPath, destinationPath: destinationAuthPath })
     } else {
       ensureLinkedAuthFile(sourceAuthPath, destinationAuthPath)
     }

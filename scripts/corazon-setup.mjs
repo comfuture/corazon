@@ -15,6 +15,7 @@ import {
 import { homedir } from 'node:os'
 import { dirname, join, relative, resolve as resolvePath } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { ensureCopiedAuthFile, resolveAuthSeedMode } from '../lib/auth-seed-utils.js'
 
 const SEED_DIRECTORIES = ['skills', 'rules', 'vendor_imports']
 const AUTH_FILE = 'auth.json'
@@ -31,14 +32,6 @@ const UPDATED_SHARED_MEMORY_GUIDANCE = [
   '- For memory reads/writes in a task, follow the skill workflow: `ensure`, then `search`, then `upsert`.',
   '- Add memory when new stable facts/preferences/decisions emerge; search memory when prior context is needed.'
 ].join('\n')
-
-const resolveAuthSeedMode = () => {
-  const raw = process.env.CORAZON_AUTH_SEED_MODE?.trim().toLowerCase()
-  if (raw === 'copy' || raw === 'copy-once' || raw === 'seed-copy') {
-    return 'copy-once'
-  }
-  return 'link'
-}
 
 const getPlatformDefaultRuntimeRoot = () => {
   if (process.platform === 'darwin') {
@@ -272,33 +265,6 @@ const ensureLinkedAuthFile = (sourcePath, destinationPath, overwrite, counters) 
   counters.linked += 1
 }
 
-const ensureCopiedAuthFile = (sourcePath, destinationPath, overwrite, counters) => {
-  if (!existsSync(sourcePath)) {
-    counters.skipped += 1
-    return
-  }
-
-  if (pathExists(destinationPath) && !overwrite) {
-    try {
-      const destinationStats = lstatSync(destinationPath)
-      if (!destinationStats.isSymbolicLink()) {
-        counters.skipped += 1
-        return
-      }
-    } catch {
-      // Fall through and try to replace the existing entry.
-    }
-  }
-
-  if (pathExists(destinationPath)) {
-    rmSync(destinationPath, { recursive: true, force: true })
-  }
-
-  mkdirSync(dirname(destinationPath), { recursive: true })
-  copyFileSync(sourcePath, destinationPath)
-  counters.copied += 1
-}
-
 const ensureAgentsFile = (runtimeRoot, overwrite, counters) => {
   const destinationPath = join(runtimeRoot, AGENTS_FILE)
   if (existsSync(destinationPath) && !overwrite) {
@@ -522,7 +488,17 @@ export const run = (args = []) => {
     const sourceAuthPath = join(codexHome, AUTH_FILE)
     const destinationAuthPath = join(agentHome, AUTH_FILE)
     if (resolveAuthSeedMode() === 'copy-once') {
-      ensureCopiedAuthFile(sourceAuthPath, destinationAuthPath, options.overwrite, counters)
+      ensureCopiedAuthFile({
+        sourcePath: sourceAuthPath,
+        destinationPath: destinationAuthPath,
+        overwrite: options.overwrite,
+        onSkip: () => {
+          counters.skipped += 1
+        },
+        onCopy: () => {
+          counters.copied += 1
+        }
+      })
     } else {
       ensureLinkedAuthFile(sourceAuthPath, destinationAuthPath, options.overwrite, counters)
     }
