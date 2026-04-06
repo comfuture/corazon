@@ -94,10 +94,13 @@ const resolveRefreshThresholdMs = () =>
 
 const toTimestampMs = (value: unknown): number | null => {
   if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value < 0) {
+      return null
+    }
     if (value > 1_000_000_000_000) {
       return Math.floor(value)
     }
-    if (value > 1_000_000_000) {
+    if (value <= 1_000_000_000_000) {
       return Math.floor(value * 1000)
     }
   }
