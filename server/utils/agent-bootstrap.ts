@@ -66,6 +66,8 @@ const OPERATOR_NOTIFICATION_GUIDANCE = [
 
 let bootstrapDone = false
 
+type AuthSeedMode = 'link' | 'copy-once'
+
 const pathExists = (targetPath: string) => {
   try {
     lstatSync(targetPath)
@@ -166,6 +168,36 @@ const ensureLinkedAuthFile = (sourcePath: string, destinationPath: string) => {
   }
   mkdirSync(dirname(destinationPath), { recursive: true })
   symlinkSync(getSymlinkTarget(sourcePath, destinationPath), destinationPath, 'file')
+}
+
+const ensureCopiedAuthFile = (sourcePath: string, destinationPath: string) => {
+  if (!existsSync(sourcePath)) {
+    return
+  }
+
+  if (pathExists(destinationPath)) {
+    try {
+      const destinationStats = lstatSync(destinationPath)
+      if (!destinationStats.isSymbolicLink()) {
+        return
+      }
+    } catch {
+      // Fall through and try to replace the existing entry.
+    }
+
+    rmSync(destinationPath, { recursive: true, force: true })
+  }
+
+  mkdirSync(dirname(destinationPath), { recursive: true })
+  copyFileSync(sourcePath, destinationPath)
+}
+
+const resolveAuthSeedMode = (): AuthSeedMode => {
+  const raw = process.env.CORAZON_AUTH_SEED_MODE?.trim().toLowerCase()
+  if (raw === 'copy' || raw === 'copy-once' || raw === 'seed-copy') {
+    return 'copy-once'
+  }
+  return 'link'
 }
 
 const ensureSeededFile = (sourcePath: string, destinationPath: string) => {
@@ -365,7 +397,13 @@ export const ensureAgentBootstrap = () => {
     for (const directoryName of SEED_DIRECTORIES) {
       ensureSeededDirectory(join(sourceRootDir, directoryName), join(agentHomeDir, directoryName))
     }
-    ensureLinkedAuthFile(join(sourceRootDir, AUTH_FILE), join(agentHomeDir, AUTH_FILE))
+    const sourceAuthPath = join(sourceRootDir, AUTH_FILE)
+    const destinationAuthPath = join(agentHomeDir, AUTH_FILE)
+    if (resolveAuthSeedMode() === 'copy-once') {
+      ensureCopiedAuthFile(sourceAuthPath, destinationAuthPath)
+    } else {
+      ensureLinkedAuthFile(sourceAuthPath, destinationAuthPath)
+    }
   }
 
   ensureBundledSkills(agentHomeDir)

@@ -60,6 +60,7 @@ Prepare a host state root. Compose will bind-mount role-specific subdirectories 
 ```bash
 export CORAZON_HOST_STATE_DIR="$(pwd)/.docker-state"
 export CORAZON_CODEX_HOST_DIR="$HOME/.codex"
+export CORAZON_AUTH_SEED_MODE=copy-once
 mkdir -p "$CORAZON_HOST_STATE_DIR"/{.corazon,.corazon-runtime,.ssh,chroma}
 npx corazon setup \
   --agent-home "$CORAZON_HOST_STATE_DIR/.corazon" \
@@ -79,6 +80,8 @@ Build and run with Docker Compose:
 ```bash
 docker compose up --build
 ```
+
+For ChatGPT-managed Codex auth on a headless server, keep `auth.json` on the writable agent-home bind mount and seed it only once from `${CORAZON_CODEX_HOST_DIR}`. With `CORAZON_AUTH_SEED_MODE=copy-once`, Corazon materializes `${CORAZON_HOST_STATE_DIR}/.corazon/auth.json` as a normal file so Codex can rotate refreshed tokens in place across restarts. The compose file also enables a periodic app-server keepalive that refreshes managed auth before it goes stale.
 
 The production image also installs Python 3.12 and `uv` via `mise`, so runtime-managed skills can rely on `python`, `python3`, `uv`, and `uvx` inside the container.
 

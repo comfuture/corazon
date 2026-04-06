@@ -32,6 +32,14 @@ const UPDATED_SHARED_MEMORY_GUIDANCE = [
   '- Add memory when new stable facts/preferences/decisions emerge; search memory when prior context is needed.'
 ].join('\n')
 
+const resolveAuthSeedMode = () => {
+  const raw = process.env.CORAZON_AUTH_SEED_MODE?.trim().toLowerCase()
+  if (raw === 'copy' || raw === 'copy-once' || raw === 'seed-copy') {
+    return 'copy-once'
+  }
+  return 'link'
+}
+
 const getPlatformDefaultRuntimeRoot = () => {
   if (process.platform === 'darwin') {
     return join(homedir(), 'Library', 'Application Support', 'Corazon')
@@ -264,6 +272,33 @@ const ensureLinkedAuthFile = (sourcePath, destinationPath, overwrite, counters) 
   counters.linked += 1
 }
 
+const ensureCopiedAuthFile = (sourcePath, destinationPath, overwrite, counters) => {
+  if (!existsSync(sourcePath)) {
+    counters.skipped += 1
+    return
+  }
+
+  if (pathExists(destinationPath) && !overwrite) {
+    try {
+      const destinationStats = lstatSync(destinationPath)
+      if (!destinationStats.isSymbolicLink()) {
+        counters.skipped += 1
+        return
+      }
+    } catch {
+      // Fall through and try to replace the existing entry.
+    }
+  }
+
+  if (pathExists(destinationPath)) {
+    rmSync(destinationPath, { recursive: true, force: true })
+  }
+
+  mkdirSync(dirname(destinationPath), { recursive: true })
+  copyFileSync(sourcePath, destinationPath)
+  counters.copied += 1
+}
+
 const ensureAgentsFile = (runtimeRoot, overwrite, counters) => {
   const destinationPath = join(runtimeRoot, AGENTS_FILE)
   if (existsSync(destinationPath) && !overwrite) {
@@ -484,12 +519,13 @@ export const run = (args = []) => {
       stripImageGenerationFeature(join(agentHome, 'config.toml'))
     }
 
-    ensureLinkedAuthFile(
-      join(codexHome, AUTH_FILE),
-      join(agentHome, AUTH_FILE),
-      options.overwrite,
-      counters
-    )
+    const sourceAuthPath = join(codexHome, AUTH_FILE)
+    const destinationAuthPath = join(agentHome, AUTH_FILE)
+    if (resolveAuthSeedMode() === 'copy-once') {
+      ensureCopiedAuthFile(sourceAuthPath, destinationAuthPath, options.overwrite, counters)
+    } else {
+      ensureLinkedAuthFile(sourceAuthPath, destinationAuthPath, options.overwrite, counters)
+    }
   } else {
     log(options, `Codex seed source not found: ${codexHome} (continuing without seed copy).`)
   }
