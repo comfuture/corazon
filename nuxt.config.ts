@@ -72,13 +72,14 @@ export default defineNuxtConfig({
   icon: {
     provider: 'none',
     clientBundle: {
-      icons: [
-        'lucide:panel-left-close',
-        'lucide:panel-left-open'
-      ],
       scan: {
-        globInclude: ['app/**/*.{vue,ts}'],
-        globExclude: ['node_modules']
+        globInclude: [
+          'app/**/*.{vue,ts}',
+          // Nuxt UI resolves many component defaults via appConfig.ui.icons.*,
+          // so include its runtime/default config sources in static icon scanning.
+          'node_modules/@nuxt/ui/dist/**/*.{js,mjs,ts,vue}'
+        ],
+        globExclude: ['.git', '.nuxt', '.output', 'dist']
       }
     }
   }
