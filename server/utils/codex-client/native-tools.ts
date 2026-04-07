@@ -769,6 +769,7 @@ const handleWorkflowApplyText = async (args: Record<string, unknown>) => {
   const resolvedMode = requestedMode === 'auto'
     ? (hasTarget ? 'update' : 'create')
     : requestedMode
+  const explicitLanguage = asString(args.language)
 
   if (resolvedMode === 'update') {
     if (!hasTarget) {
@@ -781,7 +782,7 @@ const handleWorkflowApplyText = async (args: Record<string, unknown>) => {
       name: parsed.draft.name,
       description: parsed.draft.description,
       instruction: parsed.draft.instruction,
-      language: parsed.draft.language,
+      language: explicitLanguage,
       schedule: parsed.draft.triggerType === 'schedule' ? parsed.draft.triggerValue ?? '' : '',
       interval: parsed.draft.triggerType === 'interval' ? parsed.draft.triggerValue ?? '' : '',
       rrule: parsed.draft.triggerType === 'rrule' ? parsed.draft.triggerValue ?? '' : '',
