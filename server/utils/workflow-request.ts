@@ -1,6 +1,18 @@
-import type { WorkflowFrontmatter, WorkflowTriggerConfig, WorkflowUpsertRequest } from '@@/types/workflow'
+import type { WorkflowFrontmatter, WorkflowLanguage, WorkflowTriggerConfig, WorkflowUpsertRequest } from '@@/types/workflow'
 
 const WORKFLOW_NAME_PATTERN = /^[A-Za-z]+(?: [A-Za-z]+){1,2}$/
+const WORKFLOW_LANGUAGES = new Set<WorkflowLanguage>(['markdown', 'typescript', 'python'])
+
+const normalizeLanguage = (value: unknown): WorkflowLanguage => {
+  if (typeof value !== 'string' || !value.trim()) {
+    return 'markdown'
+  }
+  const normalized = value.trim().toLowerCase()
+  if (!WORKFLOW_LANGUAGES.has(normalized as WorkflowLanguage)) {
+    throw new Error('Workflow language must be one of: markdown, typescript, python.')
+  }
+  return normalized as WorkflowLanguage
+}
 
 const asString = (value: unknown) => typeof value === 'string' ? value.trim() : ''
 
@@ -68,7 +80,11 @@ export const parseWorkflowUpsertRequest = (body: unknown) => {
 
   const name = asString(raw.name)
   const description = asString(raw.description)
-  const instruction = normalizeWorkflowInstructionText(asString(raw.instruction))
+  const language = normalizeLanguage(raw.language)
+  const instructionInput = asString(raw.instruction)
+  const instruction = language === 'markdown'
+    ? normalizeWorkflowInstructionText(instructionInput)
+    : instructionInput
   const skills = asStringArray(raw.skills)
   const triggerType = raw.triggerType === 'schedule' || raw.triggerType === 'interval' || raw.triggerType === 'rrule'
     ? raw.triggerType
@@ -92,6 +108,7 @@ export const parseWorkflowUpsertRequest = (body: unknown) => {
   const frontmatter: WorkflowFrontmatter = {
     name,
     description,
+    language,
     on: normalizeTriggerConfig({
       triggerType,
       triggerValue,

@@ -6,7 +6,7 @@ import type { DynamicToolCallOutputContentItem } from '@@/types/codex-app-server
 import type { DynamicToolCallResponse } from '@@/types/codex-app-server/v2/DynamicToolCallResponse'
 import type { DynamicToolSpec } from '@@/types/codex-app-server/v2/DynamicToolSpec'
 import type { JsonValue } from '@@/types/codex-app-server/serde_json/JsonValue'
-import type { WorkflowDefinition, WorkflowFrontmatter } from '@@/types/workflow'
+import type { WorkflowDefinition, WorkflowFrontmatter, WorkflowLanguage } from '@@/types/workflow'
 import { rememberText, searchMemories } from '../memory.ts'
 import {
   deleteWorkflowDefinitionBySlug,
@@ -42,6 +42,7 @@ type ParsedWorkflowDraft = {
     name: string
     description: string
     instruction: string
+    language: WorkflowLanguage
     triggerType: WorkflowTriggerType | null
     triggerValue: string | null
     workflowDispatch: boolean
@@ -57,6 +58,7 @@ const DEFAULT_MEMORY_SECTION = 'Facts'
 const DEFAULT_WORKFLOW_NAME = 'Task Workflow'
 const WORKFLOW_DESCRIPTION_MAX_LENGTH = 180
 const WORKFLOW_NAME_WORD_PATTERN = /^[A-Za-z]+$/
+const WORKFLOW_LANGUAGES = new Set<WorkflowLanguage>(['markdown', 'typescript', 'python'])
 const WORKFLOW_COMMANDS = new Set([
   'list',
   'create',
@@ -102,6 +104,10 @@ const MANAGE_WORKFLOWS_TOOL_SCHEMA: JsonValue = {
     instruction: { type: 'string' },
     name: { type: 'string' },
     description: { type: 'string' },
+    language: {
+      type: 'string',
+      enum: ['markdown', 'typescript', 'python']
+    },
     schedule: { type: 'string' },
     interval: { type: 'string' },
     rrule: { type: 'string' },
@@ -273,6 +279,7 @@ const toWorkflowSummary = (workflow: WorkflowDefinition) => ({
   parseError: workflow.parseError,
   name: workflow.frontmatter.name,
   description: workflow.frontmatter.description,
+  language: workflow.frontmatter.language,
   schedule: workflow.frontmatter.on.schedule ?? null,
   interval: workflow.frontmatter.on.interval ?? null,
   rrule: workflow.frontmatter.on.rrule ?? null,
@@ -337,6 +344,17 @@ const resolveValidatedTrigger = (
   return { triggerType: null, triggerValue: null }
 }
 
+const normalizeWorkflowLanguage = (value: unknown, fallback: WorkflowLanguage = 'markdown'): WorkflowLanguage => {
+  const normalized = asString(value).toLowerCase()
+  if (!normalized) {
+    return fallback
+  }
+  if (!WORKFLOW_LANGUAGES.has(normalized as WorkflowLanguage)) {
+    throw new Error('Workflow language must be one of: markdown, typescript, python.')
+  }
+  return normalized as WorkflowLanguage
+}
+
 const listAvailableSkills = () => {
   const candidates: string[] = []
   const codexHome = asString(process.env.CODEX_HOME)
@@ -394,6 +412,7 @@ const parseWorkflowDraftFromText = async (text: string): Promise<ParsedWorkflowD
           instruction: ensureDetailedWorkflowInstruction(
             asString(inferred.enhancedInstruction) || source
           ),
+          language: 'markdown',
           triggerType: resolvedTrigger.triggerType,
           triggerValue: resolvedTrigger.triggerValue,
           workflowDispatch: true,
@@ -412,6 +431,7 @@ const parseWorkflowDraftFromText = async (text: string): Promise<ParsedWorkflowD
       name: normalizeWorkflowName(source),
       description: normalizeWorkflowDescription(source),
       instruction: ensureDetailedWorkflowInstruction(source),
+      language: 'markdown',
       triggerType: null,
       triggerValue: null,
       workflowDispatch: true,
@@ -423,6 +443,7 @@ const parseWorkflowDraftFromText = async (text: string): Promise<ParsedWorkflowD
 const buildWorkflowFrontmatter = (input: {
   name: string
   description: string
+  language: WorkflowLanguage
   triggerType: WorkflowTriggerType | null
   triggerValue: string | null
   workflowDispatch: boolean
@@ -430,6 +451,7 @@ const buildWorkflowFrontmatter = (input: {
 }): WorkflowFrontmatter => ({
   name: normalizeWorkflowName(input.name),
   description: normalizeWorkflowDescription(input.description),
+  language: input.language,
   on: {
     ...(input.triggerType === 'schedule' && input.triggerValue
       ? { schedule: input.triggerValue }
@@ -573,6 +595,7 @@ const handleWorkflowCreate = (args: Record<string, unknown>) => {
   const frontmatter = buildWorkflowFrontmatter({
     name: asString(args.name) || instruction,
     description: asString(args.description) || instruction,
+    language: normalizeWorkflowLanguage(args.language, 'markdown'),
     triggerType,
     triggerValue,
     workflowDispatch: asBoolean(args.workflowDispatch, true),
@@ -644,6 +667,7 @@ const handleWorkflowUpdate = (args: Record<string, unknown>) => {
   const frontmatter = buildWorkflowFrontmatter({
     name: asString(args.name) || target.frontmatter.name,
     description: asString(args.description) || target.frontmatter.description,
+    language: normalizeWorkflowLanguage(args.language, target.frontmatter.language),
     triggerType,
     triggerValue,
     workflowDispatch: asBoolean(args.workflowDispatch, target.frontmatter.on['workflow-dispatch'] === true),
@@ -744,6 +768,7 @@ const handleWorkflowApplyText = async (args: Record<string, unknown>) => {
       name: parsed.draft.name,
       description: parsed.draft.description,
       instruction: parsed.draft.instruction,
+      language: parsed.draft.language,
       schedule: parsed.draft.triggerType === 'schedule' ? parsed.draft.triggerValue ?? '' : '',
       interval: parsed.draft.triggerType === 'interval' ? parsed.draft.triggerValue ?? '' : '',
       rrule: parsed.draft.triggerType === 'rrule' ? parsed.draft.triggerValue ?? '' : '',
@@ -762,6 +787,7 @@ const handleWorkflowApplyText = async (args: Record<string, unknown>) => {
     fileSlug: asString(args.fileSlug),
     name: parsed.draft.name,
     description: parsed.draft.description,
+    language: parsed.draft.language,
     schedule: parsed.draft.triggerType === 'schedule' ? parsed.draft.triggerValue ?? '' : '',
     interval: parsed.draft.triggerType === 'interval' ? parsed.draft.triggerValue ?? '' : '',
     rrule: parsed.draft.triggerType === 'rrule' ? parsed.draft.triggerValue ?? '' : '',

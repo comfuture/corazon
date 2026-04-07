@@ -108,6 +108,7 @@ const saveWorkflow = async () => {
   const payload: WorkflowUpsertRequest = {
     name: form.name.trim(),
     description: form.description.trim(),
+    language: workflow.value?.frontmatter.language ?? 'markdown',
     instruction: form.instruction.trim(),
     skills: [...new Set(form.skills)],
     triggerType: hasTrigger ? form.triggerType : null,
