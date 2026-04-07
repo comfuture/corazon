@@ -28,7 +28,20 @@ export default defineEventHandler(async (event) => {
   }
 
   initializeWorkflowRunner()
-  const run = startWorkflowBySlug(definition.fileSlug, 'workflow-dispatch', 'manual')
+  let run
+  try {
+    run = startWorkflowBySlug(definition.fileSlug, 'workflow-dispatch', 'manual')
+  } catch (error) {
+    if (isUnsupportedWorkflowLanguageError(error)) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: error instanceof Error
+          ? error.message
+          : 'This workflow language is not executable yet.'
+      })
+    }
+    throw error
+  }
 
   return { run }
 })
