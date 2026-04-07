@@ -404,6 +404,10 @@ const validateWorkflowRules = (
     return 'Frontmatter "language" must be one of: markdown, typescript, python.'
   }
 
+  if (language !== 'markdown' && timeTriggerCount > 0) {
+    return 'Time triggers ("schedule", "interval", "rrule") currently support only markdown workflows. Use "workflow-dispatch" for typescript/python until script runners are available.'
+  }
+
   if (!instruction.trim()) {
     return 'Workflow instruction body is required.'
   }
