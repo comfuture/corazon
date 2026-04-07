@@ -355,6 +355,17 @@ const normalizeWorkflowLanguage = (value: unknown, fallback: WorkflowLanguage = 
   return normalized as WorkflowLanguage
 }
 
+const normalizeWorkflowInstructionForLanguage = (instruction: unknown, language: WorkflowLanguage): string => {
+  const source = asString(instruction)
+  if (!source) {
+    return ''
+  }
+  if (language === 'markdown') {
+    return normalizeWorkflowInstructionText(source)
+  }
+  return source.replace(/\r\n/g, '\n').trim()
+}
+
 const listAvailableSkills = () => {
   const candidates: string[] = []
   const codexHome = asString(process.env.CODEX_HOME)
@@ -586,7 +597,8 @@ const handleWorkflowInspect = (args: Record<string, unknown>) => {
 }
 
 const handleWorkflowCreate = (args: Record<string, unknown>) => {
-  const instruction = normalizeWorkflowInstructionText(asString(args.instruction))
+  const language = normalizeWorkflowLanguage(args.language, 'markdown')
+  const instruction = normalizeWorkflowInstructionForLanguage(args.instruction, language)
   if (!instruction) {
     throw new Error('create requires "instruction".')
   }
@@ -595,7 +607,7 @@ const handleWorkflowCreate = (args: Record<string, unknown>) => {
   const frontmatter = buildWorkflowFrontmatter({
     name: asString(args.name) || instruction,
     description: asString(args.description) || instruction,
-    language: normalizeWorkflowLanguage(args.language, 'markdown'),
+    language,
     triggerType,
     triggerValue,
     workflowDispatch: asBoolean(args.workflowDispatch, true),
@@ -664,17 +676,18 @@ const handleWorkflowUpdate = (args: Record<string, unknown>) => {
   const nextSkills = [...new Set([...nextSkillsBase, ...addSkills])]
     .filter(item => !removeSkillSet.has(item))
 
+  const language = normalizeWorkflowLanguage(args.language, target.frontmatter.language)
   const frontmatter = buildWorkflowFrontmatter({
     name: asString(args.name) || target.frontmatter.name,
     description: asString(args.description) || target.frontmatter.description,
-    language: normalizeWorkflowLanguage(args.language, target.frontmatter.language),
+    language,
     triggerType,
     triggerValue,
     workflowDispatch: asBoolean(args.workflowDispatch, target.frontmatter.on['workflow-dispatch'] === true),
     skills: nextSkills
   })
 
-  const instruction = normalizeWorkflowInstructionText(asString(args.instruction)) || target.instruction
+  const instruction = normalizeWorkflowInstructionForLanguage(args.instruction, language) || target.instruction
   const updated = writeWorkflowDefinition(target.fileSlug, frontmatter, instruction)
   reloadWorkflowScheduler()
 
