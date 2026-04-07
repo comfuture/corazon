@@ -101,14 +101,20 @@ const shouldApplySelfEvolutionNoOpCommentPolicy = (definition: WorkflowDefinitio
   definition.fileSlug === 'corazon-self-evolution'
   || definition.frontmatter.name.trim().toLowerCase() === 'corazon self evolution'
 
+const buildUnsupportedWorkflowLanguageMessage = (language: string) =>
+  `Workflow language "${language}" is defined but not executable yet. `
+  + 'Only "markdown" workflows can run until the sandboxed script runner lands.'
+
+export const isUnsupportedWorkflowLanguageError = (error: unknown) =>
+  error instanceof Error
+  && error.message.includes('is defined but not executable yet.')
+  && error.message.includes('Only "markdown" workflows can run until the sandboxed script runner lands.')
+
 const ensureRunnableWorkflowLanguage = (definition: WorkflowDefinition) => {
   if (definition.frontmatter.language === 'markdown') {
     return
   }
-  throw new Error(
-    `Workflow language "${definition.frontmatter.language}" is defined but not executable yet. `
-    + 'Only "markdown" workflows can run until the sandboxed script runner lands.'
-  )
+  throw new Error(buildUnsupportedWorkflowLanguageMessage(definition.frontmatter.language))
 }
 
 const buildRunContextPrompt = (
