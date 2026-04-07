@@ -801,7 +801,7 @@ const handleWorkflowApplyText = async (args: Record<string, unknown>) => {
     fileSlug: asString(args.fileSlug),
     name: parsed.draft.name,
     description: parsed.draft.description,
-    language: parsed.draft.language,
+    language: explicitLanguage || parsed.draft.language,
     schedule: parsed.draft.triggerType === 'schedule' ? parsed.draft.triggerValue ?? '' : '',
     interval: parsed.draft.triggerType === 'interval' ? parsed.draft.triggerValue ?? '' : '',
     rrule: parsed.draft.triggerType === 'rrule' ? parsed.draft.triggerValue ?? '' : '',
