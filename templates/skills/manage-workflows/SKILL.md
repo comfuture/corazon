@@ -23,6 +23,7 @@ Each workflow file must be Markdown with YAML frontmatter.
 ---
 name: Hello Workflow
 description: Prints exactly one configured greeting line on each run.
+language: markdown
 on:
   interval: 2m
   workflow-dispatch: true
@@ -35,6 +36,7 @@ On each run, output exactly one assistant message: "Hello".
 ## Frontmatter Rules
 - `name`: English 2~3 words only. Example: `Hello Workflow`, `Daily Report Sender`.
 - `description`: one-sentence summary of actual behavior.
+- `language`: optional execution mode (`markdown` default, `typescript`, `python`).
 - `on`: trigger config
   - `schedule`: 5-field cron
   - `interval`: `{number}{s|m|h}` such as `120s`, `60m`, `2h`
@@ -43,6 +45,7 @@ On each run, output exactly one assistant message: "Hello".
 - `skills`: list of skill names.
 - Use only one time trigger at a time (`schedule`, `interval`, or `rrule`).
 - If no time trigger is configured, `workflow-dispatch: true` is required.
+- `language: typescript` and `language: python` are schema-valid, but runtime execution stays blocked until sandbox script runner support is implemented. Use `markdown` for runnable workflows today.
 
 ## Instruction Writing Principles
 - Do not write meta instructions such as "create/update a workflow"; write the **actual run-time behavior**.

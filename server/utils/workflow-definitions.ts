@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { Cron } from 'croner'
 import rrule from 'rrule'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import type { WorkflowDefinition, WorkflowFrontmatter, WorkflowTriggerConfig } from '@@/types/workflow'
+import type { WorkflowDefinition, WorkflowFrontmatter, WorkflowLanguage, WorkflowTriggerConfig } from '@@/types/workflow'
 import { resolveCorazonRootDir } from './agent-home.ts'
 
 const { rrulestr } = rrule
@@ -11,6 +11,8 @@ const { rrulestr } = rrule
 const WORKFLOWS_DIRECTORY = 'workflows'
 const WORKFLOW_FILE_EXTENSION = '.md'
 const INTERVAL_PATTERN = /^([1-9][0-9]*)(s|m|h)$/
+const WORKFLOW_LANGUAGES = new Set<WorkflowLanguage>(['markdown', 'typescript', 'python'])
+const DEFAULT_WORKFLOW_LANGUAGE: WorkflowLanguage = 'markdown'
 const WORKFLOW_NAME_PATTERN = /^[A-Za-z]+(?: [A-Za-z]+){1,2}$/
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/
 const WORKFLOW_CADENCE_CORE = String.raw`(?:매\s*\d+\s*(?:초|분|시간|일|주|개월|달|월|년)마다|(?:\d+\s*(?:초|분|시간|일|주|개월|달|월|년))(?:에)?\s*(?:한\s*번|한번)|매(?:일|주|월|년)|every\s+\d+\s*(?:seconds?|minutes?|hours?|days?|weeks?|months?)|every\s+(?:second|minute|hour|day|week|month)s?|daily|weekly|monthly|hourly)`
@@ -89,6 +91,7 @@ const createInvalidWorkflow = (input: {
   frontmatter: {
     name: input.fileSlug,
     description: '',
+    language: DEFAULT_WORKFLOW_LANGUAGE,
     on: { 'workflow-dispatch': true },
     skills: []
   },
@@ -120,6 +123,20 @@ const normalizeSkills = (value: unknown) => {
     .filter(Boolean)
 
   return [...new Set(normalized)]
+}
+
+const normalizeWorkflowLanguage = (value: unknown): WorkflowLanguage | null => {
+  if (value == null) {
+    return DEFAULT_WORKFLOW_LANGUAGE
+  }
+  if (typeof value !== 'string') {
+    return null
+  }
+  const normalized = value.trim().toLowerCase()
+  if (!WORKFLOW_LANGUAGES.has(normalized as WorkflowLanguage)) {
+    return null
+  }
+  return normalized as WorkflowLanguage
 }
 
 const sanitizeWorkflowInstructionSentence = (value: string) => {
@@ -360,6 +377,7 @@ const validateWorkflowRules = (
   const interval = frontmatter.on.interval?.trim()
   const rrule = frontmatter.on.rrule?.trim()
   const dispatch = frontmatter.on['workflow-dispatch'] === true
+  const language = frontmatter.language
 
   const timeTriggerCount = [schedule, interval, rrule].filter(Boolean).length
   if (timeTriggerCount > 1) {
@@ -382,11 +400,15 @@ const validateWorkflowRules = (
     return 'At least one trigger must be configured. Enable "workflow-dispatch" when no time trigger exists.'
   }
 
+  if (!WORKFLOW_LANGUAGES.has(language)) {
+    return 'Frontmatter "language" must be one of: markdown, typescript, python.'
+  }
+
   if (!instruction.trim()) {
     return 'Workflow instruction body is required.'
   }
 
-  if (options.requireDetailedInstruction) {
+  if (options.requireDetailedInstruction && language === 'markdown') {
     const instructionDetailError = getWorkflowInstructionDetailError(instruction)
     if (instructionDetailError) {
       return instructionDetailError
@@ -404,16 +426,18 @@ export const normalizeWorkflowFrontmatter = (value: unknown): WorkflowFrontmatte
 
   const name = typeof record.name === 'string' ? record.name.trim() : ''
   const description = typeof record.description === 'string' ? record.description.trim() : ''
+  const language = normalizeWorkflowLanguage(record.language)
   const on = normalizeTriggerConfig(record.on)
   const skills = normalizeSkills(record.skills)
 
-  if (!name || !description || !on || !skills) {
+  if (!name || !description || !language || !on || !skills) {
     return null
   }
 
   return {
     name,
     description,
+    language,
     on,
     skills
   }
@@ -530,6 +554,7 @@ export const serializeWorkflowSource = (
   const frontmatter: WorkflowFrontmatter = {
     name: frontmatterInput.name.trim(),
     description: frontmatterInput.description.trim(),
+    language: normalizeWorkflowLanguage(frontmatterInput.language) ?? DEFAULT_WORKFLOW_LANGUAGE,
     on: {
       'schedule': frontmatterInput.on.schedule?.trim() || undefined,
       'interval': frontmatterInput.on.interval?.trim() || undefined,
@@ -539,7 +564,10 @@ export const serializeWorkflowSource = (
     skills: [...new Set(frontmatterInput.skills.map(item => item.trim()).filter(Boolean))]
   }
 
-  const instruction = ensureDetailedWorkflowInstruction(instructionInput)
+  const normalizedInstruction = normalizeWorkflowInstructionText(instructionInput)
+  const instruction = frontmatter.language === 'markdown'
+    ? ensureDetailedWorkflowInstruction(normalizedInstruction)
+    : instructionInput.replace(/\r\n/g, '\n').trim()
   const validationError = validateWorkflowRules(frontmatter, instruction, {
     requireDetailedInstruction: true
   })
@@ -550,6 +578,7 @@ export const serializeWorkflowSource = (
   const yamlValue = stringifyYaml({
     name: frontmatter.name,
     description: frontmatter.description,
+    language: frontmatter.language,
     on: frontmatter.on,
     skills: frontmatter.skills
   }).trimEnd()
@@ -589,7 +618,7 @@ export const parseWorkflowSource = (input: {
   if (!frontmatter) {
     return createInvalidWorkflow({
       ...input,
-      parseError: 'Frontmatter must include name, description, on, skills.'
+      parseError: 'Frontmatter must include name, description, language, on, skills.'
     })
   }
 

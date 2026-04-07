@@ -1,4 +1,5 @@
 export type WorkflowTriggerType = 'schedule' | 'interval' | 'rrule' | 'workflow-dispatch'
+export type WorkflowLanguage = 'markdown' | 'typescript' | 'python'
 
 export type WorkflowTriggerConfig = {
   'schedule'?: string
@@ -10,6 +11,7 @@ export type WorkflowTriggerConfig = {
 export type WorkflowFrontmatter = {
   name: string
   description: string
+  language: WorkflowLanguage
   on: WorkflowTriggerConfig
   skills: string[]
 }
@@ -86,6 +88,7 @@ export type WorkflowTriggerGuessResponse = {
 export type WorkflowUpsertRequest = {
   name: string
   description: string
+  language: WorkflowLanguage
   instruction: string
   skills: string[]
   triggerType: 'schedule' | 'interval' | 'rrule' | null

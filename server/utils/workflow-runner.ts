@@ -101,6 +101,16 @@ const shouldApplySelfEvolutionNoOpCommentPolicy = (definition: WorkflowDefinitio
   definition.fileSlug === 'corazon-self-evolution'
   || definition.frontmatter.name.trim().toLowerCase() === 'corazon self evolution'
 
+const ensureRunnableWorkflowLanguage = (definition: WorkflowDefinition) => {
+  if (definition.frontmatter.language === 'markdown') {
+    return
+  }
+  throw new Error(
+    `Workflow language "${definition.frontmatter.language}" is defined but not executable yet. `
+    + 'Only "markdown" workflows can run until the sandboxed script runner lands.'
+  )
+}
+
 const buildRunContextPrompt = (
   definition: WorkflowDefinition,
   triggerType: WorkflowTriggerType,
@@ -139,6 +149,7 @@ const buildRunContextPrompt = (
     '<run-context>',
     `workflow_name: ${definition.frontmatter.name}`,
     `workflow_description: ${definition.frontmatter.description}`,
+    `workflow_language: ${definition.frontmatter.language}`,
     `workflow_file: workflows/${definition.fileSlug}.md`,
     `allowed_skills: ${allowedSkills}`,
     `working_directory: ${process.cwd()}`,
@@ -371,6 +382,7 @@ export const executeWorkflowRun = async (
   if (!definition.isValid) {
     throw new Error(definition.parseError ?? 'Invalid workflow definition.')
   }
+  ensureRunnableWorkflowLanguage(definition)
 
   const runningSummary = createRunningWorkflowRun(definition, triggerType, triggerValue)
   return finalizeWorkflowRunExecution({
@@ -388,6 +400,7 @@ export const startWorkflowRun = (
   if (!definition.isValid) {
     throw new Error(definition.parseError ?? 'Invalid workflow definition.')
   }
+  ensureRunnableWorkflowLanguage(definition)
 
   const runningSummary = createRunningWorkflowRun(definition, triggerType, triggerValue)
   void finalizeWorkflowRunExecution({
