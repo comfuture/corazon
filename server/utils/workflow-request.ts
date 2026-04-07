@@ -27,12 +27,17 @@ const asStringArray = (value: unknown) => {
 }
 
 const normalizeTriggerConfig = (input: {
+  language: WorkflowLanguage
   triggerType: WorkflowUpsertRequest['triggerType']
   triggerValue: string | null
   workflowDispatch: boolean
 }): WorkflowTriggerConfig => {
   const on: WorkflowTriggerConfig = {
     'workflow-dispatch': input.workflowDispatch
+  }
+
+  if (input.language !== 'markdown' && input.triggerType) {
+    throw new Error('Only markdown workflows can use schedule, interval, or rrule triggers.')
   }
 
   if (input.triggerType === 'schedule') {
@@ -110,6 +115,7 @@ export const parseWorkflowUpsertRequest = (body: unknown) => {
     description,
     language,
     on: normalizeTriggerConfig({
+      language,
       triggerType,
       triggerValue,
       workflowDispatch
