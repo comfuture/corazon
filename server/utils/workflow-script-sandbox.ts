@@ -88,6 +88,31 @@ const resolveScriptBinaryByLanguage = (language: Exclude<WorkflowLanguage, 'mark
   return { command: 'node', args: ['script.mjs'] }
 }
 
+const isMissingTypeScriptRuntimeDependency = (error: unknown) => {
+  if (!(error instanceof Error)) {
+    return false
+  }
+  const moduleCode = typeof (error as { code?: unknown }).code === 'string'
+    ? String((error as { code?: unknown }).code)
+    : ''
+  return error.message.includes('Cannot find package \'typescript\'')
+    || (moduleCode === 'ERR_MODULE_NOT_FOUND' && error.message.includes('typescript'))
+}
+
+const formatProviderFailureMessage = (
+  language: Exclude<WorkflowLanguage, 'markdown'>,
+  error: unknown
+) => {
+  if (language === 'typescript' && isMissingTypeScriptRuntimeDependency(error)) {
+    return 'Workflow script provider failed: missing runtime dependency "typescript". '
+      + 'Install the "typescript" package in the runtime environment to execute TypeScript workflows.'
+  }
+  if (error instanceof Error) {
+    return `Workflow script provider failed: ${error.message}`
+  }
+  return 'Workflow script provider failed with an unknown error.'
+}
+
 const transpileTypeScriptToModule = async (source: string) => {
   const typescriptModule = await import('typescript')
   return typescriptModule.transpileModule(source, {
@@ -234,9 +259,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       return {
         status: 'failed',
         errorCode: 'provider-error',
-        errorMessage: error instanceof Error
-          ? `Workflow script provider failed: ${error.message}`
-          : 'Workflow script provider failed with an unknown error.',
+        errorMessage: formatProviderFailureMessage(language, error),
         stdout: '',
         stderr: '',
         exitCode: null,
@@ -252,8 +275,10 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
   }
 }
 
-const resolveConfiguredProviderId = () =>
-  (process.env.CORAZON_WORKFLOW_SCRIPT_SANDBOX_PROVIDER ?? 'local').trim().toLowerCase()
+const resolveConfiguredProviderId = () => {
+  const configured = (process.env.CORAZON_WORKFLOW_SCRIPT_SANDBOX_PROVIDER ?? '').trim().toLowerCase()
+  return configured === '' ? 'local' : configured
+}
 
 export const resolveWorkflowScriptSandboxProvider = (): WorkflowScriptSandboxProvider => {
   const configured = resolveConfiguredProviderId()

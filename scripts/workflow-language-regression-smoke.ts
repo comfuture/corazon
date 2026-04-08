@@ -129,6 +129,24 @@ const run = async () => {
   assert.match(pythonExecuted.stdout, /1/)
   assert.match(pythonExecuted.stdout, /2/)
 
+  const previousProvider = process.env.CORAZON_WORKFLOW_SCRIPT_SANDBOX_PROVIDER
+  process.env.CORAZON_WORKFLOW_SCRIPT_SANDBOX_PROVIDER = ''
+  const pythonWithBlankProvider = await executeScriptWorkflowInSandbox({
+    definition: python,
+    triggerType: 'workflow-dispatch',
+    triggerValue: 'manual'
+  })
+  if (typeof previousProvider === 'string') {
+    process.env.CORAZON_WORKFLOW_SCRIPT_SANDBOX_PROVIDER = previousProvider
+  } else {
+    delete process.env.CORAZON_WORKFLOW_SCRIPT_SANDBOX_PROVIDER
+  }
+  assert.equal(
+    pythonWithBlankProvider.status,
+    'completed',
+    'empty sandbox provider env should fall back to local provider'
+  )
+
   const failedScriptSource = serializeWorkflowSource(
     baseFrontmatter('typescript'),
     'console.error("boom"); process.exit(7)'
