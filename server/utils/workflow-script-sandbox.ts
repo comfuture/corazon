@@ -92,11 +92,13 @@ const isMissingTypeScriptRuntimeDependency = (error: unknown) => {
   if (!(error instanceof Error)) {
     return false
   }
+  const message = error.message
   const moduleCode = typeof (error as { code?: unknown }).code === 'string'
     ? String((error as { code?: unknown }).code)
     : ''
-  return error.message.includes('Cannot find package \'typescript\'')
-    || (moduleCode === 'ERR_MODULE_NOT_FOUND' && error.message.includes('typescript'))
+  return message.includes('Cannot find package \'typescript\'')
+    || message.includes('Cannot find module \'typescript\'')
+    || (moduleCode === 'ERR_MODULE_NOT_FOUND' && /['"]typescript['"]/.test(message))
 }
 
 const formatProviderFailureMessage = (
