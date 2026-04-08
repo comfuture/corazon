@@ -120,6 +120,34 @@ const run = async () => {
   })
   assert.equal(completedScriptRun.status, 'completed')
 
+  const pythonExecuted = await executeScriptWorkflowInSandbox({
+    definition: python,
+    triggerType: 'workflow-dispatch',
+    triggerValue: 'manual'
+  })
+  assert.equal(pythonExecuted.status, 'completed')
+  assert.match(pythonExecuted.stdout, /1/)
+  assert.match(pythonExecuted.stdout, /2/)
+
+  const failedScriptSource = serializeWorkflowSource(
+    baseFrontmatter('typescript'),
+    'console.error("boom"); process.exit(7)'
+  )
+  const failedScriptWorkflow = parseWorkflowSource({
+    fileSlug: 'typescript-failure',
+    filePath: '/tmp/typescript-failure.md',
+    source: failedScriptSource,
+    updatedAt: Date.now()
+  })
+  const failedScriptRun = await executeScriptWorkflowInSandbox({
+    definition: failedScriptWorkflow,
+    triggerType: 'workflow-dispatch',
+    triggerValue: 'manual'
+  })
+  assert.equal(failedScriptRun.status, 'failed')
+  assert.equal(failedScriptRun.errorCode, 'execution-failed')
+  assert.equal(failedScriptRun.exitCode, 7)
+
   const timeoutSource = serializeWorkflowSource(
     baseFrontmatter('typescript'),
     'await new Promise(resolve => setTimeout(resolve, 120));\nconsole.log("done")'
