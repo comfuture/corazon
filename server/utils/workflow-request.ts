@@ -36,10 +36,6 @@ const normalizeTriggerConfig = (input: {
     'workflow-dispatch': input.workflowDispatch
   }
 
-  if (input.language !== 'markdown' && input.triggerType) {
-    throw new Error('Only markdown workflows can use schedule, interval, or rrule triggers.')
-  }
-
   if (input.triggerType === 'schedule') {
     if (!input.triggerValue) {
       throw new Error('Schedule value is required.')
