@@ -19,7 +19,8 @@
     "postinstall": "nuxt prepare",
     "setup": "node scripts/corazon-setup.mjs",
     "lint": "eslint .",
-    "typecheck": "nuxt typecheck"
+    "typecheck": "nuxt typecheck",
+    "workflows:language:smoke": "node scripts/workflow-language-regression-smoke.ts"
   },
   "bin": {
     "corazon": "bin/corazon.js"
