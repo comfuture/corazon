@@ -46,6 +46,16 @@ Optional runtime mode:
 - `CORAZON_CODEX_CLIENT_MODE=app-server` (default)
 - `CORAZON_CODEX_CLIENT_MODE=sdk` (fallback)
 
+Workflow script sandbox runtime:
+- `CORAZON_WORKFLOW_SCRIPT_SANDBOX_PROVIDER=local` (default; currently the only supported provider)
+- `CORAZON_WORKFLOW_SCRIPT_TIMEOUT_MS=60000` default timeout for script-language workflow runs
+- `CORAZON_WORKFLOW_PYTHON_BIN=python3` optional Python binary override for `language: python` workflows
+
+Note:
+- `language: markdown` workflows continue to use the LLM execution path.
+- `language: typescript` and `language: python` workflows run through the script sandbox provider path.
+- Managed sandbox providers are planned as follow-up adapters behind the same provider interface.
+
 The app runs at:
 
 ```text
