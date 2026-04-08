@@ -193,6 +193,30 @@ const collectRunCompletionData = async (
   triggerValue: string | null,
   runId: string
 ) => {
+  if (definition.frontmatter.language !== 'markdown') {
+    const result = await executeScriptWorkflowInSandbox({
+      definition,
+      triggerType,
+      triggerValue
+    })
+    if (result.status === 'failed') {
+      const stderr = result.stderr.trim()
+      const failureDetail = stderr.length > 0
+        ? `${result.errorMessage}\n\nstderr:\n${stderr}`
+        : result.errorMessage
+      throw new Error(failureDetail)
+    }
+
+    completeWorkflowRun({
+      runId,
+      status: 'completed',
+      totalInputTokens: 0,
+      totalCachedInputTokens: 0,
+      totalOutputTokens: 0
+    })
+    return
+  }
+
   const codex = getCodex()
   const prompt = buildRunContextPrompt(definition, triggerType, triggerValue)
   const modelSequence = getWorkflowModelSequence()

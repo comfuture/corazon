@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { parseWorkflowSource, serializeWorkflowSource } from '../server/utils/workflow-definitions.ts'
+import { executeScriptWorkflowInSandbox } from '../server/utils/workflow-script-sandbox.ts'
 import type { WorkflowFrontmatter } from '../types/workflow.ts'
 
 const baseFrontmatter = (language: WorkflowFrontmatter['language']): WorkflowFrontmatter => ({
@@ -10,7 +11,7 @@ const baseFrontmatter = (language: WorkflowFrontmatter['language']): WorkflowFro
   skills: []
 })
 
-const run = () => {
+const run = async () => {
   const markdownSource = serializeWorkflowSource(
     {
       ...baseFrontmatter('markdown'),
@@ -112,7 +113,42 @@ const run = () => {
   assert.equal(typescript.frontmatter.on.interval, undefined)
   assert.equal(typescript.frontmatter.on.rrule, undefined)
 
+  const completedScriptRun = await executeScriptWorkflowInSandbox({
+    definition: typescript,
+    triggerType: 'workflow-dispatch',
+    triggerValue: 'manual'
+  })
+  assert.equal(completedScriptRun.status, 'completed')
+
+  const timeoutSource = serializeWorkflowSource(
+    baseFrontmatter('typescript'),
+    'await new Promise(resolve => setTimeout(resolve, 120));\nconsole.log("done")'
+  )
+  const timeoutWorkflow = parseWorkflowSource({
+    fileSlug: 'typescript-timeout',
+    filePath: '/tmp/typescript-timeout.md',
+    source: timeoutSource,
+    updatedAt: Date.now()
+  })
+  const previousTimeout = process.env.CORAZON_WORKFLOW_SCRIPT_TIMEOUT_MS
+  process.env.CORAZON_WORKFLOW_SCRIPT_TIMEOUT_MS = '50'
+  const timedOutScriptRun = await executeScriptWorkflowInSandbox({
+    definition: timeoutWorkflow,
+    triggerType: 'workflow-dispatch',
+    triggerValue: 'manual'
+  })
+  if (typeof previousTimeout === 'string') {
+    process.env.CORAZON_WORKFLOW_SCRIPT_TIMEOUT_MS = previousTimeout
+  } else {
+    delete process.env.CORAZON_WORKFLOW_SCRIPT_TIMEOUT_MS
+  }
+  assert.equal(timedOutScriptRun.status, 'failed')
+  assert.equal(timedOutScriptRun.errorCode, 'execution-timeout')
+
   console.log('workflow language regression smoke checks passed')
 }
 
-run()
+run().catch((error) => {
+  console.error(error)
+  process.exitCode = 1
+})
