@@ -60,20 +60,25 @@ const run = async () => {
     'script workflows should preserve code body except leading/trailing whitespace trim'
   )
 
-  assert.throws(
-    () => serializeWorkflowSource(
-      {
-        ...baseFrontmatter('python'),
-        on: {
-          'schedule': '*/5 * * * *',
-          'workflow-dispatch': false
-        }
-      },
-      'print("hi")'
-    ),
-    /Time triggers \("schedule", "interval", "rrule"\) currently support only markdown workflows\./,
-    'non-markdown workflows with time triggers must fail validation'
+  const pythonScheduledSource = serializeWorkflowSource(
+    {
+      ...baseFrontmatter('python'),
+      on: {
+        'schedule': '*/5 * * * *',
+        'workflow-dispatch': false
+      }
+    },
+    'print("scheduled python")'
   )
+  const pythonScheduled = parseWorkflowSource({
+    fileSlug: 'python-scheduled',
+    filePath: '/tmp/python-scheduled.md',
+    source: pythonScheduledSource,
+    updatedAt: Date.now()
+  })
+  assert.equal(pythonScheduled.isValid, true)
+  assert.equal(pythonScheduled.frontmatter.on.schedule, '*/5 * * * *')
+  assert.equal(pythonScheduled.frontmatter.on['workflow-dispatch'], false)
 
   const invalidLanguage = parseWorkflowSource({
     fileSlug: 'invalid-language',
@@ -128,6 +133,14 @@ const run = async () => {
   assert.equal(pythonExecuted.status, 'completed')
   assert.match(pythonExecuted.stdout, /1/)
   assert.match(pythonExecuted.stdout, /2/)
+
+  const pythonScheduledExecuted = await executeScriptWorkflowInSandbox({
+    definition: pythonScheduled,
+    triggerType: 'schedule',
+    triggerValue: '*/5 * * * *'
+  })
+  assert.equal(pythonScheduledExecuted.status, 'completed')
+  assert.match(pythonScheduledExecuted.stdout, /scheduled python/)
 
   const previousProvider = process.env.CORAZON_WORKFLOW_SCRIPT_SANDBOX_PROVIDER
   process.env.CORAZON_WORKFLOW_SCRIPT_SANDBOX_PROVIDER = ''
