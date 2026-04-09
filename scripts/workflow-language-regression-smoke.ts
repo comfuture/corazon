@@ -124,6 +124,8 @@ const run = async () => {
     triggerValue: 'manual'
   })
   assert.equal(completedScriptRun.status, 'completed')
+  assert.equal(completedScriptRun.metadata.providerId, 'local')
+  assert.equal(completedScriptRun.metadata.language, 'typescript')
 
   const pythonExecuted = await executeScriptWorkflowInSandbox({
     definition: python,
@@ -159,6 +161,47 @@ const run = async () => {
     'completed',
     'empty sandbox provider env should fall back to local provider'
   )
+
+  const envPolicySource = serializeWorkflowSource(
+    baseFrontmatter('python'),
+    'import os\nprint(os.environ.get("CORAZON_TEST_ALLOWED_ENV", "missing"))\nprint(os.environ.get("CORAZON_TEST_BLOCKED_ENV", "missing"))'
+  )
+  const envPolicyWorkflow = parseWorkflowSource({
+    fileSlug: 'python-env-policy',
+    filePath: '/tmp/python-env-policy.md',
+    source: envPolicySource,
+    updatedAt: Date.now()
+  })
+  const previousAllowlist = process.env.CORAZON_WORKFLOW_SCRIPT_ENV_ALLOWLIST
+  const previousAllowedEnv = process.env.CORAZON_TEST_ALLOWED_ENV
+  const previousBlockedEnv = process.env.CORAZON_TEST_BLOCKED_ENV
+  process.env.CORAZON_WORKFLOW_SCRIPT_ENV_ALLOWLIST = 'CORAZON_TEST_ALLOWED_ENV'
+  process.env.CORAZON_TEST_ALLOWED_ENV = 'allowed'
+  process.env.CORAZON_TEST_BLOCKED_ENV = 'blocked'
+  const envPolicyRun = await executeScriptWorkflowInSandbox({
+    definition: envPolicyWorkflow,
+    triggerType: 'workflow-dispatch',
+    triggerValue: 'manual'
+  })
+  if (typeof previousAllowlist === 'string') {
+    process.env.CORAZON_WORKFLOW_SCRIPT_ENV_ALLOWLIST = previousAllowlist
+  } else {
+    delete process.env.CORAZON_WORKFLOW_SCRIPT_ENV_ALLOWLIST
+  }
+  if (typeof previousAllowedEnv === 'string') {
+    process.env.CORAZON_TEST_ALLOWED_ENV = previousAllowedEnv
+  } else {
+    delete process.env.CORAZON_TEST_ALLOWED_ENV
+  }
+  if (typeof previousBlockedEnv === 'string') {
+    process.env.CORAZON_TEST_BLOCKED_ENV = previousBlockedEnv
+  } else {
+    delete process.env.CORAZON_TEST_BLOCKED_ENV
+  }
+  assert.equal(envPolicyRun.status, 'completed')
+  assert.match(envPolicyRun.stdout, /allowed/)
+  assert.match(envPolicyRun.stdout, /missing/)
+  assert.deepEqual(envPolicyRun.metadata.allowedEnvKeys, ['CORAZON_TEST_ALLOWED_ENV'])
 
   const failedScriptSource = serializeWorkflowSource(
     baseFrontmatter('typescript'),
@@ -203,6 +246,32 @@ const run = async () => {
   }
   assert.equal(timedOutScriptRun.status, 'failed')
   assert.equal(timedOutScriptRun.errorCode, 'execution-timeout')
+
+  const outputPolicySource = serializeWorkflowSource(
+    baseFrontmatter('python'),
+    'print("x" * 2000)'
+  )
+  const outputPolicyWorkflow = parseWorkflowSource({
+    fileSlug: 'python-output-policy',
+    filePath: '/tmp/python-output-policy.md',
+    source: outputPolicySource,
+    updatedAt: Date.now()
+  })
+  const previousMaxOutput = process.env.CORAZON_WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES
+  process.env.CORAZON_WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES = '1024'
+  const outputPolicyRun = await executeScriptWorkflowInSandbox({
+    definition: outputPolicyWorkflow,
+    triggerType: 'workflow-dispatch',
+    triggerValue: 'manual'
+  })
+  if (typeof previousMaxOutput === 'string') {
+    process.env.CORAZON_WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES = previousMaxOutput
+  } else {
+    delete process.env.CORAZON_WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES
+  }
+  assert.equal(outputPolicyRun.status, 'failed')
+  assert.equal(outputPolicyRun.errorCode, 'policy-violation')
+  assert.match(outputPolicyRun.errorMessage, /exceeded 1024 bytes/)
 
   console.log('workflow language regression smoke checks passed')
 }
