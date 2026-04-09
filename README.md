@@ -59,12 +59,12 @@ Note:
 - `language: typescript` and `language: python` workflows run through the script sandbox provider path.
 - Script runs expose provider metadata (`provider`, `language`, `trigger`, timeout/output/source policy) in failure summaries for faster triage.
 - Failure summaries also include `failurePhase` (`prepare`/`execute`) for `provider-error` cases to separate setup/runtime bootstrap failures from script logic failures.
-- Script sandbox metadata now includes `executionDurationMs`, and failure summaries include that value for faster policy/provider triage without log scraping.
+- Script sandbox metadata now includes `executionDurationMs` and `outputTruncated`; failure summaries include these values for faster policy/provider triage without log scraping.
 - Managed sandbox providers are planned as follow-up adapters behind the same provider interface.
 
 Script sandbox triage quick map:
 - `errorCode=execution-timeout`: script exceeded `CORAZON_WORKFLOW_SCRIPT_TIMEOUT_MS`; check `executionDurationMs`, then reduce workload or raise timeout cautiously.
-- `errorCode=policy-violation` + `policyTrigger=output-size`: combined stdout/stderr exceeded `CORAZON_WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES`; reduce log volume or adjust output cap.
+- `errorCode=policy-violation` + `policyTrigger=output-size`: combined stdout/stderr exceeded `CORAZON_WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES`; reduce log volume or adjust output cap. If `outputTruncated=true`, captured logs were capped at the configured output budget.
 - `errorCode=policy-violation` + `policyTrigger=source-size`: workflow body exceeded `CORAZON_WORKFLOW_SCRIPT_MAX_SOURCE_BYTES`; move logic into smaller units or increase source-size cap cautiously.
 - `errorCode=provider-error` + `failurePhase=prepare`: provider/runtime bootstrap failed before script execution (for example missing runtime binary); verify runtime dependencies and provider config.
 - `errorCode=provider-error` + `failurePhase=execute`: provider failed after process start; use `executionDurationMs`, `terminationScope`, and runtime command metadata to inspect teardown and subprocess behavior.

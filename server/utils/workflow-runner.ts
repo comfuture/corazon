@@ -219,6 +219,7 @@ const collectRunCompletionData = async (
           + (result.metadata.runtimeArgs.length > 0 ? ` ${result.metadata.runtimeArgs.join(' ')}` : '')
           + `, outputBytes=${result.metadata.stdoutBytes + result.metadata.stderrBytes}`
           + ` (stdout=${result.metadata.stdoutBytes}, stderr=${result.metadata.stderrBytes}),`
+          + ` outputTruncated=${result.metadata.outputTruncated},`
           + ` signal=${result.metadata.terminationSignal ?? '(none)'},`
           + ` terminationScope=${result.metadata.terminationScope},`
           + ` policy=${result.metadata.policyTriggered},`
