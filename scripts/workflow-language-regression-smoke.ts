@@ -126,6 +126,9 @@ const run = async () => {
   assert.equal(completedScriptRun.status, 'completed')
   assert.equal(completedScriptRun.metadata.providerId, 'local')
   assert.equal(completedScriptRun.metadata.language, 'typescript')
+  assert.equal(completedScriptRun.metadata.runtimeCommand, 'node')
+  assert.deepEqual(completedScriptRun.metadata.runtimeArgs, ['script.mjs'])
+  assert.equal(completedScriptRun.metadata.policyTriggered, 'none')
 
   const pythonExecuted = await executeScriptWorkflowInSandbox({
     definition: python,
@@ -135,6 +138,8 @@ const run = async () => {
   assert.equal(pythonExecuted.status, 'completed')
   assert.match(pythonExecuted.stdout, /1/)
   assert.match(pythonExecuted.stdout, /2/)
+  assert.equal(pythonExecuted.metadata.runtimeCommand, 'python3')
+  assert.deepEqual(pythonExecuted.metadata.runtimeArgs, ['script.py'])
 
   const pythonScheduledExecuted = await executeScriptWorkflowInSandbox({
     definition: pythonScheduled,
@@ -272,6 +277,8 @@ const run = async () => {
   assert.equal(outputPolicyRun.status, 'failed')
   assert.equal(outputPolicyRun.errorCode, 'policy-violation')
   assert.match(outputPolicyRun.errorMessage, /exceeded 1024 bytes/)
+  assert.equal(outputPolicyRun.metadata.policyTriggered, 'output-size')
+  assert.equal(outputPolicyRun.metadata.totalOutputBytes > 1024, true)
 
   const sourcePolicySource = serializeWorkflowSource(
     baseFrontmatter('python'),
@@ -298,6 +305,7 @@ const run = async () => {
   assert.equal(sourcePolicyRun.status, 'failed')
   assert.equal(sourcePolicyRun.errorCode, 'policy-violation')
   assert.match(sourcePolicyRun.errorMessage, /source exceeded 256 bytes/)
+  assert.equal(sourcePolicyRun.metadata.policyTriggered, 'source-size')
 
   console.log('workflow language regression smoke checks passed')
 }

@@ -206,6 +206,12 @@ const collectRunCompletionData = async (
           + ` trigger=${result.metadata.triggerType}, timeoutMs=${result.metadata.timeoutMs},`
           + ` maxOutputBytes=${result.metadata.maxOutputBytes},`
           + ` sourceBytes=${result.metadata.sourceBytes}/${result.metadata.maxSourceBytes},`
+          + ` runtime=${result.metadata.runtimeCommand ?? '(none)'}`
+          + (result.metadata.runtimeArgs.length > 0 ? ` ${result.metadata.runtimeArgs.join(' ')}` : '')
+          + `, outputBytes=${result.metadata.stdoutBytes + result.metadata.stderrBytes}`
+          + ` (stdout=${result.metadata.stdoutBytes}, stderr=${result.metadata.stderrBytes}),`
+          + ` signal=${result.metadata.terminationSignal ?? '(none)'},`
+          + ` policy=${result.metadata.policyTriggered},`
           + ` allowEnv=${result.metadata.allowedEnvKeys.join(',') || '(none)'})`
       const failureDetail = stderr.length > 0
         ? `${result.errorMessage}\n${metadataSummary}\n\nstderr:\n${stderr}`

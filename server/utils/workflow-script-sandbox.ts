@@ -63,6 +63,13 @@ export type WorkflowScriptExecutionMetadata = {
   maxSourceBytes: number
   sourceBytes: number
   allowedEnvKeys: string[]
+  runtimeCommand: string | null
+  runtimeArgs: string[]
+  stdoutBytes: number
+  stderrBytes: number
+  totalOutputBytes: number
+  terminationSignal: NodeJS.Signals | null
+  policyTriggered: 'none' | 'source-size' | 'output-size'
 }
 
 export type WorkflowScriptSandboxProvider = {
@@ -226,6 +233,9 @@ const executeScriptProcess = async (
       stderr: string
       exitCode: number
       durationMs: number
+      stdoutBytes: number
+      stderrBytes: number
+      terminationSignal: NodeJS.Signals | null
     }
     | {
       status: 'failed'
@@ -235,6 +245,9 @@ const executeScriptProcess = async (
       stderr: string
       exitCode: number | null
       durationMs: number
+      stdoutBytes: number
+      stderrBytes: number
+      terminationSignal: NodeJS.Signals | null
     }
 
   const startedAt = Date.now()
@@ -294,11 +307,14 @@ const executeScriptProcess = async (
         stdout,
         stderr,
         exitCode: null,
-        durationMs: Date.now() - startedAt
+        durationMs: Date.now() - startedAt,
+        stdoutBytes,
+        stderrBytes,
+        terminationSignal: null
       })
     })
 
-    child.on('close', (exitCode) => {
+    child.on('close', (exitCode, signal) => {
       clearTimeout(timeoutHandle)
       if (outputLimitExceeded) {
         resolve({
@@ -310,7 +326,10 @@ const executeScriptProcess = async (
           stdout,
           stderr,
           exitCode: null,
-          durationMs: Date.now() - startedAt
+          durationMs: Date.now() - startedAt,
+          stdoutBytes,
+          stderrBytes,
+          terminationSignal: signal
         })
         return
       }
@@ -323,7 +342,10 @@ const executeScriptProcess = async (
           stdout,
           stderr,
           exitCode: null,
-          durationMs: Date.now() - startedAt
+          durationMs: Date.now() - startedAt,
+          stdoutBytes,
+          stderrBytes,
+          terminationSignal: signal
         })
         return
       }
@@ -336,7 +358,10 @@ const executeScriptProcess = async (
           stdout,
           stderr,
           exitCode: exitCode ?? null,
-          durationMs: Date.now() - startedAt
+          durationMs: Date.now() - startedAt,
+          stdoutBytes,
+          stderrBytes,
+          terminationSignal: signal
         })
         return
       }
@@ -346,7 +371,10 @@ const executeScriptProcess = async (
         stdout,
         stderr,
         exitCode: 0,
-        durationMs: Date.now() - startedAt
+        durationMs: Date.now() - startedAt,
+        stdoutBytes,
+        stderrBytes,
+        terminationSignal: signal
       })
     })
   })
@@ -368,7 +396,14 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         maxOutputBytes: resolveScriptMaxOutputBytes(),
         maxSourceBytes: resolveScriptMaxSourceBytes(),
         sourceBytes,
-        allowedEnvKeys: resolveScriptEnvAllowlist()
+        allowedEnvKeys: resolveScriptEnvAllowlist(),
+        runtimeCommand: null,
+        runtimeArgs: [],
+        stdoutBytes: 0,
+        stderrBytes: 0,
+        totalOutputBytes: 0,
+        terminationSignal: null,
+        policyTriggered: 'none'
       }
       return {
         status: 'failed',
@@ -395,9 +430,17 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       maxOutputBytes,
       maxSourceBytes,
       sourceBytes,
-      allowedEnvKeys: [...envAllowlist]
+      allowedEnvKeys: [...envAllowlist],
+      runtimeCommand: null,
+      runtimeArgs: [],
+      stdoutBytes: 0,
+      stderrBytes: 0,
+      totalOutputBytes: 0,
+      terminationSignal: null,
+      policyTriggered: 'none'
     }
     if (sourceBytes > maxSourceBytes) {
+      metadata.policyTriggered = 'source-size'
       return {
         status: 'failed',
         errorCode: 'policy-violation',
@@ -422,15 +465,33 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       )
       await writeRunnableScript(tempDirectory, language, context.definition.instruction)
       const runtime = resolveScriptBinaryByLanguage(language)
+      metadata.runtimeCommand = runtime.command
+      metadata.runtimeArgs = [...runtime.args]
+      console.info(
+        `[workflow-script-sandbox] provider=${metadata.providerId} phase=execute-start`
+        + ` command=${runtime.command} args=${runtime.args.join(' ') || '(none)'}`
+      )
       const executionResult = await executeScriptProcess(runtime.command, runtime.args, {
         cwd: tempDirectory,
         timeoutMs,
         maxOutputBytes,
         envAllowlist
       })
+      metadata.stdoutBytes = executionResult.stdoutBytes
+      metadata.stderrBytes = executionResult.stderrBytes
+      metadata.totalOutputBytes = executionResult.stdoutBytes + executionResult.stderrBytes
+      metadata.terminationSignal = executionResult.terminationSignal
+      if (executionResult.status === 'failed' && executionResult.errorCode === 'policy-violation') {
+        metadata.policyTriggered = 'output-size'
+      }
       console.info(
         `[workflow-script-sandbox] provider=${metadata.providerId} phase=teardown`
         + ` status=${executionResult.status} durationMs=${executionResult.durationMs}`
+        + ` stdoutBytes=${executionResult.stdoutBytes} stderrBytes=${executionResult.stderrBytes}`
+        + ` signal=${executionResult.terminationSignal ?? '(none)'}`
+        + (executionResult.status === 'failed'
+          ? ` errorCode=${executionResult.errorCode}`
+          : '')
       )
       return {
         ...executionResult,
