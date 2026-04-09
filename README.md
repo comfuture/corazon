@@ -57,6 +57,7 @@ Workflow script sandbox runtime:
 Note:
 - `language: markdown` workflows continue to use the LLM execution path.
 - `language: typescript` and `language: python` workflows run through the script sandbox provider path.
+- Script runtime now pins `HOME` and `TMPDIR` to the per-run temporary sandbox directory instead of inheriting host home paths.
 - Script runs expose provider metadata (`provider`, `language`, `trigger`, timeout/output/source policy) in failure summaries for faster triage.
 - Failure summaries also include `failurePhase` (`prepare`/`execute`) for `provider-error` cases to separate setup/runtime bootstrap failures from script logic failures.
 - Script sandbox metadata now includes phase-level timing (`prepareDurationMs`, `executeDurationMs`, `teardownDurationMs`) plus `executionDurationMs` and `outputTruncated`; failure summaries include these values for faster policy/provider triage without log scraping.

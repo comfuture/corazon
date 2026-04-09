@@ -155,10 +155,11 @@ const resolveScriptEnvAllowlist = () => {
     .filter(Boolean))]
 }
 
-const buildScriptExecutionEnv = (allowlist: string[]) => {
+const buildScriptExecutionEnv = (allowlist: string[], sandboxDirectory: string) => {
   const env: Record<string, string> = {
     PATH: process.env.PATH ?? '',
-    HOME: process.env.HOME ?? ''
+    HOME: sandboxDirectory,
+    TMPDIR: sandboxDirectory
   }
 
   for (const key of allowlist) {
@@ -293,7 +294,7 @@ const executeScriptProcess = async (
     const child = spawn(command, args, {
       cwd: options.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: buildScriptExecutionEnv(options.envAllowlist),
+      env: buildScriptExecutionEnv(options.envAllowlist, options.cwd),
       detached: process.platform !== 'win32'
     })
     let terminationScope: 'none' | 'process' | 'process-group' = 'none'

@@ -196,7 +196,11 @@ const run = async () => {
 
   const envPolicySource = serializeWorkflowSource(
     baseFrontmatter('python'),
-    'import os\nprint(os.environ.get("CORAZON_TEST_ALLOWED_ENV", "missing"))\nprint(os.environ.get("CORAZON_TEST_BLOCKED_ENV", "missing"))'
+    'import os\n'
+    + 'print(f"ALLOWED={os.environ.get(\'CORAZON_TEST_ALLOWED_ENV\', \'missing\')}")\n'
+    + 'print(f"BLOCKED={os.environ.get(\'CORAZON_TEST_BLOCKED_ENV\', \'missing\')}")\n'
+    + 'print(f"HOME={os.environ.get(\'HOME\', \'missing\')}")\n'
+    + 'print(f"TMPDIR={os.environ.get(\'TMPDIR\', \'missing\')}")'
   )
   const envPolicyWorkflow = parseWorkflowSource({
     fileSlug: 'python-env-policy',
@@ -231,8 +235,14 @@ const run = async () => {
     delete process.env.CORAZON_TEST_BLOCKED_ENV
   }
   assert.equal(envPolicyRun.status, 'completed')
-  assert.match(envPolicyRun.stdout, /allowed/)
-  assert.match(envPolicyRun.stdout, /missing/)
+  assert.match(envPolicyRun.stdout, /ALLOWED=allowed/)
+  assert.match(envPolicyRun.stdout, /BLOCKED=missing/)
+  const sandboxHome = envPolicyRun.stdout.match(/^HOME=(.+)$/m)?.[1] ?? null
+  const sandboxTmpDir = envPolicyRun.stdout.match(/^TMPDIR=(.+)$/m)?.[1] ?? null
+  assert.equal(typeof sandboxHome, 'string')
+  assert.equal(typeof sandboxTmpDir, 'string')
+  assert.equal(sandboxHome?.startsWith('/tmp/corazon-workflow-script-') ?? false, true)
+  assert.equal(sandboxTmpDir?.startsWith('/tmp/corazon-workflow-script-') ?? false, true)
   assert.deepEqual(envPolicyRun.metadata.allowedEnvKeys, ['CORAZON_TEST_ALLOWED_ENV'])
 
   const failedScriptSource = serializeWorkflowSource(
