@@ -150,6 +150,23 @@ const run = async () => {
   assert.equal(pythonScheduledExecuted.status, 'completed')
   assert.match(pythonScheduledExecuted.stdout, /scheduled python/)
 
+  const previousPythonBin = process.env.CORAZON_WORKFLOW_PYTHON_BIN
+  process.env.CORAZON_WORKFLOW_PYTHON_BIN = 'corazon-missing-python-bin'
+  const providerFailureRun = await executeScriptWorkflowInSandbox({
+    definition: python,
+    triggerType: 'workflow-dispatch',
+    triggerValue: 'manual'
+  })
+  if (typeof previousPythonBin === 'string') {
+    process.env.CORAZON_WORKFLOW_PYTHON_BIN = previousPythonBin
+  } else {
+    delete process.env.CORAZON_WORKFLOW_PYTHON_BIN
+  }
+  assert.equal(providerFailureRun.status, 'failed')
+  assert.equal(providerFailureRun.errorCode, 'provider-error')
+  assert.equal(providerFailureRun.metadata.failurePhase, 'execute')
+  assert.match(providerFailureRun.errorMessage, /Failed to start script runtime/)
+
   const previousProvider = process.env.CORAZON_WORKFLOW_SCRIPT_SANDBOX_PROVIDER
   process.env.CORAZON_WORKFLOW_SCRIPT_SANDBOX_PROVIDER = ''
   const pythonWithBlankProvider = await executeScriptWorkflowInSandbox({

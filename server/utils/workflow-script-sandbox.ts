@@ -71,6 +71,7 @@ export type WorkflowScriptExecutionMetadata = {
   terminationSignal: NodeJS.Signals | null
   terminationScope: 'none' | 'process' | 'process-group'
   policyTriggered: 'none' | 'source-size' | 'output-size'
+  failurePhase: 'none' | 'prepare' | 'execute'
 }
 
 export type WorkflowScriptSandboxProvider = {
@@ -430,7 +431,8 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         totalOutputBytes: 0,
         terminationSignal: null,
         terminationScope: 'none',
-        policyTriggered: 'none'
+        policyTriggered: 'none',
+        failurePhase: 'none'
       }
       return {
         status: 'failed',
@@ -465,7 +467,8 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       totalOutputBytes: 0,
       terminationSignal: null,
       terminationScope: 'none',
-      policyTriggered: 'none'
+      policyTriggered: 'none',
+      failurePhase: 'none'
     }
     if (sourceBytes > maxSourceBytes) {
       metadata.policyTriggered = 'source-size'
@@ -483,6 +486,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       }
     }
     const tempDirectory = await mkdtemp(join(tmpdir(), 'corazon-workflow-script-'))
+    let executionPhase: 'prepare' | 'execute' = 'prepare'
     try {
       console.info(
         `[workflow-script-sandbox] provider=${metadata.providerId} phase=prepare`
@@ -495,6 +499,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       const runtime = resolveScriptBinaryByLanguage(language)
       metadata.runtimeCommand = runtime.command
       metadata.runtimeArgs = [...runtime.args]
+      executionPhase = 'execute'
       console.info(
         `[workflow-script-sandbox] provider=${metadata.providerId} phase=execute-start`
         + ` command=${runtime.command} args=${runtime.args.join(' ') || '(none)'}`
@@ -513,6 +518,9 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       if (executionResult.status === 'failed' && executionResult.errorCode === 'policy-violation') {
         metadata.policyTriggered = 'output-size'
       }
+      if (executionResult.status === 'failed' && executionResult.errorCode === 'provider-error') {
+        metadata.failurePhase = 'execute'
+      }
       console.info(
         `[workflow-script-sandbox] provider=${metadata.providerId} phase=teardown`
         + ` status=${executionResult.status} durationMs=${executionResult.durationMs}`
@@ -528,10 +536,17 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         metadata
       }
     } catch (error) {
+      metadata.failurePhase = executionPhase
+      const message = formatProviderFailureMessage(language, error)
+      console.warn(
+        `[workflow-script-sandbox] provider=${metadata.providerId} phase=teardown`
+        + ' status=failed errorCode=provider-error'
+        + ` failurePhase=${metadata.failurePhase} message=${message}`
+      )
       return {
         status: 'failed',
         errorCode: 'provider-error',
-        errorMessage: formatProviderFailureMessage(language, error),
+        errorMessage: message,
         stdout: '',
         stderr: '',
         exitCode: null,
