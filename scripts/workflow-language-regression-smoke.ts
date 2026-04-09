@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { mkdir } from 'node:fs/promises'
 import { parseWorkflowSource, serializeWorkflowSource } from '../server/utils/workflow-definitions.ts'
 import { executeScriptWorkflowInSandbox } from '../server/utils/workflow-script-sandbox.ts'
 import type { WorkflowFrontmatter } from '../types/workflow.ts'
@@ -244,6 +245,51 @@ const run = async () => {
   assert.equal(sandboxHome?.startsWith('/tmp/corazon-workflow-script-') ?? false, true)
   assert.equal(sandboxTmpDir?.startsWith('/tmp/corazon-workflow-script-') ?? false, true)
   assert.deepEqual(envPolicyRun.metadata.allowedEnvKeys, ['CORAZON_TEST_ALLOWED_ENV'])
+
+  const previousHostHome = process.env.HOME
+  const previousHostTmpDir = process.env.TMPDIR
+  const previousAllowedEnvForReserved = process.env.CORAZON_TEST_ALLOWED_ENV
+  await mkdir('/tmp/corazon-host-home', { recursive: true })
+  await mkdir('/tmp/corazon-host-tmp', { recursive: true })
+  process.env.CORAZON_WORKFLOW_SCRIPT_ENV_ALLOWLIST = 'CORAZON_TEST_ALLOWED_ENV,HOME,TMPDIR'
+  process.env.CORAZON_TEST_ALLOWED_ENV = 'allowed'
+  process.env.HOME = '/tmp/corazon-host-home'
+  process.env.TMPDIR = '/tmp/corazon-host-tmp'
+  const reservedEnvPolicyRun = await executeScriptWorkflowInSandbox({
+    definition: envPolicyWorkflow,
+    triggerType: 'workflow-dispatch',
+    triggerValue: 'manual'
+  })
+  if (typeof previousAllowlist === 'string') {
+    process.env.CORAZON_WORKFLOW_SCRIPT_ENV_ALLOWLIST = previousAllowlist
+  } else {
+    delete process.env.CORAZON_WORKFLOW_SCRIPT_ENV_ALLOWLIST
+  }
+  if (typeof previousHostHome === 'string') {
+    process.env.HOME = previousHostHome
+  } else {
+    delete process.env.HOME
+  }
+  if (typeof previousHostTmpDir === 'string') {
+    process.env.TMPDIR = previousHostTmpDir
+  } else {
+    delete process.env.TMPDIR
+  }
+  if (typeof previousAllowedEnvForReserved === 'string') {
+    process.env.CORAZON_TEST_ALLOWED_ENV = previousAllowedEnvForReserved
+  } else {
+    delete process.env.CORAZON_TEST_ALLOWED_ENV
+  }
+  assert.equal(reservedEnvPolicyRun.status, 'completed')
+  assert.match(reservedEnvPolicyRun.stdout, /ALLOWED=allowed/)
+  const reservedSandboxHome = reservedEnvPolicyRun.stdout.match(/^HOME=(.+)$/m)?.[1] ?? null
+  const reservedSandboxTmpDir = reservedEnvPolicyRun.stdout.match(/^TMPDIR=(.+)$/m)?.[1] ?? null
+  assert.equal(typeof reservedSandboxHome, 'string')
+  assert.equal(typeof reservedSandboxTmpDir, 'string')
+  assert.equal(reservedSandboxHome === '/tmp/corazon-host-home', false)
+  assert.equal(reservedSandboxTmpDir === '/tmp/corazon-host-tmp', false)
+  assert.equal(reservedSandboxHome?.includes('corazon-workflow-script-') ?? false, true)
+  assert.equal(reservedSandboxTmpDir?.includes('corazon-workflow-script-') ?? false, true)
 
   const failedScriptSource = serializeWorkflowSource(
     baseFrontmatter('typescript'),

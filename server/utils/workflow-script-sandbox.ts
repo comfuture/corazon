@@ -156,6 +156,7 @@ const resolveScriptEnvAllowlist = () => {
 }
 
 const buildScriptExecutionEnv = (allowlist: string[], sandboxDirectory: string) => {
+  const reservedKeys = new Set(['HOME', 'TMPDIR'])
   const env: Record<string, string> = {
     PATH: process.env.PATH ?? '',
     HOME: sandboxDirectory,
@@ -163,6 +164,9 @@ const buildScriptExecutionEnv = (allowlist: string[], sandboxDirectory: string) 
   }
 
   for (const key of allowlist) {
+    if (reservedKeys.has(key)) {
+      continue
+    }
     const value = process.env[key]
     if (typeof value === 'string') {
       env[key] = value
