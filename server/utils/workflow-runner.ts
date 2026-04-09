@@ -199,7 +199,15 @@ const collectRunCompletionData = async (
       triggerType,
       triggerValue
     })
+    const runMetadata: Record<string, unknown> = {
+      sandbox: result.metadata
+    }
+
     if (result.status === 'failed') {
+      runMetadata.errorCode = result.errorCode
+      if (typeof result.exitCode === 'number') {
+        runMetadata.exitCode = result.exitCode
+      }
       const stderr = result.stderr.trim()
       const metadataSummary
         = `sandbox(provider=${result.metadata.providerId}, language=${result.metadata.language},`
@@ -218,7 +226,17 @@ const collectRunCompletionData = async (
       const failureDetail = stderr.length > 0
         ? `${result.errorMessage}\n${metadataSummary}\n\nstderr:\n${stderr}`
         : `${result.errorMessage}\n${metadataSummary}`
-      throw new Error(failureDetail)
+
+      completeWorkflowRun({
+        runId,
+        status: 'failed',
+        totalInputTokens: 0,
+        totalCachedInputTokens: 0,
+        totalOutputTokens: 0,
+        errorMessage: failureDetail,
+        metadata: runMetadata
+      })
+      return
     }
 
     completeWorkflowRun({
@@ -226,7 +244,8 @@ const collectRunCompletionData = async (
       status: 'completed',
       totalInputTokens: 0,
       totalCachedInputTokens: 0,
-      totalOutputTokens: 0
+      totalOutputTokens: 0,
+      metadata: runMetadata
     })
     return
   }
