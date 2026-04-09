@@ -273,6 +273,32 @@ const run = async () => {
   assert.equal(outputPolicyRun.errorCode, 'policy-violation')
   assert.match(outputPolicyRun.errorMessage, /exceeded 1024 bytes/)
 
+  const sourcePolicySource = serializeWorkflowSource(
+    baseFrontmatter('python'),
+    `print("${'x'.repeat(400)}")`
+  )
+  const sourcePolicyWorkflow = parseWorkflowSource({
+    fileSlug: 'python-source-policy',
+    filePath: '/tmp/python-source-policy.md',
+    source: sourcePolicySource,
+    updatedAt: Date.now()
+  })
+  const previousMaxSource = process.env.CORAZON_WORKFLOW_SCRIPT_MAX_SOURCE_BYTES
+  process.env.CORAZON_WORKFLOW_SCRIPT_MAX_SOURCE_BYTES = '256'
+  const sourcePolicyRun = await executeScriptWorkflowInSandbox({
+    definition: sourcePolicyWorkflow,
+    triggerType: 'workflow-dispatch',
+    triggerValue: 'manual'
+  })
+  if (typeof previousMaxSource === 'string') {
+    process.env.CORAZON_WORKFLOW_SCRIPT_MAX_SOURCE_BYTES = previousMaxSource
+  } else {
+    delete process.env.CORAZON_WORKFLOW_SCRIPT_MAX_SOURCE_BYTES
+  }
+  assert.equal(sourcePolicyRun.status, 'failed')
+  assert.equal(sourcePolicyRun.errorCode, 'policy-violation')
+  assert.match(sourcePolicyRun.errorMessage, /source exceeded 256 bytes/)
+
   console.log('workflow language regression smoke checks passed')
 }
 

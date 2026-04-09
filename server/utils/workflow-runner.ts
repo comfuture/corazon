@@ -205,6 +205,7 @@ const collectRunCompletionData = async (
         = `sandbox(provider=${result.metadata.providerId}, language=${result.metadata.language},`
           + ` trigger=${result.metadata.triggerType}, timeoutMs=${result.metadata.timeoutMs},`
           + ` maxOutputBytes=${result.metadata.maxOutputBytes},`
+          + ` sourceBytes=${result.metadata.sourceBytes}/${result.metadata.maxSourceBytes},`
           + ` allowEnv=${result.metadata.allowedEnvKeys.join(',') || '(none)'})`
       const failureDetail = stderr.length > 0
         ? `${result.errorMessage}\n${metadataSummary}\n\nstderr:\n${stderr}`
