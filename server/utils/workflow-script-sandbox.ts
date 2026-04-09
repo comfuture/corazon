@@ -14,6 +14,7 @@ export type WorkflowScriptSandboxErrorCode
     | 'unsupported-provider'
     | 'execution-timeout'
     | 'execution-failed'
+    | 'policy-violation'
     | 'provider-error'
 
 export class WorkflowScriptSandboxError extends Error {
@@ -40,6 +41,7 @@ export type WorkflowScriptExecutionResult
     stderr: string
     exitCode: number
     durationMs: number
+    metadata: WorkflowScriptExecutionMetadata
   }
   | {
     status: 'failed'
@@ -49,7 +51,17 @@ export type WorkflowScriptExecutionResult
     stderr: string
     exitCode: number | null
     durationMs: number
+    metadata: WorkflowScriptExecutionMetadata
   }
+
+export type WorkflowScriptExecutionMetadata = {
+  providerId: WorkflowScriptSandboxProviderId
+  language: WorkflowLanguage
+  triggerType: WorkflowTriggerType
+  timeoutMs: number
+  maxOutputBytes: number
+  allowedEnvKeys: string[]
+}
 
 export type WorkflowScriptSandboxProvider = {
   id: WorkflowScriptSandboxProviderId
@@ -68,6 +80,8 @@ export const isUnsupportedWorkflowLanguageError = (error: unknown) =>
     && error.message.includes('Only "markdown" workflows can run until the sandboxed script runner lands.'))
 
 const WORKFLOW_SCRIPT_TIMEOUT_MS_DEFAULT = 60_000
+const WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES_DEFAULT = 256_000
+const WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES_MIN = 1_024
 
 const resolveScriptTimeoutMs = () => {
   const raw = (process.env.CORAZON_WORKFLOW_SCRIPT_TIMEOUT_MS ?? '').trim()
@@ -86,6 +100,44 @@ const resolveScriptBinaryByLanguage = (language: Exclude<WorkflowLanguage, 'mark
     return { command: process.env.CORAZON_WORKFLOW_PYTHON_BIN?.trim() || 'python3', args: ['script.py'] }
   }
   return { command: 'node', args: ['script.mjs'] }
+}
+
+const resolveScriptMaxOutputBytes = () => {
+  const raw = (process.env.CORAZON_WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES ?? '').trim()
+  if (raw === '') {
+    return WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES_DEFAULT
+  }
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES_MIN) {
+    return WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES_DEFAULT
+  }
+  return Math.floor(parsed)
+}
+
+const resolveScriptEnvAllowlist = () => {
+  const raw = (process.env.CORAZON_WORKFLOW_SCRIPT_ENV_ALLOWLIST ?? '').trim()
+  if (raw === '') {
+    return [] as string[]
+  }
+  return [...new Set(raw
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean))]
+}
+
+const buildScriptExecutionEnv = (allowlist: string[]) => {
+  const env: Record<string, string> = {
+    PATH: process.env.PATH ?? '',
+    HOME: process.env.HOME ?? ''
+  }
+
+  for (const key of allowlist) {
+    const value = process.env[key]
+    if (typeof value === 'string') {
+      env[key] = value
+    }
+  }
+  return env
 }
 
 const isMissingTypeScriptRuntimeDependency = (error: unknown) => {
@@ -147,27 +199,68 @@ const executeScriptProcess = async (
   options: {
     cwd: string
     timeoutMs: number
+    maxOutputBytes: number
+    envAllowlist: string[]
   }
 ) => {
+  type ProcessExecutionResult
+    = | {
+      status: 'completed'
+      stdout: string
+      stderr: string
+      exitCode: number
+      durationMs: number
+    }
+    | {
+      status: 'failed'
+      errorCode: WorkflowScriptSandboxErrorCode
+      errorMessage: string
+      stdout: string
+      stderr: string
+      exitCode: number | null
+      durationMs: number
+    }
+
   const startedAt = Date.now()
   let stdout = ''
   let stderr = ''
+  let stdoutBytes = 0
+  let stderrBytes = 0
 
-  return await new Promise<WorkflowScriptExecutionResult>((resolve) => {
+  return await new Promise<ProcessExecutionResult>((resolve) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        PATH: process.env.PATH ?? '',
-        HOME: process.env.HOME ?? ''
-      }
+      env: buildScriptExecutionEnv(options.envAllowlist)
     })
 
+    const totalOutputBytes = () => stdoutBytes + stderrBytes
+    let outputLimitExceeded = false
+    let outputLimitStream: 'stdout' | 'stderr' | null = null
+
+    const enforceOutputLimit = (stream: 'stdout' | 'stderr') => {
+      if (outputLimitExceeded) {
+        return
+      }
+      if (totalOutputBytes() <= options.maxOutputBytes) {
+        return
+      }
+      outputLimitExceeded = true
+      outputLimitStream = stream
+      child.kill('SIGKILL')
+    }
+
     child.stdout.on('data', (chunk) => {
-      stdout += String(chunk)
+      const text = String(chunk)
+      stdout += text
+      stdoutBytes += Buffer.byteLength(text)
+      enforceOutputLimit('stdout')
     })
     child.stderr.on('data', (chunk) => {
-      stderr += String(chunk)
+      const text = String(chunk)
+      stderr += text
+      stderrBytes += Buffer.byteLength(text)
+      enforceOutputLimit('stderr')
     })
 
     let timedOut = false
@@ -196,6 +289,21 @@ const executeScriptProcess = async (
           status: 'failed',
           errorCode: 'execution-timeout',
           errorMessage: `Workflow script execution timed out after ${options.timeoutMs}ms.`,
+          stdout,
+          stderr,
+          exitCode: null,
+          durationMs: Date.now() - startedAt
+        })
+        return
+      }
+
+      if (outputLimitExceeded) {
+        resolve({
+          status: 'failed',
+          errorCode: 'policy-violation',
+          errorMessage:
+            `Workflow script output exceeded ${options.maxOutputBytes} bytes`
+            + (outputLimitStream ? ` on ${outputLimitStream}.` : '.'),
           stdout,
           stderr,
           exitCode: null,
@@ -235,6 +343,14 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
   },
   async execute(context) {
     if (context.definition.frontmatter.language === 'markdown') {
+      const metadata: WorkflowScriptExecutionMetadata = {
+        providerId: 'local',
+        language: 'markdown',
+        triggerType: context.triggerType,
+        timeoutMs: resolveScriptTimeoutMs(),
+        maxOutputBytes: resolveScriptMaxOutputBytes(),
+        allowedEnvKeys: resolveScriptEnvAllowlist()
+      }
       return {
         status: 'failed',
         errorCode: 'unsupported-language',
@@ -242,21 +358,47 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         stdout: '',
         stderr: '',
         exitCode: null,
-        durationMs: 0
+        durationMs: 0,
+        metadata
       }
     }
 
     const language = context.definition.frontmatter.language
     const timeoutMs = resolveScriptTimeoutMs()
+    const maxOutputBytes = resolveScriptMaxOutputBytes()
+    const envAllowlist = resolveScriptEnvAllowlist()
+    const metadata: WorkflowScriptExecutionMetadata = {
+      providerId: 'local',
+      language,
+      triggerType: context.triggerType,
+      timeoutMs,
+      maxOutputBytes,
+      allowedEnvKeys: [...envAllowlist]
+    }
     const tempDirectory = await mkdtemp(join(tmpdir(), 'corazon-workflow-script-'))
     try {
+      console.info(
+        `[workflow-script-sandbox] provider=${metadata.providerId} phase=prepare`
+        + ` language=${metadata.language} trigger=${metadata.triggerType}`
+        + ` timeoutMs=${metadata.timeoutMs} maxOutputBytes=${metadata.maxOutputBytes}`
+        + ` allowEnv=${metadata.allowedEnvKeys.join(',') || '(none)'}`
+      )
       await writeRunnableScript(tempDirectory, language, context.definition.instruction)
       const runtime = resolveScriptBinaryByLanguage(language)
       const executionResult = await executeScriptProcess(runtime.command, runtime.args, {
         cwd: tempDirectory,
-        timeoutMs
+        timeoutMs,
+        maxOutputBytes,
+        envAllowlist
       })
-      return executionResult
+      console.info(
+        `[workflow-script-sandbox] provider=${metadata.providerId} phase=teardown`
+        + ` status=${executionResult.status} durationMs=${executionResult.durationMs}`
+      )
+      return {
+        ...executionResult,
+        metadata
+      }
     } catch (error) {
       return {
         status: 'failed',
@@ -265,7 +407,8 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         stdout: '',
         stderr: '',
         exitCode: null,
-        durationMs: 0
+        durationMs: 0,
+        metadata
       }
     } finally {
       try {

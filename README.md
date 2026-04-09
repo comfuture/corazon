@@ -49,11 +49,14 @@ Optional runtime mode:
 Workflow script sandbox runtime:
 - `CORAZON_WORKFLOW_SCRIPT_SANDBOX_PROVIDER=local` (default; currently the only supported provider)
 - `CORAZON_WORKFLOW_SCRIPT_TIMEOUT_MS=60000` default timeout for script-language workflow runs
+- `CORAZON_WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES=256000` output cap for script-language workflow stdout/stderr
+- `CORAZON_WORKFLOW_SCRIPT_ENV_ALLOWLIST=KEY_A,KEY_B` comma-separated host env keys allowed into script runtime
 - `CORAZON_WORKFLOW_PYTHON_BIN=python3` optional Python binary override for `language: python` workflows
 
 Note:
 - `language: markdown` workflows continue to use the LLM execution path.
 - `language: typescript` and `language: python` workflows run through the script sandbox provider path.
+- Script runs expose provider metadata (`provider`, `language`, `trigger`, timeout/output policy) in failure summaries for faster triage.
 - Managed sandbox providers are planned as follow-up adapters behind the same provider interface.
 
 The app runs at:

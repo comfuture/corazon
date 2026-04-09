@@ -201,9 +201,14 @@ const collectRunCompletionData = async (
     })
     if (result.status === 'failed') {
       const stderr = result.stderr.trim()
+      const metadataSummary
+        = `sandbox(provider=${result.metadata.providerId}, language=${result.metadata.language},`
+          + ` trigger=${result.metadata.triggerType}, timeoutMs=${result.metadata.timeoutMs},`
+          + ` maxOutputBytes=${result.metadata.maxOutputBytes},`
+          + ` allowEnv=${result.metadata.allowedEnvKeys.join(',') || '(none)'})`
       const failureDetail = stderr.length > 0
-        ? `${result.errorMessage}\n\nstderr:\n${stderr}`
-        : result.errorMessage
+        ? `${result.errorMessage}\n${metadataSummary}\n\nstderr:\n${stderr}`
+        : `${result.errorMessage}\n${metadataSummary}`
       throw new Error(failureDetail)
     }
 
