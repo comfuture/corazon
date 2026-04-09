@@ -300,11 +300,13 @@ const executeScriptProcess = async (
 
     child.on('close', (exitCode) => {
       clearTimeout(timeoutHandle)
-      if (timedOut) {
+      if (outputLimitExceeded) {
         resolve({
           status: 'failed',
-          errorCode: 'execution-timeout',
-          errorMessage: `Workflow script execution timed out after ${options.timeoutMs}ms.`,
+          errorCode: 'policy-violation',
+          errorMessage:
+            `Workflow script output exceeded ${options.maxOutputBytes} bytes`
+            + (outputLimitStream ? ` on ${outputLimitStream}.` : '.'),
           stdout,
           stderr,
           exitCode: null,
@@ -313,13 +315,11 @@ const executeScriptProcess = async (
         return
       }
 
-      if (outputLimitExceeded) {
+      if (timedOut) {
         resolve({
           status: 'failed',
-          errorCode: 'policy-violation',
-          errorMessage:
-            `Workflow script output exceeded ${options.maxOutputBytes} bytes`
-            + (outputLimitStream ? ` on ${outputLimitStream}.` : '.'),
+          errorCode: 'execution-timeout',
+          errorMessage: `Workflow script execution timed out after ${options.timeoutMs}ms.`,
           stdout,
           stderr,
           exitCode: null,
