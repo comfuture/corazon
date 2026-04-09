@@ -129,6 +129,7 @@ const run = async () => {
   assert.equal(completedScriptRun.metadata.runtimeCommand, 'node')
   assert.deepEqual(completedScriptRun.metadata.runtimeArgs, ['script.mjs'])
   assert.equal(completedScriptRun.metadata.policyTriggered, 'none')
+  assert.equal(completedScriptRun.metadata.terminationScope, 'none')
 
   const pythonExecuted = await executeScriptWorkflowInSandbox({
     definition: python,
@@ -251,6 +252,10 @@ const run = async () => {
   }
   assert.equal(timedOutScriptRun.status, 'failed')
   assert.equal(timedOutScriptRun.errorCode, 'execution-timeout')
+  assert.equal(
+    ['process-group', 'process'].includes(timedOutScriptRun.metadata.terminationScope),
+    true
+  )
 
   const outputPolicySource = serializeWorkflowSource(
     baseFrontmatter('python'),
@@ -279,6 +284,10 @@ const run = async () => {
   assert.match(outputPolicyRun.errorMessage, /exceeded 1024 bytes/)
   assert.equal(outputPolicyRun.metadata.policyTriggered, 'output-size')
   assert.equal(outputPolicyRun.metadata.totalOutputBytes > 1024, true)
+  assert.equal(
+    ['process-group', 'process'].includes(outputPolicyRun.metadata.terminationScope),
+    true
+  )
 
   const sourcePolicySource = serializeWorkflowSource(
     baseFrontmatter('python'),
