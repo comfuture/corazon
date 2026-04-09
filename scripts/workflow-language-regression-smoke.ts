@@ -130,6 +130,7 @@ const run = async () => {
   assert.deepEqual(completedScriptRun.metadata.runtimeArgs, ['script.mjs'])
   assert.equal(completedScriptRun.metadata.policyTriggered, 'none')
   assert.equal(completedScriptRun.metadata.terminationScope, 'none')
+  assert.equal(completedScriptRun.metadata.outputTruncated, false)
   assert.equal(completedScriptRun.metadata.executionDurationMs, completedScriptRun.durationMs)
 
   const pythonExecuted = await executeScriptWorkflowInSandbox({
@@ -302,6 +303,7 @@ const run = async () => {
   assert.equal(outputPolicyRun.errorCode, 'policy-violation')
   assert.match(outputPolicyRun.errorMessage, /exceeded 1024 bytes/)
   assert.equal(outputPolicyRun.metadata.policyTriggered, 'output-size')
+  assert.equal(outputPolicyRun.metadata.outputTruncated, true)
   assert.equal(outputPolicyRun.metadata.executionDurationMs, outputPolicyRun.durationMs)
   assert.equal(outputPolicyRun.metadata.totalOutputBytes > 1024, true)
   assert.equal(

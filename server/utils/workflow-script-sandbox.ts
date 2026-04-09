@@ -69,6 +69,7 @@ export type WorkflowScriptExecutionMetadata = {
   stdoutBytes: number
   stderrBytes: number
   totalOutputBytes: number
+  outputTruncated: boolean
   terminationSignal: NodeJS.Signals | null
   terminationScope: 'none' | 'process' | 'process-group'
   policyTriggered: 'none' | 'source-size' | 'output-size'
@@ -238,6 +239,7 @@ const executeScriptProcess = async (
       durationMs: number
       stdoutBytes: number
       stderrBytes: number
+      outputTruncated: boolean
       terminationSignal: NodeJS.Signals | null
       terminationScope: 'none' | 'process' | 'process-group'
     }
@@ -251,6 +253,7 @@ const executeScriptProcess = async (
       durationMs: number
       stdoutBytes: number
       stderrBytes: number
+      outputTruncated: boolean
       terminationSignal: NodeJS.Signals | null
       terminationScope: 'none' | 'process' | 'process-group'
     }
@@ -260,6 +263,28 @@ const executeScriptProcess = async (
   let stderr = ''
   let stdoutBytes = 0
   let stderrBytes = 0
+  let capturedOutputBytes = 0
+  let outputTruncated = false
+
+  const appendCapturedOutput = (current: string, chunk: string) => {
+    const chunkBytes = Buffer.byteLength(chunk)
+    const remainingCaptureBytes = Math.max(options.maxOutputBytes - capturedOutputBytes, 0)
+    if (remainingCaptureBytes <= 0) {
+      if (chunkBytes > 0) {
+        outputTruncated = true
+      }
+      return current
+    }
+    if (chunkBytes <= remainingCaptureBytes) {
+      capturedOutputBytes += chunkBytes
+      return current + chunk
+    }
+    outputTruncated = true
+    const chunkBuffer = Buffer.from(chunk)
+    const truncatedChunk = chunkBuffer.subarray(0, remainingCaptureBytes).toString('utf8')
+    capturedOutputBytes += remainingCaptureBytes
+    return current + truncatedChunk
+  }
 
   return await new Promise<ProcessExecutionResult>((resolve) => {
     const child = spawn(command, args, {
@@ -304,14 +329,16 @@ const executeScriptProcess = async (
 
     child.stdout.on('data', (chunk) => {
       const text = String(chunk)
-      stdout += text
-      stdoutBytes += Buffer.byteLength(text)
+      const chunkBytes = Buffer.byteLength(text)
+      stdoutBytes += chunkBytes
+      stdout = appendCapturedOutput(stdout, text)
       enforceOutputLimit('stdout')
     })
     child.stderr.on('data', (chunk) => {
       const text = String(chunk)
-      stderr += text
-      stderrBytes += Buffer.byteLength(text)
+      const chunkBytes = Buffer.byteLength(text)
+      stderrBytes += chunkBytes
+      stderr = appendCapturedOutput(stderr, text)
       enforceOutputLimit('stderr')
     })
 
@@ -333,6 +360,7 @@ const executeScriptProcess = async (
         durationMs: Date.now() - startedAt,
         stdoutBytes,
         stderrBytes,
+        outputTruncated,
         terminationSignal: null,
         terminationScope
       })
@@ -353,6 +381,7 @@ const executeScriptProcess = async (
           durationMs: Date.now() - startedAt,
           stdoutBytes,
           stderrBytes,
+          outputTruncated,
           terminationSignal: signal,
           terminationScope
         })
@@ -370,6 +399,7 @@ const executeScriptProcess = async (
           durationMs: Date.now() - startedAt,
           stdoutBytes,
           stderrBytes,
+          outputTruncated,
           terminationSignal: signal,
           terminationScope
         })
@@ -387,6 +417,7 @@ const executeScriptProcess = async (
           durationMs: Date.now() - startedAt,
           stdoutBytes,
           stderrBytes,
+          outputTruncated,
           terminationSignal: signal,
           terminationScope
         })
@@ -401,6 +432,7 @@ const executeScriptProcess = async (
         durationMs: Date.now() - startedAt,
         stdoutBytes,
         stderrBytes,
+        outputTruncated,
         terminationSignal: signal,
         terminationScope
       })
@@ -432,6 +464,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         stdoutBytes: 0,
         stderrBytes: 0,
         totalOutputBytes: 0,
+        outputTruncated: false,
         terminationSignal: null,
         terminationScope: 'none',
         policyTriggered: 'none',
@@ -469,6 +502,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       stdoutBytes: 0,
       stderrBytes: 0,
       totalOutputBytes: 0,
+      outputTruncated: false,
       terminationSignal: null,
       terminationScope: 'none',
       policyTriggered: 'none',
@@ -519,6 +553,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       metadata.stdoutBytes = executionResult.stdoutBytes
       metadata.stderrBytes = executionResult.stderrBytes
       metadata.totalOutputBytes = executionResult.stdoutBytes + executionResult.stderrBytes
+      metadata.outputTruncated = executionResult.outputTruncated
       metadata.terminationSignal = executionResult.terminationSignal
       metadata.terminationScope = executionResult.terminationScope
       metadata.executionDurationMs = executionResult.durationMs
