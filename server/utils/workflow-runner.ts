@@ -213,6 +213,9 @@ const collectRunCompletionData = async (
         = `sandbox(provider=${result.metadata.providerId}, language=${result.metadata.language},`
           + ` trigger=${result.metadata.triggerType}, timeoutMs=${result.metadata.timeoutMs},`
           + ` durationMs=${result.metadata.executionDurationMs},`
+          + ` prepareMs=${result.metadata.prepareDurationMs},`
+          + ` executeMs=${result.metadata.executeDurationMs},`
+          + ` teardownMs=${result.metadata.teardownDurationMs},`
           + ` maxOutputBytes=${result.metadata.maxOutputBytes},`
           + ` sourceBytes=${result.metadata.sourceBytes}/${result.metadata.maxSourceBytes},`
           + ` runtime=${result.metadata.runtimeCommand ?? '(none)'}`

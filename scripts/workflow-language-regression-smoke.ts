@@ -132,6 +132,9 @@ const run = async () => {
   assert.equal(completedScriptRun.metadata.terminationScope, 'none')
   assert.equal(completedScriptRun.metadata.outputTruncated, false)
   assert.equal(completedScriptRun.metadata.executionDurationMs, completedScriptRun.durationMs)
+  assert.equal(completedScriptRun.metadata.prepareDurationMs >= 0, true)
+  assert.equal(completedScriptRun.metadata.executeDurationMs >= 0, true)
+  assert.equal(completedScriptRun.metadata.teardownDurationMs >= 0, true)
 
   const pythonExecuted = await executeScriptWorkflowInSandbox({
     definition: python,
@@ -168,6 +171,9 @@ const run = async () => {
   assert.equal(providerFailureRun.errorCode, 'provider-error')
   assert.equal(providerFailureRun.metadata.failurePhase, 'execute')
   assert.equal(providerFailureRun.metadata.executionDurationMs, providerFailureRun.durationMs)
+  assert.equal(providerFailureRun.metadata.prepareDurationMs >= 0, true)
+  assert.equal(providerFailureRun.metadata.executeDurationMs >= 0, true)
+  assert.equal(providerFailureRun.metadata.teardownDurationMs >= 0, true)
   assert.match(providerFailureRun.errorMessage, /Failed to start script runtime/)
 
   const previousProvider = process.env.CORAZON_WORKFLOW_SCRIPT_SANDBOX_PROVIDER
@@ -305,6 +311,9 @@ const run = async () => {
   assert.equal(outputPolicyRun.metadata.policyTriggered, 'output-size')
   assert.equal(outputPolicyRun.metadata.outputTruncated, true)
   assert.equal(outputPolicyRun.metadata.executionDurationMs, outputPolicyRun.durationMs)
+  assert.equal(outputPolicyRun.metadata.prepareDurationMs >= 0, true)
+  assert.equal(outputPolicyRun.metadata.executeDurationMs >= 0, true)
+  assert.equal(outputPolicyRun.metadata.teardownDurationMs >= 0, true)
   assert.equal(outputPolicyRun.metadata.totalOutputBytes > 1024, true)
   assert.equal(
     ['process-group', 'process'].includes(outputPolicyRun.metadata.terminationScope),
@@ -338,6 +347,9 @@ const run = async () => {
   assert.match(sourcePolicyRun.errorMessage, /source exceeded 256 bytes/)
   assert.equal(sourcePolicyRun.metadata.policyTriggered, 'source-size')
   assert.equal(sourcePolicyRun.metadata.executionDurationMs, sourcePolicyRun.durationMs)
+  assert.equal(sourcePolicyRun.metadata.prepareDurationMs, 0)
+  assert.equal(sourcePolicyRun.metadata.executeDurationMs, 0)
+  assert.equal(sourcePolicyRun.metadata.teardownDurationMs, 0)
 
   console.log('workflow language regression smoke checks passed')
 }
