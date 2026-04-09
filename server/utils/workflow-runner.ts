@@ -213,6 +213,7 @@ const collectRunCompletionData = async (
           + ` signal=${result.metadata.terminationSignal ?? '(none)'},`
           + ` terminationScope=${result.metadata.terminationScope},`
           + ` policy=${result.metadata.policyTriggered},`
+          + ` failurePhase=${result.metadata.failurePhase},`
           + ` allowEnv=${result.metadata.allowedEnvKeys.join(',') || '(none)'})`
       const failureDetail = stderr.length > 0
         ? `${result.errorMessage}\n${metadataSummary}\n\nstderr:\n${stderr}`

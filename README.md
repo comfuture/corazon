@@ -58,6 +58,7 @@ Note:
 - `language: markdown` workflows continue to use the LLM execution path.
 - `language: typescript` and `language: python` workflows run through the script sandbox provider path.
 - Script runs expose provider metadata (`provider`, `language`, `trigger`, timeout/output/source policy) in failure summaries for faster triage.
+- Failure summaries also include `failurePhase` (`prepare`/`execute`) for `provider-error` cases to separate setup/runtime bootstrap failures from script logic failures.
 - Managed sandbox providers are planned as follow-up adapters behind the same provider interface.
 
 The app runs at:
