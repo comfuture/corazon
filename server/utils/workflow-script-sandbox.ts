@@ -59,6 +59,9 @@ export type WorkflowScriptExecutionMetadata = {
   language: WorkflowLanguage
   triggerType: WorkflowTriggerType
   executionDurationMs: number
+  prepareDurationMs: number
+  executeDurationMs: number
+  teardownDurationMs: number
   timeoutMs: number
   maxOutputBytes: number
   maxSourceBytes: number
@@ -454,6 +457,9 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         language: 'markdown',
         triggerType: context.triggerType,
         executionDurationMs: 0,
+        prepareDurationMs: 0,
+        executeDurationMs: 0,
+        teardownDurationMs: 0,
         timeoutMs: resolveScriptTimeoutMs(),
         maxOutputBytes: resolveScriptMaxOutputBytes(),
         maxSourceBytes: resolveScriptMaxSourceBytes(),
@@ -492,6 +498,9 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       language,
       triggerType: context.triggerType,
       executionDurationMs: 0,
+      prepareDurationMs: 0,
+      executeDurationMs: 0,
+      teardownDurationMs: 0,
       timeoutMs,
       maxOutputBytes,
       maxSourceBytes,
@@ -527,6 +536,8 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
     }
     const tempDirectory = await mkdtemp(join(tmpdir(), 'corazon-workflow-script-'))
     let executionPhase: 'prepare' | 'execute' = 'prepare'
+    let executeStartedAt: number | null = null
+    let result: WorkflowScriptExecutionResult | null = null
     try {
       console.info(
         `[workflow-script-sandbox] provider=${metadata.providerId} phase=prepare`
@@ -537,9 +548,11 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       )
       await writeRunnableScript(tempDirectory, language, context.definition.instruction)
       const runtime = resolveScriptBinaryByLanguage(language)
+      metadata.prepareDurationMs = Date.now() - startedAt
       metadata.runtimeCommand = runtime.command
       metadata.runtimeArgs = [...runtime.args]
       executionPhase = 'execute'
+      executeStartedAt = Date.now()
       console.info(
         `[workflow-script-sandbox] provider=${metadata.providerId} phase=execute-start`
         + ` command=${runtime.command} args=${runtime.args.join(' ') || '(none)'}`
@@ -557,6 +570,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       metadata.terminationSignal = executionResult.terminationSignal
       metadata.terminationScope = executionResult.terminationScope
       metadata.executionDurationMs = executionResult.durationMs
+      metadata.executeDurationMs = executionResult.durationMs
       if (executionResult.status === 'failed' && executionResult.errorCode === 'policy-violation') {
         metadata.policyTriggered = 'output-size'
       }
@@ -575,22 +589,35 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         + (executionResult.status === 'failed' && executionResult.errorCode === 'provider-error'
           ? ` failurePhase=${metadata.failurePhase}`
           : '')
+        + ` prepareDurationMs=${metadata.prepareDurationMs}`
+        + ` executeDurationMs=${metadata.executeDurationMs}`
+        + ` teardownDurationMs=${metadata.teardownDurationMs}`
       )
-      return {
+      result = {
         ...executionResult,
         metadata
       }
+      return result
     } catch (error) {
       metadata.failurePhase = executionPhase
       const message = formatProviderFailureMessage(language, error)
       const durationMs = Date.now() - startedAt
       metadata.executionDurationMs = durationMs
+      if (executionPhase === 'prepare') {
+        metadata.prepareDurationMs = durationMs
+      }
+      if (executionPhase === 'execute' && executeStartedAt !== null) {
+        metadata.executeDurationMs = Date.now() - executeStartedAt
+      }
       console.warn(
         `[workflow-script-sandbox] provider=${metadata.providerId} phase=teardown`
         + ' status=failed errorCode=provider-error'
         + ` failurePhase=${metadata.failurePhase} message=${message}`
+        + ` prepareDurationMs=${metadata.prepareDurationMs}`
+        + ` executeDurationMs=${metadata.executeDurationMs}`
+        + ` teardownDurationMs=${metadata.teardownDurationMs}`
       )
-      return {
+      result = {
         status: 'failed',
         errorCode: 'provider-error',
         errorMessage: message,
@@ -600,11 +627,18 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         durationMs,
         metadata
       }
+      return result
     } finally {
+      const teardownStartedAt = Date.now()
       try {
         await rm(tempDirectory, { recursive: true, force: true })
       } catch {
         // no-op cleanup guard
+      } finally {
+        metadata.teardownDurationMs = Date.now() - teardownStartedAt
+        if (result !== null) {
+          result.metadata.teardownDurationMs = metadata.teardownDurationMs
+        }
       }
     }
   }
