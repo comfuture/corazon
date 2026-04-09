@@ -530,6 +530,9 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         + (executionResult.status === 'failed'
           ? ` errorCode=${executionResult.errorCode}`
           : '')
+        + (executionResult.status === 'failed' && executionResult.errorCode === 'provider-error'
+          ? ` failurePhase=${metadata.failurePhase}`
+          : '')
       )
       return {
         ...executionResult,
