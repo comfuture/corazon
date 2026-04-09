@@ -60,6 +60,8 @@ export type WorkflowScriptExecutionMetadata = {
   triggerType: WorkflowTriggerType
   timeoutMs: number
   maxOutputBytes: number
+  maxSourceBytes: number
+  sourceBytes: number
   allowedEnvKeys: string[]
 }
 
@@ -82,6 +84,8 @@ export const isUnsupportedWorkflowLanguageError = (error: unknown) =>
 const WORKFLOW_SCRIPT_TIMEOUT_MS_DEFAULT = 60_000
 const WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES_DEFAULT = 256_000
 const WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES_MIN = 1_024
+const WORKFLOW_SCRIPT_MAX_SOURCE_BYTES_DEFAULT = 64_000
+const WORKFLOW_SCRIPT_MAX_SOURCE_BYTES_MIN = 256
 
 const resolveScriptTimeoutMs = () => {
   const raw = (process.env.CORAZON_WORKFLOW_SCRIPT_TIMEOUT_MS ?? '').trim()
@@ -110,6 +114,18 @@ const resolveScriptMaxOutputBytes = () => {
   const parsed = Number(raw)
   if (!Number.isFinite(parsed) || parsed < WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES_MIN) {
     return WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES_DEFAULT
+  }
+  return Math.floor(parsed)
+}
+
+const resolveScriptMaxSourceBytes = () => {
+  const raw = (process.env.CORAZON_WORKFLOW_SCRIPT_MAX_SOURCE_BYTES ?? '').trim()
+  if (raw === '') {
+    return WORKFLOW_SCRIPT_MAX_SOURCE_BYTES_DEFAULT
+  }
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < WORKFLOW_SCRIPT_MAX_SOURCE_BYTES_MIN) {
+    return WORKFLOW_SCRIPT_MAX_SOURCE_BYTES_DEFAULT
   }
   return Math.floor(parsed)
 }
@@ -342,6 +358,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
     return
   },
   async execute(context) {
+    const sourceBytes = Buffer.byteLength(context.definition.instruction, 'utf8')
     if (context.definition.frontmatter.language === 'markdown') {
       const metadata: WorkflowScriptExecutionMetadata = {
         providerId: 'local',
@@ -349,6 +366,8 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         triggerType: context.triggerType,
         timeoutMs: resolveScriptTimeoutMs(),
         maxOutputBytes: resolveScriptMaxOutputBytes(),
+        maxSourceBytes: resolveScriptMaxSourceBytes(),
+        sourceBytes,
         allowedEnvKeys: resolveScriptEnvAllowlist()
       }
       return {
@@ -366,6 +385,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
     const language = context.definition.frontmatter.language
     const timeoutMs = resolveScriptTimeoutMs()
     const maxOutputBytes = resolveScriptMaxOutputBytes()
+    const maxSourceBytes = resolveScriptMaxSourceBytes()
     const envAllowlist = resolveScriptEnvAllowlist()
     const metadata: WorkflowScriptExecutionMetadata = {
       providerId: 'local',
@@ -373,7 +393,23 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       triggerType: context.triggerType,
       timeoutMs,
       maxOutputBytes,
+      maxSourceBytes,
+      sourceBytes,
       allowedEnvKeys: [...envAllowlist]
+    }
+    if (sourceBytes > maxSourceBytes) {
+      return {
+        status: 'failed',
+        errorCode: 'policy-violation',
+        errorMessage:
+          `Workflow script source exceeded ${maxSourceBytes} bytes `
+          + `(${sourceBytes} bytes received).`,
+        stdout: '',
+        stderr: '',
+        exitCode: null,
+        durationMs: 0,
+        metadata
+      }
     }
     const tempDirectory = await mkdtemp(join(tmpdir(), 'corazon-workflow-script-'))
     try {
@@ -381,6 +417,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         `[workflow-script-sandbox] provider=${metadata.providerId} phase=prepare`
         + ` language=${metadata.language} trigger=${metadata.triggerType}`
         + ` timeoutMs=${metadata.timeoutMs} maxOutputBytes=${metadata.maxOutputBytes}`
+        + ` sourceBytes=${metadata.sourceBytes}/${metadata.maxSourceBytes}`
         + ` allowEnv=${metadata.allowedEnvKeys.join(',') || '(none)'}`
       )
       await writeRunnableScript(tempDirectory, language, context.definition.instruction)
