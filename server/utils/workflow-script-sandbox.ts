@@ -58,6 +58,7 @@ export type WorkflowScriptExecutionMetadata = {
   providerId: WorkflowScriptSandboxProviderId
   language: WorkflowLanguage
   triggerType: WorkflowTriggerType
+  executionDurationMs: number
   timeoutMs: number
   maxOutputBytes: number
   maxSourceBytes: number
@@ -413,12 +414,14 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
     return
   },
   async execute(context) {
+    const startedAt = Date.now()
     const sourceBytes = Buffer.byteLength(context.definition.instruction, 'utf8')
     if (context.definition.frontmatter.language === 'markdown') {
       const metadata: WorkflowScriptExecutionMetadata = {
         providerId: 'local',
         language: 'markdown',
         triggerType: context.triggerType,
+        executionDurationMs: 0,
         timeoutMs: resolveScriptTimeoutMs(),
         maxOutputBytes: resolveScriptMaxOutputBytes(),
         maxSourceBytes: resolveScriptMaxSourceBytes(),
@@ -455,6 +458,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       providerId: 'local',
       language,
       triggerType: context.triggerType,
+      executionDurationMs: 0,
       timeoutMs,
       maxOutputBytes,
       maxSourceBytes,
@@ -472,6 +476,8 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
     }
     if (sourceBytes > maxSourceBytes) {
       metadata.policyTriggered = 'source-size'
+      const durationMs = Date.now() - startedAt
+      metadata.executionDurationMs = durationMs
       return {
         status: 'failed',
         errorCode: 'policy-violation',
@@ -481,7 +487,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         stdout: '',
         stderr: '',
         exitCode: null,
-        durationMs: 0,
+        durationMs,
         metadata
       }
     }
@@ -515,6 +521,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       metadata.totalOutputBytes = executionResult.stdoutBytes + executionResult.stderrBytes
       metadata.terminationSignal = executionResult.terminationSignal
       metadata.terminationScope = executionResult.terminationScope
+      metadata.executionDurationMs = executionResult.durationMs
       if (executionResult.status === 'failed' && executionResult.errorCode === 'policy-violation') {
         metadata.policyTriggered = 'output-size'
       }
@@ -541,6 +548,8 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
     } catch (error) {
       metadata.failurePhase = executionPhase
       const message = formatProviderFailureMessage(language, error)
+      const durationMs = Date.now() - startedAt
+      metadata.executionDurationMs = durationMs
       console.warn(
         `[workflow-script-sandbox] provider=${metadata.providerId} phase=teardown`
         + ' status=failed errorCode=provider-error'
@@ -553,7 +562,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         stdout: '',
         stderr: '',
         exitCode: null,
-        durationMs: 0,
+        durationMs,
         metadata
       }
     } finally {

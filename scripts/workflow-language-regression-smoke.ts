@@ -130,6 +130,7 @@ const run = async () => {
   assert.deepEqual(completedScriptRun.metadata.runtimeArgs, ['script.mjs'])
   assert.equal(completedScriptRun.metadata.policyTriggered, 'none')
   assert.equal(completedScriptRun.metadata.terminationScope, 'none')
+  assert.equal(completedScriptRun.metadata.executionDurationMs, completedScriptRun.durationMs)
 
   const pythonExecuted = await executeScriptWorkflowInSandbox({
     definition: python,
@@ -165,6 +166,7 @@ const run = async () => {
   assert.equal(providerFailureRun.status, 'failed')
   assert.equal(providerFailureRun.errorCode, 'provider-error')
   assert.equal(providerFailureRun.metadata.failurePhase, 'execute')
+  assert.equal(providerFailureRun.metadata.executionDurationMs, providerFailureRun.durationMs)
   assert.match(providerFailureRun.errorMessage, /Failed to start script runtime/)
 
   const previousProvider = process.env.CORAZON_WORKFLOW_SCRIPT_SANDBOX_PROVIDER
@@ -300,6 +302,7 @@ const run = async () => {
   assert.equal(outputPolicyRun.errorCode, 'policy-violation')
   assert.match(outputPolicyRun.errorMessage, /exceeded 1024 bytes/)
   assert.equal(outputPolicyRun.metadata.policyTriggered, 'output-size')
+  assert.equal(outputPolicyRun.metadata.executionDurationMs, outputPolicyRun.durationMs)
   assert.equal(outputPolicyRun.metadata.totalOutputBytes > 1024, true)
   assert.equal(
     ['process-group', 'process'].includes(outputPolicyRun.metadata.terminationScope),
@@ -332,6 +335,7 @@ const run = async () => {
   assert.equal(sourcePolicyRun.errorCode, 'policy-violation')
   assert.match(sourcePolicyRun.errorMessage, /source exceeded 256 bytes/)
   assert.equal(sourcePolicyRun.metadata.policyTriggered, 'source-size')
+  assert.equal(sourcePolicyRun.metadata.executionDurationMs, sourcePolicyRun.durationMs)
 
   console.log('workflow language regression smoke checks passed')
 }

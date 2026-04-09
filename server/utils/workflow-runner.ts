@@ -212,6 +212,7 @@ const collectRunCompletionData = async (
       const metadataSummary
         = `sandbox(provider=${result.metadata.providerId}, language=${result.metadata.language},`
           + ` trigger=${result.metadata.triggerType}, timeoutMs=${result.metadata.timeoutMs},`
+          + ` durationMs=${result.metadata.executionDurationMs},`
           + ` maxOutputBytes=${result.metadata.maxOutputBytes},`
           + ` sourceBytes=${result.metadata.sourceBytes}/${result.metadata.maxSourceBytes},`
           + ` runtime=${result.metadata.runtimeCommand ?? '(none)'}`
