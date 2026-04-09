@@ -44,6 +44,7 @@ export type WorkflowRunSummary = {
   sessionThreadId: string | null
   sessionFilePath: string | null
   errorMessage: string | null
+  metadata: Record<string, unknown> | null
 }
 
 export type WorkflowRunHistoryMessage = {

@@ -121,6 +121,7 @@ type WorkflowRunRow = {
   session_thread_id: string | null
   session_file_path: string | null
   error_message: string | null
+  metadata_json: string | null
 }
 
 type TelegramTransportStateRow = {
@@ -286,7 +287,8 @@ const getDb = () => {
       total_output_tokens INTEGER NOT NULL DEFAULT 0,
       session_thread_id TEXT,
       session_file_path TEXT,
-      error_message TEXT
+      error_message TEXT,
+      metadata_json TEXT
     );
 
     CREATE TABLE IF NOT EXISTS telegram_transport_state (
@@ -356,6 +358,9 @@ const getDb = () => {
   const telegramSessionColumns = db.prepare('PRAGMA table_info(telegram_sessions)').all() as { name: string }[]
   const hasTelegramSessionColumn = (name: string) =>
     telegramSessionColumns.some(column => column.name === name)
+  const workflowRunColumns = db.prepare('PRAGMA table_info(runs)').all() as { name: string }[]
+  const hasWorkflowRunColumn = (name: string) =>
+    workflowRunColumns.some(column => column.name === name)
 
   if (!hasColumn('model')) {
     db.exec('ALTER TABLE threads ADD COLUMN model TEXT')
@@ -419,6 +424,10 @@ const getDb = () => {
 
   if (!hasTelegramSessionColumn('resume_confidence')) {
     db.exec('ALTER TABLE telegram_sessions ADD COLUMN resume_confidence REAL')
+  }
+
+  if (!hasWorkflowRunColumn('metadata_json')) {
+    db.exec('ALTER TABLE runs ADD COLUMN metadata_json TEXT')
   }
 
   return db
@@ -1728,7 +1737,19 @@ const toWorkflowRunSummary = (row: WorkflowRunRow): WorkflowRunSummary => ({
   totalOutputTokens: row.total_output_tokens,
   sessionThreadId: row.session_thread_id,
   sessionFilePath: row.session_file_path,
-  errorMessage: row.error_message
+  errorMessage: row.error_message,
+  metadata: (() => {
+    if (!row.metadata_json || row.metadata_json.trim() === '') {
+      return null
+    }
+
+    try {
+      const parsed = JSON.parse(row.metadata_json) as unknown
+      return (parsed && typeof parsed === 'object') ? parsed as Record<string, unknown> : null
+    } catch {
+      return null
+    }
+  })()
 })
 
 export const createWorkflowRun = (input: {
@@ -1794,9 +1815,11 @@ export const completeWorkflowRun = (input: {
   sessionThreadId?: string | null
   sessionFilePath?: string | null
   errorMessage?: string | null
+  metadata?: Record<string, unknown> | null
 }) => {
   const database = getDb()
   const completedAt = input.completedAt ?? Date.now()
+  const metadataJson = JSON.stringify(input.metadata ?? null)
 
   database
     .prepare(
@@ -1810,7 +1833,8 @@ export const completeWorkflowRun = (input: {
         total_output_tokens = ?,
         session_thread_id = COALESCE(?, session_thread_id),
         session_file_path = COALESCE(?, session_file_path),
-        error_message = ?
+        error_message = ?,
+        metadata_json = ?
       WHERE id = ?
     `
     )
@@ -1823,6 +1847,7 @@ export const completeWorkflowRun = (input: {
       input.sessionThreadId ?? null,
       input.sessionFilePath ?? null,
       input.errorMessage ?? null,
+      metadataJson,
       input.runId
     )
 }
@@ -1874,7 +1899,8 @@ export const getWorkflowRunById = (runId: string): WorkflowRunSummary | null => 
         total_output_tokens,
         session_thread_id,
         session_file_path,
-        error_message
+        error_message,
+        metadata_json
       FROM runs
       WHERE id = ?
     `
@@ -1915,7 +1941,8 @@ export const loadWorkflowRunsPageBySlug = (
         total_output_tokens,
         session_thread_id,
         session_file_path,
-        error_message
+        error_message,
+        metadata_json
       FROM runs
       WHERE workflow_file_slug = ?
       ORDER BY started_at DESC, id DESC
