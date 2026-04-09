@@ -69,6 +69,7 @@ export type WorkflowScriptExecutionMetadata = {
   stderrBytes: number
   totalOutputBytes: number
   terminationSignal: NodeJS.Signals | null
+  terminationScope: 'none' | 'process' | 'process-group'
   policyTriggered: 'none' | 'source-size' | 'output-size'
 }
 
@@ -236,6 +237,7 @@ const executeScriptProcess = async (
       stdoutBytes: number
       stderrBytes: number
       terminationSignal: NodeJS.Signals | null
+      terminationScope: 'none' | 'process' | 'process-group'
     }
     | {
       status: 'failed'
@@ -248,6 +250,7 @@ const executeScriptProcess = async (
       stdoutBytes: number
       stderrBytes: number
       terminationSignal: NodeJS.Signals | null
+      terminationScope: 'none' | 'process' | 'process-group'
     }
 
   const startedAt = Date.now()
@@ -260,8 +263,26 @@ const executeScriptProcess = async (
     const child = spawn(command, args, {
       cwd: options.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: buildScriptExecutionEnv(options.envAllowlist)
+      env: buildScriptExecutionEnv(options.envAllowlist),
+      detached: process.platform !== 'win32'
     })
+    let terminationScope: 'none' | 'process' | 'process-group' = 'none'
+
+    const killExecution = (signal: NodeJS.Signals = 'SIGKILL') => {
+      if (process.platform !== 'win32' && typeof child.pid === 'number' && child.pid > 0) {
+        try {
+          process.kill(-child.pid, signal)
+          terminationScope = 'process-group'
+          return
+        } catch {
+          // fall through to single-process kill
+        }
+      }
+
+      if (child.kill(signal)) {
+        terminationScope = 'process'
+      }
+    }
 
     const totalOutputBytes = () => stdoutBytes + stderrBytes
     let outputLimitExceeded = false
@@ -276,7 +297,7 @@ const executeScriptProcess = async (
       }
       outputLimitExceeded = true
       outputLimitStream = stream
-      child.kill('SIGKILL')
+      killExecution('SIGKILL')
     }
 
     child.stdout.on('data', (chunk) => {
@@ -295,7 +316,7 @@ const executeScriptProcess = async (
     let timedOut = false
     const timeoutHandle = setTimeout(() => {
       timedOut = true
-      child.kill('SIGKILL')
+      killExecution('SIGKILL')
     }, options.timeoutMs)
 
     child.on('error', (error) => {
@@ -310,7 +331,8 @@ const executeScriptProcess = async (
         durationMs: Date.now() - startedAt,
         stdoutBytes,
         stderrBytes,
-        terminationSignal: null
+        terminationSignal: null,
+        terminationScope
       })
     })
 
@@ -329,7 +351,8 @@ const executeScriptProcess = async (
           durationMs: Date.now() - startedAt,
           stdoutBytes,
           stderrBytes,
-          terminationSignal: signal
+          terminationSignal: signal,
+          terminationScope
         })
         return
       }
@@ -345,7 +368,8 @@ const executeScriptProcess = async (
           durationMs: Date.now() - startedAt,
           stdoutBytes,
           stderrBytes,
-          terminationSignal: signal
+          terminationSignal: signal,
+          terminationScope
         })
         return
       }
@@ -361,7 +385,8 @@ const executeScriptProcess = async (
           durationMs: Date.now() - startedAt,
           stdoutBytes,
           stderrBytes,
-          terminationSignal: signal
+          terminationSignal: signal,
+          terminationScope
         })
         return
       }
@@ -374,7 +399,8 @@ const executeScriptProcess = async (
         durationMs: Date.now() - startedAt,
         stdoutBytes,
         stderrBytes,
-        terminationSignal: signal
+        terminationSignal: signal,
+        terminationScope
       })
     })
   })
@@ -403,6 +429,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         stderrBytes: 0,
         totalOutputBytes: 0,
         terminationSignal: null,
+        terminationScope: 'none',
         policyTriggered: 'none'
       }
       return {
@@ -437,6 +464,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       stderrBytes: 0,
       totalOutputBytes: 0,
       terminationSignal: null,
+      terminationScope: 'none',
       policyTriggered: 'none'
     }
     if (sourceBytes > maxSourceBytes) {
@@ -481,6 +509,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       metadata.stderrBytes = executionResult.stderrBytes
       metadata.totalOutputBytes = executionResult.stdoutBytes + executionResult.stderrBytes
       metadata.terminationSignal = executionResult.terminationSignal
+      metadata.terminationScope = executionResult.terminationScope
       if (executionResult.status === 'failed' && executionResult.errorCode === 'policy-violation') {
         metadata.policyTriggered = 'output-size'
       }
@@ -489,6 +518,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         + ` status=${executionResult.status} durationMs=${executionResult.durationMs}`
         + ` stdoutBytes=${executionResult.stdoutBytes} stderrBytes=${executionResult.stderrBytes}`
         + ` signal=${executionResult.terminationSignal ?? '(none)'}`
+        + ` terminationScope=${executionResult.terminationScope}`
         + (executionResult.status === 'failed'
           ? ` errorCode=${executionResult.errorCode}`
           : '')

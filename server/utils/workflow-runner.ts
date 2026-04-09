@@ -211,6 +211,7 @@ const collectRunCompletionData = async (
           + `, outputBytes=${result.metadata.stdoutBytes + result.metadata.stderrBytes}`
           + ` (stdout=${result.metadata.stdoutBytes}, stderr=${result.metadata.stderrBytes}),`
           + ` signal=${result.metadata.terminationSignal ?? '(none)'},`
+          + ` terminationScope=${result.metadata.terminationScope},`
           + ` policy=${result.metadata.policyTriggered},`
           + ` allowEnv=${result.metadata.allowedEnvKeys.join(',') || '(none)'})`
       const failureDetail = stderr.length > 0
