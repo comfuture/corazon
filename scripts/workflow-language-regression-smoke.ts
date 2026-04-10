@@ -200,7 +200,9 @@ const run = async () => {
   )
 
   const previousContainmentMode = process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE
+  const previousContainmentProfile = process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE
   const previousContainmentPrefix = process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX
+  delete process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE
   delete process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX
   process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'auto'
   const autoContainmentRun = await executeScriptWorkflowInSandbox({
@@ -210,7 +212,9 @@ const run = async () => {
   })
   assert.equal(autoContainmentRun.status, 'completed')
   assert.equal(autoContainmentRun.metadata.containmentModeRequested, 'auto')
+  assert.equal(autoContainmentRun.metadata.containmentProfileRequested, 'none')
   assert.equal(autoContainmentRun.metadata.containmentModeApplied, 'host')
+  assert.equal(autoContainmentRun.metadata.containmentProfileApplied, null)
   assert.equal(autoContainmentRun.metadata.containmentEnforced, false)
   assert.match(
     autoContainmentRun.metadata.containmentFallbackReason ?? '',
@@ -227,12 +231,75 @@ const run = async () => {
   assert.equal(strictContainmentRun.errorCode, 'provider-error')
   assert.equal(strictContainmentRun.metadata.failurePhase, 'prepare')
   assert.equal(strictContainmentRun.metadata.containmentModeRequested, 'linux-strict')
+  assert.equal(strictContainmentRun.metadata.containmentProfileRequested, 'none')
   assert.equal(strictContainmentRun.metadata.containmentModeApplied, 'linux-strict')
+  assert.equal(strictContainmentRun.metadata.containmentProfileApplied, null)
   assert.equal(strictContainmentRun.metadata.containmentEnforced, false)
   assert.equal(strictContainmentRun.metadata.containmentFallbackReason, null)
   assert.match(strictContainmentRun.errorMessage, /CONTAINMENT_LINUX_PREFIX/)
 
+  process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'auto'
+  process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE = 'not-a-profile'
+  const autoContainmentInvalidProfileRun = await executeScriptWorkflowInSandbox({
+    definition: python,
+    triggerType: 'workflow-dispatch',
+    triggerValue: 'manual'
+  })
+  assert.equal(autoContainmentInvalidProfileRun.status, 'completed')
+  assert.equal(autoContainmentInvalidProfileRun.metadata.containmentModeRequested, 'auto')
+  assert.equal(autoContainmentInvalidProfileRun.metadata.containmentProfileRequested, 'none')
+  assert.equal(autoContainmentInvalidProfileRun.metadata.containmentModeApplied, 'host')
+  assert.equal(autoContainmentInvalidProfileRun.metadata.containmentProfileApplied, null)
+  assert.equal(autoContainmentInvalidProfileRun.metadata.containmentEnforced, false)
+  assert.match(
+    autoContainmentInvalidProfileRun.metadata.containmentFallbackReason ?? '',
+    /CONTAINMENT_LINUX_PROFILE must be one of/
+  )
+
+  process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'linux-strict'
+  const strictContainmentInvalidProfileRun = await executeScriptWorkflowInSandbox({
+    definition: python,
+    triggerType: 'workflow-dispatch',
+    triggerValue: 'manual'
+  })
+  assert.equal(strictContainmentInvalidProfileRun.status, 'failed')
+  assert.equal(strictContainmentInvalidProfileRun.errorCode, 'provider-error')
+  assert.equal(strictContainmentInvalidProfileRun.metadata.failurePhase, 'prepare')
+  assert.equal(strictContainmentInvalidProfileRun.metadata.containmentModeRequested, 'linux-strict')
+  assert.equal(strictContainmentInvalidProfileRun.metadata.containmentProfileRequested, 'none')
+  assert.equal(strictContainmentInvalidProfileRun.metadata.containmentModeApplied, 'linux-strict')
+  assert.equal(strictContainmentInvalidProfileRun.metadata.containmentProfileApplied, null)
+  assert.equal(strictContainmentInvalidProfileRun.metadata.containmentEnforced, false)
+  assert.equal(strictContainmentInvalidProfileRun.metadata.containmentFallbackReason, null)
+  assert.match(strictContainmentInvalidProfileRun.errorMessage, /CONTAINMENT_LINUX_PROFILE must be one of/)
+
+  delete process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE
+
   if (process.platform === 'linux') {
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE = 'systemd-user-scope'
+    delete process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'auto'
+    const autoContainmentProfileRun = await executeScriptWorkflowInSandbox({
+      definition: python,
+      triggerType: 'workflow-dispatch',
+      triggerValue: 'manual'
+    })
+    assert.equal(autoContainmentProfileRun.status, 'completed')
+    assert.equal(autoContainmentProfileRun.metadata.containmentModeRequested, 'auto')
+    assert.equal(autoContainmentProfileRun.metadata.containmentProfileRequested, 'systemd-user-scope')
+    if (autoContainmentProfileRun.metadata.containmentEnforced) {
+      assert.equal(autoContainmentProfileRun.metadata.containmentModeApplied, 'linux-strict')
+      assert.equal(autoContainmentProfileRun.metadata.containmentProfileApplied, 'systemd-user-scope')
+      assert.equal(autoContainmentProfileRun.metadata.runtimeCommand, 'systemd-run')
+    } else {
+      assert.equal(autoContainmentProfileRun.metadata.containmentModeApplied, 'host')
+      assert.equal(autoContainmentProfileRun.metadata.containmentProfileApplied, null)
+      assert.match(
+        autoContainmentProfileRun.metadata.containmentFallbackReason ?? '',
+        /not executable or not found on PATH/
+      )
+    }
+
     process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX = '["__corazon_missing_containment_bin__"]'
     process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'auto'
     const autoContainmentMissingPrefixRun = await executeScriptWorkflowInSandbox({
@@ -242,7 +309,9 @@ const run = async () => {
     })
     assert.equal(autoContainmentMissingPrefixRun.status, 'completed')
     assert.equal(autoContainmentMissingPrefixRun.metadata.containmentModeRequested, 'auto')
+    assert.equal(autoContainmentMissingPrefixRun.metadata.containmentProfileRequested, 'systemd-user-scope')
     assert.equal(autoContainmentMissingPrefixRun.metadata.containmentModeApplied, 'host')
+    assert.equal(autoContainmentMissingPrefixRun.metadata.containmentProfileApplied, null)
     assert.equal(autoContainmentMissingPrefixRun.metadata.containmentEnforced, false)
     assert.match(
       autoContainmentMissingPrefixRun.metadata.containmentFallbackReason ?? '',
@@ -259,7 +328,9 @@ const run = async () => {
     assert.equal(strictContainmentMissingPrefixRun.errorCode, 'provider-error')
     assert.equal(strictContainmentMissingPrefixRun.metadata.failurePhase, 'prepare')
     assert.equal(strictContainmentMissingPrefixRun.metadata.containmentModeRequested, 'linux-strict')
+    assert.equal(strictContainmentMissingPrefixRun.metadata.containmentProfileRequested, 'systemd-user-scope')
     assert.equal(strictContainmentMissingPrefixRun.metadata.containmentModeApplied, 'linux-strict')
+    assert.equal(strictContainmentMissingPrefixRun.metadata.containmentProfileApplied, null)
     assert.equal(strictContainmentMissingPrefixRun.metadata.containmentEnforced, false)
     assert.equal(strictContainmentMissingPrefixRun.metadata.containmentFallbackReason, null)
     assert.match(strictContainmentMissingPrefixRun.errorMessage, /not executable or not found on PATH/)
@@ -273,7 +344,9 @@ const run = async () => {
     })
     assert.equal(strictContainmentWithPrefixRun.status, 'completed')
     assert.equal(strictContainmentWithPrefixRun.metadata.containmentModeRequested, 'linux-strict')
+    assert.equal(strictContainmentWithPrefixRun.metadata.containmentProfileRequested, 'systemd-user-scope')
     assert.equal(strictContainmentWithPrefixRun.metadata.containmentModeApplied, 'linux-strict')
+    assert.equal(strictContainmentWithPrefixRun.metadata.containmentProfileApplied, null)
     assert.equal(strictContainmentWithPrefixRun.metadata.containmentEnforced, true)
     assert.equal(strictContainmentWithPrefixRun.metadata.containmentFallbackReason, null)
     assert.equal(strictContainmentWithPrefixRun.metadata.runtimeCommand, 'env')
@@ -288,7 +361,9 @@ const run = async () => {
     })
     assert.equal(autoContainmentRelativePrefixRun.status, 'completed')
     assert.equal(autoContainmentRelativePrefixRun.metadata.containmentModeRequested, 'auto')
+    assert.equal(autoContainmentRelativePrefixRun.metadata.containmentProfileRequested, 'systemd-user-scope')
     assert.equal(autoContainmentRelativePrefixRun.metadata.containmentModeApplied, 'host')
+    assert.equal(autoContainmentRelativePrefixRun.metadata.containmentProfileApplied, null)
     assert.equal(autoContainmentRelativePrefixRun.metadata.containmentEnforced, false)
     assert.match(
       autoContainmentRelativePrefixRun.metadata.containmentFallbackReason ?? '',
@@ -305,7 +380,9 @@ const run = async () => {
     assert.equal(strictContainmentRelativePrefixRun.errorCode, 'provider-error')
     assert.equal(strictContainmentRelativePrefixRun.metadata.failurePhase, 'prepare')
     assert.equal(strictContainmentRelativePrefixRun.metadata.containmentModeRequested, 'linux-strict')
+    assert.equal(strictContainmentRelativePrefixRun.metadata.containmentProfileRequested, 'systemd-user-scope')
     assert.equal(strictContainmentRelativePrefixRun.metadata.containmentModeApplied, 'linux-strict')
+    assert.equal(strictContainmentRelativePrefixRun.metadata.containmentProfileApplied, null)
     assert.equal(strictContainmentRelativePrefixRun.metadata.containmentEnforced, false)
     assert.equal(strictContainmentRelativePrefixRun.metadata.containmentFallbackReason, null)
     assert.match(strictContainmentRelativePrefixRun.errorMessage, /must be an absolute executable path/)
@@ -330,7 +407,9 @@ const run = async () => {
     })
     assert.equal(autoContainmentRelativePathEntryRun.status, 'completed')
     assert.equal(autoContainmentRelativePathEntryRun.metadata.containmentModeRequested, 'auto')
+    assert.equal(autoContainmentRelativePathEntryRun.metadata.containmentProfileRequested, 'systemd-user-scope')
     assert.equal(autoContainmentRelativePathEntryRun.metadata.containmentModeApplied, 'host')
+    assert.equal(autoContainmentRelativePathEntryRun.metadata.containmentProfileApplied, null)
     assert.equal(autoContainmentRelativePathEntryRun.metadata.containmentEnforced, false)
     assert.match(
       autoContainmentRelativePathEntryRun.metadata.containmentFallbackReason ?? '',
@@ -347,7 +426,9 @@ const run = async () => {
     assert.equal(strictContainmentRelativePathEntryRun.errorCode, 'provider-error')
     assert.equal(strictContainmentRelativePathEntryRun.metadata.failurePhase, 'prepare')
     assert.equal(strictContainmentRelativePathEntryRun.metadata.containmentModeRequested, 'linux-strict')
+    assert.equal(strictContainmentRelativePathEntryRun.metadata.containmentProfileRequested, 'systemd-user-scope')
     assert.equal(strictContainmentRelativePathEntryRun.metadata.containmentModeApplied, 'linux-strict')
+    assert.equal(strictContainmentRelativePathEntryRun.metadata.containmentProfileApplied, null)
     assert.equal(strictContainmentRelativePathEntryRun.metadata.containmentEnforced, false)
     assert.equal(strictContainmentRelativePathEntryRun.metadata.containmentFallbackReason, null)
     assert.match(strictContainmentRelativePathEntryRun.errorMessage, /not executable or not found on PATH/)
@@ -362,6 +443,11 @@ const run = async () => {
     process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = previousContainmentMode
   } else {
     delete process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE
+  }
+  if (typeof previousContainmentProfile === 'string') {
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE = previousContainmentProfile
+  } else {
+    delete process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE
   }
   if (typeof previousContainmentPrefix === 'string') {
     process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX = previousContainmentPrefix

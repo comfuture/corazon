@@ -69,7 +69,9 @@ export type WorkflowScriptExecutionMetadata = {
   maxSourceBytes: number
   maxTmpBytes: number
   containmentModeRequested: WorkflowScriptContainmentMode
+  containmentProfileRequested: WorkflowScriptContainmentLinuxProfile
   containmentModeApplied: WorkflowScriptContainmentAppliedMode
+  containmentProfileApplied: Exclude<WorkflowScriptContainmentLinuxProfile, 'none'> | null
   containmentEnforced: boolean
   containmentFallbackReason: string | null
   sourceBytes: number
@@ -89,6 +91,11 @@ export type WorkflowScriptExecutionMetadata = {
 
 export type WorkflowScriptContainmentMode = 'host' | 'auto' | 'linux-strict'
 export type WorkflowScriptContainmentAppliedMode = 'host' | 'linux-strict'
+export type WorkflowScriptContainmentLinuxProfile
+  = 'none'
+    | 'systemd-user-scope'
+    | 'systemd-system-scope'
+    | 'bubblewrap-minimal'
 
 export type WorkflowScriptSandboxProvider = {
   id: WorkflowScriptSandboxProviderId
@@ -114,10 +121,21 @@ const WORKFLOW_SCRIPT_MAX_SOURCE_BYTES_MIN = 256
 const WORKFLOW_SCRIPT_MAX_TMP_BYTES_DEFAULT = 8 * 1024 * 1024
 const WORKFLOW_SCRIPT_MAX_TMP_BYTES_MIN = 4_096
 const WORKFLOW_SCRIPT_CONTAINMENT_MODE_DEFAULT: WorkflowScriptContainmentMode = 'host'
+const WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE_DEFAULT: WorkflowScriptContainmentLinuxProfile = 'none'
+const WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE_PREFIX: Record<
+  Exclude<WorkflowScriptContainmentLinuxProfile, 'none'>,
+  string[]
+> = {
+  'systemd-user-scope': ['systemd-run', '--scope', '--user', '--'],
+  'systemd-system-scope': ['systemd-run', '--scope', '--'],
+  'bubblewrap-minimal': ['bwrap', '--unshare-all', '--die-with-parent', '--proc', '/proc', '--dev', '/dev', '--']
+}
 
 type WorkflowScriptContainmentPolicy = {
   requested: WorkflowScriptContainmentMode
+  requestedProfile: WorkflowScriptContainmentLinuxProfile
   applied: WorkflowScriptContainmentAppliedMode
+  appliedProfile: Exclude<WorkflowScriptContainmentLinuxProfile, 'none'> | null
   enforced: boolean
   executionPrefix: string[]
   fallbackReason: string | null
@@ -187,6 +205,28 @@ const resolveScriptContainmentMode = (): WorkflowScriptContainmentMode => {
   return WORKFLOW_SCRIPT_CONTAINMENT_MODE_DEFAULT
 }
 
+const resolveScriptContainmentLinuxProfile = () => {
+  const raw = (process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE ?? '').trim().toLowerCase()
+  if (raw === '') {
+    return {
+      profile: WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE_DEFAULT,
+      error: null as string | null
+    }
+  }
+  if (raw === 'none' || raw === 'systemd-user-scope' || raw === 'systemd-system-scope' || raw === 'bubblewrap-minimal') {
+    return {
+      profile: raw as WorkflowScriptContainmentLinuxProfile,
+      error: null as string | null
+    }
+  }
+  return {
+    profile: WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE_DEFAULT,
+    error:
+      'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE must be one of '
+      + '"none", "systemd-user-scope", "systemd-system-scope", or "bubblewrap-minimal".'
+  }
+}
+
 const resolveScriptContainmentLinuxPrefix = () => {
   const raw = (process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX ?? '').trim()
   if (raw === '') {
@@ -254,11 +294,23 @@ const isExecutableOnPath = (command: string) => {
 
 const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
   const requested = resolveScriptContainmentMode()
-  const { args: linuxPrefix, error: linuxPrefixError } = resolveScriptContainmentLinuxPrefix()
+  const { profile: requestedProfile, error: linuxProfileError } = resolveScriptContainmentLinuxProfile()
+  const { args: configuredLinuxPrefix, error: linuxPrefixError } = resolveScriptContainmentLinuxPrefix()
+  const profileLinuxPrefix = requestedProfile === 'none'
+    ? []
+    : WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE_PREFIX[requestedProfile]
+  const linuxPrefix = configuredLinuxPrefix.length > 0
+    ? configuredLinuxPrefix
+    : profileLinuxPrefix
+  const appliedProfile = configuredLinuxPrefix.length > 0 || requestedProfile === 'none'
+    ? null
+    : requestedProfile
   if (requested === 'linux-strict' && process.platform !== 'linux') {
     return {
       requested,
+      requestedProfile,
       applied: 'linux-strict',
+      appliedProfile: null,
       enforced: false,
       executionPrefix: [],
       fallbackReason: null,
@@ -269,7 +321,9 @@ const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
   if (requested === 'host') {
     return {
       requested,
+      requestedProfile,
       applied: 'host',
+      appliedProfile: null,
       enforced: false,
       executionPrefix: [],
       fallbackReason: null,
@@ -279,7 +333,9 @@ const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
   if (process.platform !== 'linux') {
     return {
       requested,
+      requestedProfile,
       applied: 'host',
+      appliedProfile: null,
       enforced: false,
       executionPrefix: [],
       fallbackReason:
@@ -287,24 +343,29 @@ const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
       unsupportedReason: null
     }
   }
-  if (linuxPrefixError !== null) {
+  const configurationError = linuxPrefixError ?? linuxProfileError
+  if (configurationError !== null) {
     if (requested === 'auto') {
       return {
         requested,
+        requestedProfile,
         applied: 'host',
+        appliedProfile: null,
         enforced: false,
         executionPrefix: [],
-        fallbackReason: `${linuxPrefixError} Using host process sandbox limits only.`,
+        fallbackReason: `${configurationError} Using host process sandbox limits only.`,
         unsupportedReason: null
       }
     }
     return {
       requested,
+      requestedProfile,
       applied: 'linux-strict',
+      appliedProfile: null,
       enforced: false,
       executionPrefix: [],
       fallbackReason: null,
-      unsupportedReason: linuxPrefixError
+      unsupportedReason: configurationError
     }
   }
   if (linuxPrefix.length > 0) {
@@ -317,7 +378,9 @@ const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
       if (requested === 'auto') {
         return {
           requested,
+          requestedProfile,
           applied: 'host',
+          appliedProfile: null,
           enforced: false,
           executionPrefix: [],
           fallbackReason: `${unsupportedReason} Using host process sandbox limits only.`,
@@ -326,7 +389,9 @@ const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
       }
       return {
         requested,
+        requestedProfile,
         applied: 'linux-strict',
+        appliedProfile: null,
         enforced: false,
         executionPrefix: [],
         fallbackReason: null,
@@ -335,7 +400,9 @@ const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
     }
     return {
       requested,
+      requestedProfile,
       applied: 'linux-strict',
+      appliedProfile,
       enforced: true,
       executionPrefix: linuxPrefix,
       fallbackReason: null,
@@ -345,26 +412,32 @@ const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
   if (requested === 'auto') {
     return {
       requested,
+      requestedProfile,
       applied: 'host',
+      appliedProfile: null,
       enforced: false,
       executionPrefix: [],
       fallbackReason:
         'OS-level containment adapter is not configured; set '
-        + 'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX to enable strict containment. '
+        + 'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX or '
+        + 'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE to enable strict containment. '
         + 'Using host process sandbox limits only.',
       unsupportedReason: null
     }
   }
   return {
     requested,
+    requestedProfile,
     applied: 'linux-strict',
+    appliedProfile: null,
     enforced: false,
     executionPrefix: [],
     fallbackReason: null,
     unsupportedReason:
       'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE=linux-strict requires '
-      + 'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX to be configured with a Linux containment launcher '
-      + '(for example: ["systemd-run","--scope","--user","--"]).'
+      + 'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX or '
+      + 'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE to be configured with a Linux containment launcher '
+      + '(for example prefix: ["systemd-run","--scope","--user","--"] or profile: "systemd-user-scope").'
   }
 }
 
@@ -896,7 +969,9 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         maxSourceBytes: resolveScriptMaxSourceBytes(),
         maxTmpBytes: resolveScriptMaxTmpBytes(),
         containmentModeRequested: containmentPolicy.requested,
+        containmentProfileRequested: containmentPolicy.requestedProfile,
         containmentModeApplied: containmentPolicy.applied,
+        containmentProfileApplied: containmentPolicy.appliedProfile,
         containmentEnforced: containmentPolicy.enforced,
         containmentFallbackReason: containmentPolicy.fallbackReason,
         sourceBytes,
@@ -945,7 +1020,9 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       maxSourceBytes,
       maxTmpBytes,
       containmentModeRequested: containmentPolicy.requested,
+      containmentProfileRequested: containmentPolicy.requestedProfile,
       containmentModeApplied: containmentPolicy.applied,
+      containmentProfileApplied: containmentPolicy.appliedProfile,
       containmentEnforced: containmentPolicy.enforced,
       containmentFallbackReason: containmentPolicy.fallbackReason,
       sourceBytes,
@@ -1006,7 +1083,9 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         + ` timeoutMs=${metadata.timeoutMs} maxOutputBytes=${metadata.maxOutputBytes}`
         + ` maxTmpBytes=${metadata.maxTmpBytes}`
         + ` containmentRequested=${metadata.containmentModeRequested}`
+        + ` containmentProfileRequested=${metadata.containmentProfileRequested}`
         + ` containmentApplied=${metadata.containmentModeApplied}`
+        + ` containmentProfileApplied=${metadata.containmentProfileApplied ?? '(none)'}`
         + ` containmentEnforced=${metadata.containmentEnforced}`
         + ` containmentFallback=${metadata.containmentFallbackReason ?? '(none)'}`
         + ` sourceBytes=${metadata.sourceBytes}/${metadata.maxSourceBytes}`
