@@ -217,7 +217,9 @@ const collectRunCompletionData = async (
           + ` executeMs=${result.metadata.executeDurationMs},`
           + ` teardownMs=${result.metadata.teardownDurationMs},`
           + ` maxOutputBytes=${result.metadata.maxOutputBytes},`
+          + ` maxTmpBytes=${result.metadata.maxTmpBytes},`
           + ` sourceBytes=${result.metadata.sourceBytes}/${result.metadata.maxSourceBytes},`
+          + ` tmpBytes=${result.metadata.tmpBytes},`
           + ` runtime=${result.metadata.runtimeCommand ?? '(none)'}`
           + (result.metadata.runtimeArgs.length > 0 ? ` ${result.metadata.runtimeArgs.join(' ')}` : '')
           + `, outputBytes=${result.metadata.stdoutBytes + result.metadata.stderrBytes}`

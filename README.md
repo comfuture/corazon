@@ -51,6 +51,7 @@ Workflow script sandbox runtime:
 - `CORAZON_WORKFLOW_SCRIPT_TIMEOUT_MS=60000` default timeout for script-language workflow runs
 - `CORAZON_WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES=256000` output cap for script-language workflow stdout/stderr
 - `CORAZON_WORKFLOW_SCRIPT_MAX_SOURCE_BYTES=64000` source-size cap for script-language workflow bodies
+- `CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES=8388608` temporary sandbox workspace cap for script-language workflow runs
 - `CORAZON_WORKFLOW_SCRIPT_ENV_ALLOWLIST=KEY_A,KEY_B` comma-separated host env keys allowed into script runtime
 - `CORAZON_WORKFLOW_PYTHON_BIN=python3` optional Python binary override for `language: python` workflows
 
@@ -67,6 +68,7 @@ Script sandbox triage quick map:
 - `errorCode=execution-timeout`: script exceeded `CORAZON_WORKFLOW_SCRIPT_TIMEOUT_MS`; check `executionDurationMs`, then reduce workload or raise timeout cautiously.
 - `errorCode=policy-violation` + `policyTrigger=output-size`: combined stdout/stderr exceeded `CORAZON_WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES`; reduce log volume or adjust output cap. If `outputTruncated=true`, captured logs were capped at the configured output budget.
 - `errorCode=policy-violation` + `policyTrigger=source-size`: workflow body exceeded `CORAZON_WORKFLOW_SCRIPT_MAX_SOURCE_BYTES`; move logic into smaller units or increase source-size cap cautiously.
+- `errorCode=policy-violation` + `policyTrigger=tmp-size`: script-created temporary workspace content exceeded `CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES`; reduce ephemeral file output or raise the tmp cap carefully.
 - `errorCode=provider-error` + `failurePhase=prepare`: provider/runtime bootstrap failed before script execution (for example missing runtime binary); verify runtime dependencies and provider config.
 - `errorCode=provider-error` + `failurePhase=execute`: provider failed after process start; use `executionDurationMs`, `terminationScope`, and runtime command metadata to inspect teardown and subprocess behavior.
 - `errorCode=execution-failed`: script process returned non-zero exit code; treat as script logic/runtime failure and inspect stderr with the captured metadata context.

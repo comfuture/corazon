@@ -376,6 +376,37 @@ const run = async () => {
     true
   )
 
+  const tmpPolicySource = serializeWorkflowSource(
+    baseFrontmatter('python'),
+    'from pathlib import Path\n'
+    + 'Path("payload.bin").write_bytes(b"x" * 6144)\n'
+    + 'print("tmp payload written")'
+  )
+  const tmpPolicyWorkflow = parseWorkflowSource({
+    fileSlug: 'python-tmp-policy',
+    filePath: '/tmp/python-tmp-policy.md',
+    source: tmpPolicySource,
+    updatedAt: Date.now()
+  })
+  const previousMaxTmp = process.env.CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES
+  process.env.CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES = '4096'
+  const tmpPolicyRun = await executeScriptWorkflowInSandbox({
+    definition: tmpPolicyWorkflow,
+    triggerType: 'workflow-dispatch',
+    triggerValue: 'manual'
+  })
+  if (typeof previousMaxTmp === 'string') {
+    process.env.CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES = previousMaxTmp
+  } else {
+    delete process.env.CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES
+  }
+  assert.equal(tmpPolicyRun.status, 'failed')
+  assert.equal(tmpPolicyRun.errorCode, 'policy-violation')
+  assert.match(tmpPolicyRun.errorMessage, /temporary workspace exceeded 4096 bytes/)
+  assert.equal(tmpPolicyRun.metadata.policyTriggered, 'tmp-size')
+  assert.equal(tmpPolicyRun.metadata.maxTmpBytes, 4096)
+  assert.equal(tmpPolicyRun.metadata.tmpBytes > 4096, true)
+
   const sourcePolicySource = serializeWorkflowSource(
     baseFrontmatter('python'),
     `print("${'x'.repeat(400)}")`

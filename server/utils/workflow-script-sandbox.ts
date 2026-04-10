@@ -1,4 +1,5 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import type { Dirent } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -65,7 +66,9 @@ export type WorkflowScriptExecutionMetadata = {
   timeoutMs: number
   maxOutputBytes: number
   maxSourceBytes: number
+  maxTmpBytes: number
   sourceBytes: number
+  tmpBytes: number
   allowedEnvKeys: string[]
   runtimeCommand: string | null
   runtimeArgs: string[]
@@ -75,7 +78,7 @@ export type WorkflowScriptExecutionMetadata = {
   outputTruncated: boolean
   terminationSignal: NodeJS.Signals | null
   terminationScope: 'none' | 'process' | 'process-group'
-  policyTriggered: 'none' | 'source-size' | 'output-size'
+  policyTriggered: 'none' | 'source-size' | 'output-size' | 'tmp-size'
   failurePhase: 'none' | 'prepare' | 'execute'
 }
 
@@ -100,6 +103,8 @@ const WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES_DEFAULT = 256_000
 const WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES_MIN = 1_024
 const WORKFLOW_SCRIPT_MAX_SOURCE_BYTES_DEFAULT = 64_000
 const WORKFLOW_SCRIPT_MAX_SOURCE_BYTES_MIN = 256
+const WORKFLOW_SCRIPT_MAX_TMP_BYTES_DEFAULT = 8 * 1024 * 1024
+const WORKFLOW_SCRIPT_MAX_TMP_BYTES_MIN = 4_096
 
 const resolveScriptTimeoutMs = () => {
   const raw = (process.env.CORAZON_WORKFLOW_SCRIPT_TIMEOUT_MS ?? '').trim()
@@ -140,6 +145,18 @@ const resolveScriptMaxSourceBytes = () => {
   const parsed = Number(raw)
   if (!Number.isFinite(parsed) || parsed < WORKFLOW_SCRIPT_MAX_SOURCE_BYTES_MIN) {
     return WORKFLOW_SCRIPT_MAX_SOURCE_BYTES_DEFAULT
+  }
+  return Math.floor(parsed)
+}
+
+const resolveScriptMaxTmpBytes = () => {
+  const raw = (process.env.CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES ?? '').trim()
+  if (raw === '') {
+    return WORKFLOW_SCRIPT_MAX_TMP_BYTES_DEFAULT
+  }
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < WORKFLOW_SCRIPT_MAX_TMP_BYTES_MIN) {
+    return WORKFLOW_SCRIPT_MAX_TMP_BYTES_DEFAULT
   }
   return Math.floor(parsed)
 }
@@ -228,6 +245,39 @@ const writeRunnableScript = async (
   await writeFile(scriptPath, transpiled, 'utf8')
 }
 
+const computeDirectoryBytes = async (directory: string) => {
+  let total = 0
+  const stack = [directory]
+  while (stack.length > 0) {
+    const current = stack.pop()
+    if (!current) {
+      continue
+    }
+    let entries: Dirent[]
+    try {
+      entries = await readdir(current, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      const entryPath = join(current, entry.name)
+      if (entry.isDirectory()) {
+        stack.push(entryPath)
+        continue
+      }
+      if (!entry.isFile()) {
+        continue
+      }
+      try {
+        total += (await stat(entryPath)).size
+      } catch {
+        // ignore transient file-system races while the script is still running
+      }
+    }
+  }
+  return total
+}
+
 const executeScriptProcess = async (
   command: string,
   args: string[],
@@ -236,6 +286,7 @@ const executeScriptProcess = async (
     timeoutMs: number
     maxOutputBytes: number
     envAllowlist: string[]
+    maxTmpBytes: number
   }
 ) => {
   type ProcessExecutionResult
@@ -250,6 +301,7 @@ const executeScriptProcess = async (
       outputTruncated: boolean
       terminationSignal: NodeJS.Signals | null
       terminationScope: 'none' | 'process' | 'process-group'
+      tmpBytes: number
     }
     | {
       status: 'failed'
@@ -264,6 +316,7 @@ const executeScriptProcess = async (
       outputTruncated: boolean
       terminationSignal: NodeJS.Signals | null
       terminationScope: 'none' | 'process' | 'process-group'
+      tmpBytes: number
     }
 
   const startedAt = Date.now()
@@ -322,6 +375,19 @@ const executeScriptProcess = async (
     const totalOutputBytes = () => stdoutBytes + stderrBytes
     let outputLimitExceeded = false
     let outputLimitStream: 'stdout' | 'stderr' | null = null
+    let tmpLimitExceeded = false
+    let tmpBytes = 0
+
+    const observeTmpUsage = async () => {
+      tmpBytes = await computeDirectoryBytes(options.cwd)
+      if (tmpLimitExceeded) {
+        return
+      }
+      if (tmpBytes > options.maxTmpBytes) {
+        tmpLimitExceeded = true
+        killExecution('SIGKILL')
+      }
+    }
 
     const enforceOutputLimit = (stream: 'stdout' | 'stderr') => {
       if (outputLimitExceeded) {
@@ -355,9 +421,13 @@ const executeScriptProcess = async (
       timedOut = true
       killExecution('SIGKILL')
     }, options.timeoutMs)
+    const tmpUsageHandle = setInterval(() => {
+      void observeTmpUsage()
+    }, 100)
 
     child.on('error', (error) => {
       clearTimeout(timeoutHandle)
+      clearInterval(tmpUsageHandle)
       resolve({
         status: 'failed',
         errorCode: 'provider-error',
@@ -370,12 +440,35 @@ const executeScriptProcess = async (
         stderrBytes,
         outputTruncated,
         terminationSignal: null,
-        terminationScope
+        terminationScope,
+        tmpBytes
       })
     })
 
-    child.on('close', (exitCode, signal) => {
+    child.on('close', async (exitCode, signal) => {
       clearTimeout(timeoutHandle)
+      clearInterval(tmpUsageHandle)
+      await observeTmpUsage()
+      if (tmpLimitExceeded) {
+        resolve({
+          status: 'failed',
+          errorCode: 'policy-violation',
+          errorMessage:
+            `Workflow script temporary workspace exceeded ${options.maxTmpBytes} bytes `
+            + `(${tmpBytes} bytes observed).`,
+          stdout,
+          stderr,
+          exitCode: null,
+          durationMs: Date.now() - startedAt,
+          stdoutBytes,
+          stderrBytes,
+          outputTruncated,
+          terminationSignal: signal,
+          terminationScope,
+          tmpBytes
+        })
+        return
+      }
       if (outputLimitExceeded) {
         resolve({
           status: 'failed',
@@ -391,7 +484,8 @@ const executeScriptProcess = async (
           stderrBytes,
           outputTruncated,
           terminationSignal: signal,
-          terminationScope
+          terminationScope,
+          tmpBytes
         })
         return
       }
@@ -409,7 +503,8 @@ const executeScriptProcess = async (
           stderrBytes,
           outputTruncated,
           terminationSignal: signal,
-          terminationScope
+          terminationScope,
+          tmpBytes
         })
         return
       }
@@ -427,7 +522,8 @@ const executeScriptProcess = async (
           stderrBytes,
           outputTruncated,
           terminationSignal: signal,
-          terminationScope
+          terminationScope,
+          tmpBytes
         })
         return
       }
@@ -442,7 +538,8 @@ const executeScriptProcess = async (
         stderrBytes,
         outputTruncated,
         terminationSignal: signal,
-        terminationScope
+        terminationScope,
+        tmpBytes
       })
     })
   })
@@ -468,7 +565,9 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         timeoutMs: resolveScriptTimeoutMs(),
         maxOutputBytes: resolveScriptMaxOutputBytes(),
         maxSourceBytes: resolveScriptMaxSourceBytes(),
+        maxTmpBytes: resolveScriptMaxTmpBytes(),
         sourceBytes,
+        tmpBytes: 0,
         allowedEnvKeys: resolveScriptEnvAllowlist(),
         runtimeCommand: null,
         runtimeArgs: [],
@@ -497,6 +596,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
     const timeoutMs = resolveScriptTimeoutMs()
     const maxOutputBytes = resolveScriptMaxOutputBytes()
     const maxSourceBytes = resolveScriptMaxSourceBytes()
+    const maxTmpBytes = resolveScriptMaxTmpBytes()
     const envAllowlist = resolveScriptEnvAllowlist()
     const metadata: WorkflowScriptExecutionMetadata = {
       providerId: 'local',
@@ -509,7 +609,9 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       timeoutMs,
       maxOutputBytes,
       maxSourceBytes,
+      maxTmpBytes,
       sourceBytes,
+      tmpBytes: 0,
       allowedEnvKeys: [...envAllowlist],
       runtimeCommand: null,
       runtimeArgs: [],
@@ -548,6 +650,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         `[workflow-script-sandbox] provider=${metadata.providerId} phase=prepare`
         + ` language=${metadata.language} trigger=${metadata.triggerType}`
         + ` timeoutMs=${metadata.timeoutMs} maxOutputBytes=${metadata.maxOutputBytes}`
+        + ` maxTmpBytes=${metadata.maxTmpBytes}`
         + ` sourceBytes=${metadata.sourceBytes}/${metadata.maxSourceBytes}`
         + ` allowEnv=${metadata.allowedEnvKeys.join(',') || '(none)'}`
       )
@@ -566,18 +669,22 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         cwd: tempDirectory,
         timeoutMs,
         maxOutputBytes,
-        envAllowlist
+        envAllowlist,
+        maxTmpBytes
       })
       metadata.stdoutBytes = executionResult.stdoutBytes
       metadata.stderrBytes = executionResult.stderrBytes
       metadata.totalOutputBytes = executionResult.stdoutBytes + executionResult.stderrBytes
       metadata.outputTruncated = executionResult.outputTruncated
+      metadata.tmpBytes = executionResult.tmpBytes
       metadata.terminationSignal = executionResult.terminationSignal
       metadata.terminationScope = executionResult.terminationScope
       metadata.executionDurationMs = executionResult.durationMs
       metadata.executeDurationMs = executionResult.durationMs
       if (executionResult.status === 'failed' && executionResult.errorCode === 'policy-violation') {
-        metadata.policyTriggered = 'output-size'
+        metadata.policyTriggered = executionResult.errorMessage.includes('temporary workspace exceeded')
+          ? 'tmp-size'
+          : 'output-size'
       }
       if (executionResult.status === 'failed' && executionResult.errorCode === 'provider-error') {
         metadata.failurePhase = 'execute'
@@ -586,6 +693,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         `[workflow-script-sandbox] provider=${metadata.providerId} phase=teardown`
         + ` status=${executionResult.status} durationMs=${executionResult.durationMs}`
         + ` stdoutBytes=${executionResult.stdoutBytes} stderrBytes=${executionResult.stderrBytes}`
+        + ` tmpBytes=${executionResult.tmpBytes}`
         + ` signal=${executionResult.terminationSignal ?? '(none)'}`
         + ` terminationScope=${executionResult.terminationScope}`
         + (executionResult.status === 'failed'
