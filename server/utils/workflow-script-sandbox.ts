@@ -118,6 +118,7 @@ type WorkflowScriptContainmentPolicy = {
   requested: WorkflowScriptContainmentMode
   applied: WorkflowScriptContainmentAppliedMode
   enforced: boolean
+  executionPrefix: string[]
   fallbackReason: string | null
   unsupportedReason: string | null
 }
@@ -185,13 +186,103 @@ const resolveScriptContainmentMode = (): WorkflowScriptContainmentMode => {
   return WORKFLOW_SCRIPT_CONTAINMENT_MODE_DEFAULT
 }
 
+const resolveScriptContainmentLinuxPrefix = () => {
+  const raw = (process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX ?? '').trim()
+  if (raw === '') {
+    return { args: [] as string[], error: null as string | null }
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return {
+      args: [],
+      error:
+        'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX must be a JSON string array '
+        + '(for example: ["systemd-run","--scope","--user","--"]).'
+    }
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    return {
+      args: [],
+      error:
+        'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX must be a non-empty JSON string array.'
+    }
+  }
+  const args = parsed
+    .map(item => typeof item === 'string' ? item.trim() : '')
+    .filter(Boolean)
+  if (args.length === 0) {
+    return {
+      args: [],
+      error:
+        'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX must include at least one non-empty command token.'
+    }
+  }
+  return { args, error: null as string | null }
+}
+
 const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
   const requested = resolveScriptContainmentMode()
+  const { args: linuxPrefix, error: linuxPrefixError } = resolveScriptContainmentLinuxPrefix()
+  if (requested === 'linux-strict' && process.platform !== 'linux') {
+    return {
+      requested,
+      applied: 'linux-strict',
+      enforced: false,
+      executionPrefix: [],
+      fallbackReason: null,
+      unsupportedReason:
+        'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE=linux-strict requires a Linux host.'
+    }
+  }
   if (requested === 'host') {
     return {
       requested,
       applied: 'host',
       enforced: false,
+      executionPrefix: [],
+      fallbackReason: null,
+      unsupportedReason: null
+    }
+  }
+  if (process.platform !== 'linux') {
+    return {
+      requested,
+      applied: 'host',
+      enforced: false,
+      executionPrefix: [],
+      fallbackReason:
+        `OS-level containment is Linux-only; using host process sandbox limits on ${process.platform}.`,
+      unsupportedReason: null
+    }
+  }
+  if (linuxPrefixError !== null) {
+    if (requested === 'auto') {
+      return {
+        requested,
+        applied: 'host',
+        enforced: false,
+        executionPrefix: [],
+        fallbackReason: `${linuxPrefixError} Using host process sandbox limits only.`,
+        unsupportedReason: null
+      }
+    }
+    return {
+      requested,
+      applied: 'linux-strict',
+      enforced: false,
+      executionPrefix: [],
+      fallbackReason: null,
+      unsupportedReason: linuxPrefixError
+    }
+  }
+  if (linuxPrefix.length > 0) {
+    return {
+      requested,
+      applied: 'linux-strict',
+      enforced: true,
+      executionPrefix: linuxPrefix,
       fallbackReason: null,
       unsupportedReason: null
     }
@@ -201,8 +292,11 @@ const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
       requested,
       applied: 'host',
       enforced: false,
+      executionPrefix: [],
       fallbackReason:
-        'OS-level containment adapter is not configured; using host process sandbox limits only.',
+        'OS-level containment adapter is not configured; set '
+        + 'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX to enable strict containment. '
+        + 'Using host process sandbox limits only.',
       unsupportedReason: null
     }
   }
@@ -210,10 +304,30 @@ const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
     requested,
     applied: 'linux-strict',
     enforced: false,
+    executionPrefix: [],
     fallbackReason: null,
     unsupportedReason:
-      'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE=linux-strict is not yet supported by '
-      + 'the local sandbox provider. Use "auto" or "host" until an OS-level adapter is implemented.'
+      'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE=linux-strict requires '
+      + 'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX to be configured with a Linux containment launcher '
+      + '(for example: ["systemd-run","--scope","--user","--"]).'
+  }
+}
+
+const resolveScriptRuntimeWithContainment = (
+  containmentPolicy: WorkflowScriptContainmentPolicy,
+  runtime: { command: string, args: string[] }
+) => {
+  if (!containmentPolicy.enforced || containmentPolicy.executionPrefix.length === 0) {
+    return runtime
+  }
+  const prefixCommand = containmentPolicy.executionPrefix[0]
+  if (!prefixCommand) {
+    return runtime
+  }
+  const prefixArgs = containmentPolicy.executionPrefix.slice(1)
+  return {
+    command: prefixCommand,
+    args: [...prefixArgs, runtime.command, ...runtime.args]
   }
 }
 
@@ -837,23 +951,28 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         context.definition.instruction
       )
       const runtime = resolveScriptBinaryByLanguage(language)
+      const runtimeWithContainment = resolveScriptRuntimeWithContainment(containmentPolicy, runtime)
       metadata.prepareDurationMs = Date.now() - startedAt
-      metadata.runtimeCommand = runtime.command
-      metadata.runtimeArgs = [...runtime.args]
+      metadata.runtimeCommand = runtimeWithContainment.command
+      metadata.runtimeArgs = [...runtimeWithContainment.args]
       executionPhase = 'execute'
       executeStartedAt = Date.now()
       console.info(
         `[workflow-script-sandbox] provider=${metadata.providerId} phase=execute-start`
-        + ` command=${runtime.command} args=${runtime.args.join(' ') || '(none)'}`
+        + ` command=${runtimeWithContainment.command}`
+        + ` args=${runtimeWithContainment.args.join(' ') || '(none)'}`
       )
-      const executionResult = await executeScriptProcess(runtime.command, runtime.args, {
-        cwd: tempDirectory,
-        timeoutMs,
-        maxOutputBytes,
-        envAllowlist,
-        maxTmpBytes,
-        ignoredTmpFilePaths: [runnerScriptPath]
-      })
+      const executionResult = await executeScriptProcess(
+        runtimeWithContainment.command,
+        runtimeWithContainment.args,
+        {
+          cwd: tempDirectory,
+          timeoutMs,
+          maxOutputBytes,
+          envAllowlist,
+          maxTmpBytes,
+          ignoredTmpFilePaths: [runnerScriptPath]
+        })
       metadata.stdoutBytes = executionResult.stdoutBytes
       metadata.stderrBytes = executionResult.stderrBytes
       metadata.totalOutputBytes = executionResult.stdoutBytes + executionResult.stderrBytes

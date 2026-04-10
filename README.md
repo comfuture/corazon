@@ -53,6 +53,7 @@ Workflow script sandbox runtime:
 - `CORAZON_WORKFLOW_SCRIPT_MAX_SOURCE_BYTES=64000` source-size cap for script-language workflow bodies
 - `CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES=8388608` temporary sandbox workspace cap for script-language workflow runs
 - `CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE=host` containment policy (`host`, `auto`, or `linux-strict`)
+- `CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX=["systemd-run","--scope","--user","--"]` Linux containment launcher prefix used when `auto`/`linux-strict` enables strict containment
 - `CORAZON_WORKFLOW_SCRIPT_ENV_ALLOWLIST=KEY_A,KEY_B` comma-separated host env keys allowed into script runtime
 - `CORAZON_WORKFLOW_PYTHON_BIN=python3` optional Python binary override for `language: python` workflows
 
@@ -62,6 +63,7 @@ Note:
 - Script runtime now pins `HOME` and `TMPDIR` to the per-run temporary sandbox directory instead of inheriting host home paths.
 - Script runs expose provider metadata (`provider`, `language`, `trigger`, timeout/output/source policy) in failure summaries for faster triage.
 - Script metadata now includes containment policy fields (`containmentModeRequested`, `containmentModeApplied`, `containmentEnforced`, `containmentFallbackReason`) so fallback/strict-mode outcomes are explicit in run records.
+- On Linux, strict containment can be activated by configuring `CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX` (JSON array command prefix). In strict mode, missing/invalid prefix fails in `prepare`; in `auto`, it falls back to host mode with a reason.
 - Failure summaries also include `failurePhase` (`prepare`/`execute`) for `provider-error` cases to separate setup/runtime bootstrap failures from script logic failures.
 - Script sandbox metadata now includes phase-level timing (`prepareDurationMs`, `executeDurationMs`, `teardownDurationMs`) plus `executionDurationMs` and `outputTruncated`; failure summaries include these values for faster policy/provider triage without log scraping.
 - Managed sandbox providers are planned as follow-up adapters behind the same provider interface.
@@ -72,7 +74,7 @@ Script sandbox triage quick map:
 - `errorCode=policy-violation` + `policyTrigger=source-size`: workflow body exceeded `CORAZON_WORKFLOW_SCRIPT_MAX_SOURCE_BYTES`; move logic into smaller units or increase source-size cap cautiously.
 - `errorCode=policy-violation` + `policyTrigger=tmp-size`: script-created temporary workspace content exceeded `CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES`; reduce ephemeral file output or raise the tmp cap carefully.
 - `errorCode=provider-error` + `failurePhase=prepare`: provider/runtime bootstrap failed before script execution (for example missing runtime binary); verify runtime dependencies and provider config.
-- `errorCode=provider-error` + `failurePhase=prepare` + `containmentModeRequested=linux-strict`: strict containment was requested but no OS-level adapter is available yet; use `auto` for graceful fallback or `host` for explicit host-mode.
+- `errorCode=provider-error` + `failurePhase=prepare` + `containmentModeRequested=linux-strict`: strict containment was requested but Linux containment prefix configuration was invalid/missing, or the host is not Linux.
 - `errorCode=provider-error` + `failurePhase=execute`: provider failed after process start; use `executionDurationMs`, `terminationScope`, and runtime command metadata to inspect teardown and subprocess behavior.
 - `errorCode=execution-failed`: script process returned non-zero exit code; treat as script logic/runtime failure and inspect stderr with the captured metadata context.
 

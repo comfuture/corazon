@@ -200,6 +200,8 @@ const run = async () => {
   )
 
   const previousContainmentMode = process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE
+  const previousContainmentPrefix = process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX
+  delete process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX
   process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'auto'
   const autoContainmentRun = await executeScriptWorkflowInSandbox({
     definition: python,
@@ -221,11 +223,6 @@ const run = async () => {
     triggerType: 'workflow-dispatch',
     triggerValue: 'manual'
   })
-  if (typeof previousContainmentMode === 'string') {
-    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = previousContainmentMode
-  } else {
-    delete process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE
-  }
   assert.equal(strictContainmentRun.status, 'failed')
   assert.equal(strictContainmentRun.errorCode, 'provider-error')
   assert.equal(strictContainmentRun.metadata.failurePhase, 'prepare')
@@ -233,7 +230,34 @@ const run = async () => {
   assert.equal(strictContainmentRun.metadata.containmentModeApplied, 'linux-strict')
   assert.equal(strictContainmentRun.metadata.containmentEnforced, false)
   assert.equal(strictContainmentRun.metadata.containmentFallbackReason, null)
-  assert.match(strictContainmentRun.errorMessage, /not yet supported/)
+  assert.match(strictContainmentRun.errorMessage, /CONTAINMENT_LINUX_PREFIX/)
+
+  if (process.platform === 'linux') {
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX = '["env"]'
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'linux-strict'
+    const strictContainmentWithPrefixRun = await executeScriptWorkflowInSandbox({
+      definition: python,
+      triggerType: 'workflow-dispatch',
+      triggerValue: 'manual'
+    })
+    assert.equal(strictContainmentWithPrefixRun.status, 'completed')
+    assert.equal(strictContainmentWithPrefixRun.metadata.containmentModeRequested, 'linux-strict')
+    assert.equal(strictContainmentWithPrefixRun.metadata.containmentModeApplied, 'linux-strict')
+    assert.equal(strictContainmentWithPrefixRun.metadata.containmentEnforced, true)
+    assert.equal(strictContainmentWithPrefixRun.metadata.containmentFallbackReason, null)
+    assert.equal(strictContainmentWithPrefixRun.metadata.runtimeCommand, 'env')
+    assert.deepEqual(strictContainmentWithPrefixRun.metadata.runtimeArgs.slice(0, 2), ['python3', 'script.py'])
+  }
+  if (typeof previousContainmentMode === 'string') {
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = previousContainmentMode
+  } else {
+    delete process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE
+  }
+  if (typeof previousContainmentPrefix === 'string') {
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX = previousContainmentPrefix
+  } else {
+    delete process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX
+  }
 
   const envPolicySource = serializeWorkflowSource(
     baseFrontmatter('python'),
