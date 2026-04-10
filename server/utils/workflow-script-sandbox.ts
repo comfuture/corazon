@@ -67,6 +67,10 @@ export type WorkflowScriptExecutionMetadata = {
   maxOutputBytes: number
   maxSourceBytes: number
   maxTmpBytes: number
+  containmentModeRequested: WorkflowScriptContainmentMode
+  containmentModeApplied: WorkflowScriptContainmentAppliedMode
+  containmentEnforced: boolean
+  containmentFallbackReason: string | null
   sourceBytes: number
   tmpBytes: number
   allowedEnvKeys: string[]
@@ -81,6 +85,9 @@ export type WorkflowScriptExecutionMetadata = {
   policyTriggered: 'none' | 'source-size' | 'output-size' | 'tmp-size'
   failurePhase: 'none' | 'prepare' | 'execute'
 }
+
+export type WorkflowScriptContainmentMode = 'host' | 'auto' | 'linux-strict'
+export type WorkflowScriptContainmentAppliedMode = 'host' | 'linux-strict'
 
 export type WorkflowScriptSandboxProvider = {
   id: WorkflowScriptSandboxProviderId
@@ -105,6 +112,15 @@ const WORKFLOW_SCRIPT_MAX_SOURCE_BYTES_DEFAULT = 64_000
 const WORKFLOW_SCRIPT_MAX_SOURCE_BYTES_MIN = 256
 const WORKFLOW_SCRIPT_MAX_TMP_BYTES_DEFAULT = 8 * 1024 * 1024
 const WORKFLOW_SCRIPT_MAX_TMP_BYTES_MIN = 4_096
+const WORKFLOW_SCRIPT_CONTAINMENT_MODE_DEFAULT: WorkflowScriptContainmentMode = 'host'
+
+type WorkflowScriptContainmentPolicy = {
+  requested: WorkflowScriptContainmentMode
+  applied: WorkflowScriptContainmentAppliedMode
+  enforced: boolean
+  fallbackReason: string | null
+  unsupportedReason: string | null
+}
 
 const resolveScriptTimeoutMs = () => {
   const raw = (process.env.CORAZON_WORKFLOW_SCRIPT_TIMEOUT_MS ?? '').trim()
@@ -159,6 +175,46 @@ const resolveScriptMaxTmpBytes = () => {
     return WORKFLOW_SCRIPT_MAX_TMP_BYTES_DEFAULT
   }
   return Math.floor(parsed)
+}
+
+const resolveScriptContainmentMode = (): WorkflowScriptContainmentMode => {
+  const raw = (process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE ?? '').trim().toLowerCase()
+  if (raw === 'auto' || raw === 'linux-strict' || raw === 'host') {
+    return raw
+  }
+  return WORKFLOW_SCRIPT_CONTAINMENT_MODE_DEFAULT
+}
+
+const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
+  const requested = resolveScriptContainmentMode()
+  if (requested === 'host') {
+    return {
+      requested,
+      applied: 'host',
+      enforced: false,
+      fallbackReason: null,
+      unsupportedReason: null
+    }
+  }
+  if (requested === 'auto') {
+    return {
+      requested,
+      applied: 'host',
+      enforced: false,
+      fallbackReason:
+        'OS-level containment adapter is not configured; using host process sandbox limits only.',
+      unsupportedReason: null
+    }
+  }
+  return {
+    requested,
+    applied: 'linux-strict',
+    enforced: false,
+    fallbackReason: null,
+    unsupportedReason:
+      'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE=linux-strict is not yet supported by '
+      + 'the local sandbox provider. Use "auto" or "host" until an OS-level adapter is implemented.'
+  }
 }
 
 const resolveScriptEnvAllowlist = () => {
@@ -644,6 +700,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
   async execute(context) {
     const startedAt = Date.now()
     const sourceBytes = Buffer.byteLength(context.definition.instruction, 'utf8')
+    const containmentPolicy = resolveScriptContainmentPolicy()
     if (context.definition.frontmatter.language === 'markdown') {
       const metadata: WorkflowScriptExecutionMetadata = {
         providerId: 'local',
@@ -657,6 +714,10 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         maxOutputBytes: resolveScriptMaxOutputBytes(),
         maxSourceBytes: resolveScriptMaxSourceBytes(),
         maxTmpBytes: resolveScriptMaxTmpBytes(),
+        containmentModeRequested: containmentPolicy.requested,
+        containmentModeApplied: containmentPolicy.applied,
+        containmentEnforced: containmentPolicy.enforced,
+        containmentFallbackReason: containmentPolicy.fallbackReason,
         sourceBytes,
         tmpBytes: 0,
         allowedEnvKeys: resolveScriptEnvAllowlist(),
@@ -689,6 +750,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
     const maxSourceBytes = resolveScriptMaxSourceBytes()
     const maxTmpBytes = resolveScriptMaxTmpBytes()
     const envAllowlist = resolveScriptEnvAllowlist()
+
     const metadata: WorkflowScriptExecutionMetadata = {
       providerId: 'local',
       language,
@@ -701,6 +763,10 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       maxOutputBytes,
       maxSourceBytes,
       maxTmpBytes,
+      containmentModeRequested: containmentPolicy.requested,
+      containmentModeApplied: containmentPolicy.applied,
+      containmentEnforced: containmentPolicy.enforced,
+      containmentFallbackReason: containmentPolicy.fallbackReason,
       sourceBytes,
       tmpBytes: 0,
       allowedEnvKeys: [...envAllowlist],
@@ -714,6 +780,22 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       terminationScope: 'none',
       policyTriggered: 'none',
       failurePhase: 'none'
+    }
+    if (containmentPolicy.unsupportedReason !== null) {
+      metadata.failurePhase = 'prepare'
+      const durationMs = Date.now() - startedAt
+      metadata.executionDurationMs = durationMs
+      metadata.prepareDurationMs = durationMs
+      return {
+        status: 'failed',
+        errorCode: 'provider-error',
+        errorMessage: containmentPolicy.unsupportedReason,
+        stdout: '',
+        stderr: '',
+        exitCode: null,
+        durationMs,
+        metadata
+      }
     }
     if (sourceBytes > maxSourceBytes) {
       metadata.policyTriggered = 'source-size'
@@ -742,6 +824,10 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         + ` language=${metadata.language} trigger=${metadata.triggerType}`
         + ` timeoutMs=${metadata.timeoutMs} maxOutputBytes=${metadata.maxOutputBytes}`
         + ` maxTmpBytes=${metadata.maxTmpBytes}`
+        + ` containmentRequested=${metadata.containmentModeRequested}`
+        + ` containmentApplied=${metadata.containmentModeApplied}`
+        + ` containmentEnforced=${metadata.containmentEnforced}`
+        + ` containmentFallback=${metadata.containmentFallbackReason ?? '(none)'}`
         + ` sourceBytes=${metadata.sourceBytes}/${metadata.maxSourceBytes}`
         + ` allowEnv=${metadata.allowedEnvKeys.join(',') || '(none)'}`
       )

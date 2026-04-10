@@ -130,6 +130,10 @@ const run = async () => {
   assert.equal(completedScriptRun.metadata.runtimeCommand, 'node')
   assert.deepEqual(completedScriptRun.metadata.runtimeArgs, ['script.mjs'])
   assert.equal(completedScriptRun.metadata.policyTriggered, 'none')
+  assert.equal(completedScriptRun.metadata.containmentModeRequested, 'host')
+  assert.equal(completedScriptRun.metadata.containmentModeApplied, 'host')
+  assert.equal(completedScriptRun.metadata.containmentEnforced, false)
+  assert.equal(completedScriptRun.metadata.containmentFallbackReason, null)
   assert.equal(completedScriptRun.metadata.terminationScope, 'none')
   assert.equal(completedScriptRun.metadata.outputTruncated, false)
   assert.equal(completedScriptRun.metadata.executionDurationMs, completedScriptRun.durationMs)
@@ -194,6 +198,42 @@ const run = async () => {
     'completed',
     'empty sandbox provider env should fall back to local provider'
   )
+
+  const previousContainmentMode = process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE
+  process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'auto'
+  const autoContainmentRun = await executeScriptWorkflowInSandbox({
+    definition: python,
+    triggerType: 'workflow-dispatch',
+    triggerValue: 'manual'
+  })
+  assert.equal(autoContainmentRun.status, 'completed')
+  assert.equal(autoContainmentRun.metadata.containmentModeRequested, 'auto')
+  assert.equal(autoContainmentRun.metadata.containmentModeApplied, 'host')
+  assert.equal(autoContainmentRun.metadata.containmentEnforced, false)
+  assert.match(
+    autoContainmentRun.metadata.containmentFallbackReason ?? '',
+    /OS-level containment adapter is not configured/
+  )
+
+  process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'linux-strict'
+  const strictContainmentRun = await executeScriptWorkflowInSandbox({
+    definition: python,
+    triggerType: 'workflow-dispatch',
+    triggerValue: 'manual'
+  })
+  if (typeof previousContainmentMode === 'string') {
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = previousContainmentMode
+  } else {
+    delete process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE
+  }
+  assert.equal(strictContainmentRun.status, 'failed')
+  assert.equal(strictContainmentRun.errorCode, 'provider-error')
+  assert.equal(strictContainmentRun.metadata.failurePhase, 'prepare')
+  assert.equal(strictContainmentRun.metadata.containmentModeRequested, 'linux-strict')
+  assert.equal(strictContainmentRun.metadata.containmentModeApplied, 'linux-strict')
+  assert.equal(strictContainmentRun.metadata.containmentEnforced, false)
+  assert.equal(strictContainmentRun.metadata.containmentFallbackReason, null)
+  assert.match(strictContainmentRun.errorMessage, /not yet supported/)
 
   const envPolicySource = serializeWorkflowSource(
     baseFrontmatter('python'),
