@@ -53,7 +53,7 @@ Workflow script sandbox runtime:
 - `CORAZON_WORKFLOW_SCRIPT_MAX_SOURCE_BYTES=64000` source-size cap for script-language workflow bodies
 - `CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES=8388608` temporary sandbox workspace cap for script-language workflow runs
 - `CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE=host` containment policy (`host`, `auto`, or `linux-strict`)
-- `CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX=["systemd-run","--scope","--user","--"]` Linux containment launcher prefix used when `auto`/`linux-strict` enables strict containment
+- `CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX=["systemd-run","--scope","--user","--"]` Linux containment launcher prefix used when `auto`/`linux-strict` enables strict containment (`PATH` command or absolute executable path; slash-separated relative paths are rejected)
 - `CORAZON_WORKFLOW_SCRIPT_ENV_ALLOWLIST=KEY_A,KEY_B` comma-separated host env keys allowed into script runtime
 - `CORAZON_WORKFLOW_PYTHON_BIN=python3` optional Python binary override for `language: python` workflows
 

@@ -278,6 +278,37 @@ const run = async () => {
     assert.equal(strictContainmentWithPrefixRun.metadata.containmentFallbackReason, null)
     assert.equal(strictContainmentWithPrefixRun.metadata.runtimeCommand, 'env')
     assert.deepEqual(strictContainmentWithPrefixRun.metadata.runtimeArgs.slice(0, 2), ['python3', 'script.py'])
+
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX = '["./__corazon_relative_containment__"]'
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'auto'
+    const autoContainmentRelativePrefixRun = await executeScriptWorkflowInSandbox({
+      definition: python,
+      triggerType: 'workflow-dispatch',
+      triggerValue: 'manual'
+    })
+    assert.equal(autoContainmentRelativePrefixRun.status, 'completed')
+    assert.equal(autoContainmentRelativePrefixRun.metadata.containmentModeRequested, 'auto')
+    assert.equal(autoContainmentRelativePrefixRun.metadata.containmentModeApplied, 'host')
+    assert.equal(autoContainmentRelativePrefixRun.metadata.containmentEnforced, false)
+    assert.match(
+      autoContainmentRelativePrefixRun.metadata.containmentFallbackReason ?? '',
+      /must be an absolute executable path/
+    )
+
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'linux-strict'
+    const strictContainmentRelativePrefixRun = await executeScriptWorkflowInSandbox({
+      definition: python,
+      triggerType: 'workflow-dispatch',
+      triggerValue: 'manual'
+    })
+    assert.equal(strictContainmentRelativePrefixRun.status, 'failed')
+    assert.equal(strictContainmentRelativePrefixRun.errorCode, 'provider-error')
+    assert.equal(strictContainmentRelativePrefixRun.metadata.failurePhase, 'prepare')
+    assert.equal(strictContainmentRelativePrefixRun.metadata.containmentModeRequested, 'linux-strict')
+    assert.equal(strictContainmentRelativePrefixRun.metadata.containmentModeApplied, 'linux-strict')
+    assert.equal(strictContainmentRelativePrefixRun.metadata.containmentEnforced, false)
+    assert.equal(strictContainmentRelativePrefixRun.metadata.containmentFallbackReason, null)
+    assert.match(strictContainmentRelativePrefixRun.errorMessage, /must be an absolute executable path/)
   }
   if (typeof previousContainmentMode === 'string') {
     process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = previousContainmentMode
@@ -499,6 +530,35 @@ const run = async () => {
     'runner-generated script artifacts should not count against tmp usage policy'
   )
   assert.equal(runnerArtifactExcludeRun.metadata.policyTriggered, 'none')
+
+  const runnerArtifactGrowthSource = serializeWorkflowSource(
+    baseFrontmatter('typescript'),
+    'import { appendFileSync } from "node:fs"\n'
+    + 'appendFileSync(process.argv[1] ?? "script.mjs", "x".repeat(6000))\n'
+    + 'console.log("runner artifact expanded")'
+  )
+  const runnerArtifactGrowthWorkflow = parseWorkflowSource({
+    fileSlug: 'typescript-tmp-runner-artifact-growth',
+    filePath: '/tmp/typescript-tmp-runner-artifact-growth.md',
+    source: runnerArtifactGrowthSource,
+    updatedAt: Date.now()
+  })
+  const previousMaxTmpForRunnerGrowth = process.env.CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES
+  process.env.CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES = '4096'
+  const runnerArtifactGrowthRun = await executeScriptWorkflowInSandbox({
+    definition: runnerArtifactGrowthWorkflow,
+    triggerType: 'workflow-dispatch',
+    triggerValue: 'manual'
+  })
+  if (typeof previousMaxTmpForRunnerGrowth === 'string') {
+    process.env.CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES = previousMaxTmpForRunnerGrowth
+  } else {
+    delete process.env.CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES
+  }
+  assert.equal(runnerArtifactGrowthRun.status, 'failed')
+  assert.equal(runnerArtifactGrowthRun.errorCode, 'policy-violation')
+  assert.match(runnerArtifactGrowthRun.errorMessage, /temporary workspace exceeded 4096 bytes/)
+  assert.equal(runnerArtifactGrowthRun.metadata.policyTriggered, 'tmp-size')
 
   const tmpPolicySource = serializeWorkflowSource(
     baseFrontmatter('python'),

@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
 import { accessSync, constants as fsConstants } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { spawn } from 'node:child_process'
 import type {
   WorkflowDefinition,
@@ -225,6 +225,9 @@ const resolveScriptContainmentLinuxPrefix = () => {
 
 const isExecutableOnPath = (command: string) => {
   if (command.includes('/') || command.includes('\\')) {
+    if (!isAbsolute(command)) {
+      return false
+    }
     try {
       accessSync(command, fsConstants.X_OK)
       return true
@@ -304,7 +307,10 @@ const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
   if (linuxPrefix.length > 0) {
     const containmentCommand = linuxPrefix[0] ?? ''
     if (!isExecutableOnPath(containmentCommand)) {
-      const unsupportedReason = `Configured Linux containment launcher "${containmentCommand}" is not executable or not found on PATH.`
+      const unsupportedReason = (containmentCommand.includes('/') || containmentCommand.includes('\\'))
+        && !isAbsolute(containmentCommand)
+        ? `Configured Linux containment launcher "${containmentCommand}" must be an absolute executable path when using slash-separated commands.`
+        : `Configured Linux containment launcher "${containmentCommand}" is not executable or not found on PATH.`
       if (requested === 'auto') {
         return {
           requested,
@@ -468,7 +474,7 @@ const isIgnorableTmpUsageError = (error: unknown) =>
 const computeDirectoryBytes = async (
   directory: string,
   options: {
-    ignoredFilePaths: Set<string>
+    ignoredFileBaselines: Map<string, number>
   }
 ) => {
   let total = 0
@@ -489,9 +495,6 @@ const computeDirectoryBytes = async (
     }
     for (const entry of entries) {
       const entryPath = join(current, entry.name)
-      if (options.ignoredFilePaths.has(entryPath)) {
-        continue
-      }
       if (entry.isDirectory()) {
         stack.push(entryPath)
         continue
@@ -500,7 +503,13 @@ const computeDirectoryBytes = async (
         continue
       }
       try {
-        total += (await stat(entryPath)).size
+        const fileSize = (await stat(entryPath)).size
+        const baselineBytes = options.ignoredFileBaselines.get(entryPath)
+        if (typeof baselineBytes === 'number') {
+          total += Math.max(fileSize - baselineBytes, 0)
+          continue
+        }
+        total += fileSize
       } catch (error) {
         if (isIgnorableTmpUsageError(error)) {
           continue
@@ -526,7 +535,10 @@ const executeScriptProcess = async (
     maxOutputBytes: number
     envAllowlist: string[]
     maxTmpBytes: number
-    ignoredTmpFilePaths: string[]
+    ignoredTmpFileBaselines: Array<{
+      path: string
+      baselineBytes: number
+    }>
   }
 ) => {
   type ProcessExecutionResult
@@ -621,10 +633,16 @@ const executeScriptProcess = async (
     let tmpInspectionError: string | null = null
     let tmpObservationRunning = false
     let tmpObservationPromise: Promise<void> | null = null
-    const ignoredTmpFilePaths = new Set(options.ignoredTmpFilePaths)
+    const ignoredTmpFileBaselines = new Map(
+      options.ignoredTmpFileBaselines
+        .filter(item => Number.isFinite(item.baselineBytes) && item.baselineBytes >= 0)
+        .map(item => [item.path, item.baselineBytes] as const)
+    )
 
     const observeTmpUsage = async () => {
-      tmpBytes = await computeDirectoryBytes(options.cwd, { ignoredFilePaths: ignoredTmpFilePaths })
+      tmpBytes = await computeDirectoryBytes(options.cwd, {
+        ignoredFileBaselines: ignoredTmpFileBaselines
+      })
       if (tmpLimitExceeded) {
         return
       }
@@ -996,6 +1014,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         language,
         context.definition.instruction
       )
+      const runnerScriptBytes = (await stat(runnerScriptPath)).size
       const runtime = resolveScriptBinaryByLanguage(language)
       const runtimeWithContainment = resolveScriptRuntimeWithContainment(containmentPolicy, runtime)
       metadata.prepareDurationMs = Date.now() - startedAt
@@ -1017,7 +1036,9 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
           maxOutputBytes,
           envAllowlist,
           maxTmpBytes,
-          ignoredTmpFilePaths: [runnerScriptPath]
+          ignoredTmpFileBaselines: [
+            { path: runnerScriptPath, baselineBytes: runnerScriptBytes }
+          ]
         })
       metadata.stdoutBytes = executionResult.stdoutBytes
       metadata.stderrBytes = executionResult.stderrBytes
