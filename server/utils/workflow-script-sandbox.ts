@@ -238,6 +238,9 @@ const isExecutableOnPath = (command: string) => {
   const pathValue = process.env.PATH ?? ''
   const entries = pathValue.split(':').map(item => item.trim()).filter(Boolean)
   for (const entry of entries) {
+    if (!isAbsolute(entry)) {
+      continue
+    }
     const resolved = join(entry, command)
     try {
       accessSync(resolved, fsConstants.X_OK)

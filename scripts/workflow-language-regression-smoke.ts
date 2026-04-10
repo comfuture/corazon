@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir } from 'node:fs/promises'
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
 import { parseWorkflowSource, serializeWorkflowSource } from '../server/utils/workflow-definitions.ts'
 import { executeScriptWorkflowInSandbox } from '../server/utils/workflow-script-sandbox.ts'
 import type { WorkflowFrontmatter } from '../types/workflow.ts'
@@ -309,6 +309,54 @@ const run = async () => {
     assert.equal(strictContainmentRelativePrefixRun.metadata.containmentEnforced, false)
     assert.equal(strictContainmentRelativePrefixRun.metadata.containmentFallbackReason, null)
     assert.match(strictContainmentRelativePrefixRun.errorMessage, /must be an absolute executable path/)
+
+    const previousPath = process.env.PATH
+    const relativePathLauncherDir = '.corazon-relative-bin'
+    const relativePathLauncherName = '__corazon_relative_path_launcher__'
+    const relativePathLauncherPath = `${relativePathLauncherDir}/${relativePathLauncherName}`
+    await mkdir(relativePathLauncherDir, { recursive: true })
+    await writeFile(relativePathLauncherPath, '#!/usr/bin/env bash\nexit 0\n', 'utf8')
+    await chmod(relativePathLauncherPath, 0o755)
+    process.env.PATH = typeof previousPath === 'string' && previousPath.length > 0
+      ? `${relativePathLauncherDir}:${previousPath}`
+      : relativePathLauncherDir
+
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX = `["${relativePathLauncherName}"]`
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'auto'
+    const autoContainmentRelativePathEntryRun = await executeScriptWorkflowInSandbox({
+      definition: python,
+      triggerType: 'workflow-dispatch',
+      triggerValue: 'manual'
+    })
+    assert.equal(autoContainmentRelativePathEntryRun.status, 'completed')
+    assert.equal(autoContainmentRelativePathEntryRun.metadata.containmentModeRequested, 'auto')
+    assert.equal(autoContainmentRelativePathEntryRun.metadata.containmentModeApplied, 'host')
+    assert.equal(autoContainmentRelativePathEntryRun.metadata.containmentEnforced, false)
+    assert.match(
+      autoContainmentRelativePathEntryRun.metadata.containmentFallbackReason ?? '',
+      /not executable or not found on PATH/
+    )
+
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'linux-strict'
+    const strictContainmentRelativePathEntryRun = await executeScriptWorkflowInSandbox({
+      definition: python,
+      triggerType: 'workflow-dispatch',
+      triggerValue: 'manual'
+    })
+    assert.equal(strictContainmentRelativePathEntryRun.status, 'failed')
+    assert.equal(strictContainmentRelativePathEntryRun.errorCode, 'provider-error')
+    assert.equal(strictContainmentRelativePathEntryRun.metadata.failurePhase, 'prepare')
+    assert.equal(strictContainmentRelativePathEntryRun.metadata.containmentModeRequested, 'linux-strict')
+    assert.equal(strictContainmentRelativePathEntryRun.metadata.containmentModeApplied, 'linux-strict')
+    assert.equal(strictContainmentRelativePathEntryRun.metadata.containmentEnforced, false)
+    assert.equal(strictContainmentRelativePathEntryRun.metadata.containmentFallbackReason, null)
+    assert.match(strictContainmentRelativePathEntryRun.errorMessage, /not executable or not found on PATH/)
+    if (typeof previousPath === 'string') {
+      process.env.PATH = previousPath
+    } else {
+      delete process.env.PATH
+    }
+    await rm(relativePathLauncherDir, { recursive: true, force: true })
   }
   if (typeof previousContainmentMode === 'string') {
     process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = previousContainmentMode
