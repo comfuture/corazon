@@ -1,5 +1,6 @@
 import { mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
+import { accessSync, constants as fsConstants } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -222,6 +223,29 @@ const resolveScriptContainmentLinuxPrefix = () => {
   return { args, error: null as string | null }
 }
 
+const isExecutableOnPath = (command: string) => {
+  if (command.includes('/') || command.includes('\\')) {
+    try {
+      accessSync(command, fsConstants.X_OK)
+      return true
+    } catch {
+      return false
+    }
+  }
+  const pathValue = process.env.PATH ?? ''
+  const entries = pathValue.split(':').map(item => item.trim()).filter(Boolean)
+  for (const entry of entries) {
+    const resolved = join(entry, command)
+    try {
+      accessSync(resolved, fsConstants.X_OK)
+      return true
+    } catch {
+      continue
+    }
+  }
+  return false
+}
+
 const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
   const requested = resolveScriptContainmentMode()
   const { args: linuxPrefix, error: linuxPrefixError } = resolveScriptContainmentLinuxPrefix()
@@ -278,6 +302,28 @@ const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
     }
   }
   if (linuxPrefix.length > 0) {
+    const containmentCommand = linuxPrefix[0] ?? ''
+    if (!isExecutableOnPath(containmentCommand)) {
+      const unsupportedReason = `Configured Linux containment launcher "${containmentCommand}" is not executable or not found on PATH.`
+      if (requested === 'auto') {
+        return {
+          requested,
+          applied: 'host',
+          enforced: false,
+          executionPrefix: [],
+          fallbackReason: `${unsupportedReason} Using host process sandbox limits only.`,
+          unsupportedReason: null
+        }
+      }
+      return {
+        requested,
+        applied: 'linux-strict',
+        enforced: false,
+        executionPrefix: [],
+        fallbackReason: null,
+        unsupportedReason
+      }
+    }
     return {
       requested,
       applied: 'linux-strict',

@@ -63,7 +63,7 @@ Note:
 - Script runtime now pins `HOME` and `TMPDIR` to the per-run temporary sandbox directory instead of inheriting host home paths.
 - Script runs expose provider metadata (`provider`, `language`, `trigger`, timeout/output/source policy) in failure summaries for faster triage.
 - Script metadata now includes containment policy fields (`containmentModeRequested`, `containmentModeApplied`, `containmentEnforced`, `containmentFallbackReason`) so fallback/strict-mode outcomes are explicit in run records.
-- On Linux, strict containment can be activated by configuring `CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX` (JSON array command prefix). In strict mode, missing/invalid prefix fails in `prepare`; in `auto`, it falls back to host mode with a reason.
+- On Linux, strict containment can be activated by configuring `CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX` (JSON array command prefix). In strict mode, missing/invalid/unavailable prefix fails in `prepare`; in `auto`, it falls back to host mode with a reason.
 - Failure summaries also include `failurePhase` (`prepare`/`execute`) for `provider-error` cases to separate setup/runtime bootstrap failures from script logic failures.
 - Script sandbox metadata now includes phase-level timing (`prepareDurationMs`, `executeDurationMs`, `teardownDurationMs`) plus `executionDurationMs` and `outputTruncated`; failure summaries include these values for faster policy/provider triage without log scraping.
 - Managed sandbox providers are planned as follow-up adapters behind the same provider interface.

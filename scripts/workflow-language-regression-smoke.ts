@@ -233,6 +233,37 @@ const run = async () => {
   assert.match(strictContainmentRun.errorMessage, /CONTAINMENT_LINUX_PREFIX/)
 
   if (process.platform === 'linux') {
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX = '["__corazon_missing_containment_bin__"]'
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'auto'
+    const autoContainmentMissingPrefixRun = await executeScriptWorkflowInSandbox({
+      definition: python,
+      triggerType: 'workflow-dispatch',
+      triggerValue: 'manual'
+    })
+    assert.equal(autoContainmentMissingPrefixRun.status, 'completed')
+    assert.equal(autoContainmentMissingPrefixRun.metadata.containmentModeRequested, 'auto')
+    assert.equal(autoContainmentMissingPrefixRun.metadata.containmentModeApplied, 'host')
+    assert.equal(autoContainmentMissingPrefixRun.metadata.containmentEnforced, false)
+    assert.match(
+      autoContainmentMissingPrefixRun.metadata.containmentFallbackReason ?? '',
+      /not executable or not found on PATH/
+    )
+
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'linux-strict'
+    const strictContainmentMissingPrefixRun = await executeScriptWorkflowInSandbox({
+      definition: python,
+      triggerType: 'workflow-dispatch',
+      triggerValue: 'manual'
+    })
+    assert.equal(strictContainmentMissingPrefixRun.status, 'failed')
+    assert.equal(strictContainmentMissingPrefixRun.errorCode, 'provider-error')
+    assert.equal(strictContainmentMissingPrefixRun.metadata.failurePhase, 'prepare')
+    assert.equal(strictContainmentMissingPrefixRun.metadata.containmentModeRequested, 'linux-strict')
+    assert.equal(strictContainmentMissingPrefixRun.metadata.containmentModeApplied, 'linux-strict')
+    assert.equal(strictContainmentMissingPrefixRun.metadata.containmentEnforced, false)
+    assert.equal(strictContainmentMissingPrefixRun.metadata.containmentFallbackReason, null)
+    assert.match(strictContainmentMissingPrefixRun.errorMessage, /not executable or not found on PATH/)
+
     process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX = '["env"]'
     process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'linux-strict'
     const strictContainmentWithPrefixRun = await executeScriptWorkflowInSandbox({
