@@ -376,6 +376,35 @@ const run = async () => {
     true
   )
 
+  const runnerArtifactExcludeSource = serializeWorkflowSource(
+    baseFrontmatter('typescript'),
+    `const payload = "${'x'.repeat(9000)}";\nconsole.log(payload.length)`
+  )
+  const runnerArtifactExcludeWorkflow = parseWorkflowSource({
+    fileSlug: 'typescript-tmp-runner-artifact-exclude',
+    filePath: '/tmp/typescript-tmp-runner-artifact-exclude.md',
+    source: runnerArtifactExcludeSource,
+    updatedAt: Date.now()
+  })
+  const previousMaxTmpForRunnerArtifact = process.env.CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES
+  process.env.CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES = '4096'
+  const runnerArtifactExcludeRun = await executeScriptWorkflowInSandbox({
+    definition: runnerArtifactExcludeWorkflow,
+    triggerType: 'workflow-dispatch',
+    triggerValue: 'manual'
+  })
+  if (typeof previousMaxTmpForRunnerArtifact === 'string') {
+    process.env.CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES = previousMaxTmpForRunnerArtifact
+  } else {
+    delete process.env.CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES
+  }
+  assert.equal(
+    runnerArtifactExcludeRun.status,
+    'completed',
+    'runner-generated script artifacts should not count against tmp usage policy'
+  )
+  assert.equal(runnerArtifactExcludeRun.metadata.policyTriggered, 'none')
+
   const tmpPolicySource = serializeWorkflowSource(
     baseFrontmatter('python'),
     'from pathlib import Path\n'

@@ -238,14 +238,23 @@ const writeRunnableScript = async (
   if (language === 'python') {
     const scriptPath = join(directory, 'script.py')
     await writeFile(scriptPath, `${source.trim()}\n`, 'utf8')
-    return
+    return scriptPath
   }
   const transpiled = await transpileTypeScriptToModule(source)
   const scriptPath = join(directory, 'script.mjs')
   await writeFile(scriptPath, transpiled, 'utf8')
+  return scriptPath
 }
 
-const computeDirectoryBytes = async (directory: string) => {
+const isIgnorableTmpUsageError = (error: unknown) =>
+  (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT'
+
+const computeDirectoryBytes = async (
+  directory: string,
+  options: {
+    ignoredFilePaths: Set<string>
+  }
+) => {
   let total = 0
   const stack = [directory]
   while (stack.length > 0) {
@@ -256,11 +265,17 @@ const computeDirectoryBytes = async (directory: string) => {
     let entries: Dirent[]
     try {
       entries = await readdir(current, { withFileTypes: true })
-    } catch {
-      continue
+    } catch (error) {
+      if (isIgnorableTmpUsageError(error)) {
+        continue
+      }
+      throw error
     }
     for (const entry of entries) {
       const entryPath = join(current, entry.name)
+      if (options.ignoredFilePaths.has(entryPath)) {
+        continue
+      }
       if (entry.isDirectory()) {
         stack.push(entryPath)
         continue
@@ -270,12 +285,20 @@ const computeDirectoryBytes = async (directory: string) => {
       }
       try {
         total += (await stat(entryPath)).size
-      } catch {
-        // ignore transient file-system races while the script is still running
+      } catch (error) {
+        if (isIgnorableTmpUsageError(error)) {
+          continue
+        }
+        throw error
       }
     }
   }
   return total
+}
+
+const formatTmpUsageInspectionError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error)
+  return `Unable to inspect temporary workspace usage: ${message}`
 }
 
 const executeScriptProcess = async (
@@ -287,6 +310,7 @@ const executeScriptProcess = async (
     maxOutputBytes: number
     envAllowlist: string[]
     maxTmpBytes: number
+    ignoredTmpFilePaths: string[]
   }
 ) => {
   type ProcessExecutionResult
@@ -317,6 +341,7 @@ const executeScriptProcess = async (
       terminationSignal: NodeJS.Signals | null
       terminationScope: 'none' | 'process' | 'process-group'
       tmpBytes: number
+      policyTriggered: WorkflowScriptExecutionMetadata['policyTriggered']
     }
 
   const startedAt = Date.now()
@@ -377,15 +402,57 @@ const executeScriptProcess = async (
     let outputLimitStream: 'stdout' | 'stderr' | null = null
     let tmpLimitExceeded = false
     let tmpBytes = 0
+    let tmpInspectionError: string | null = null
+    let tmpObservationRunning = false
+    let tmpObservationPromise: Promise<void> | null = null
+    const ignoredTmpFilePaths = new Set(options.ignoredTmpFilePaths)
 
     const observeTmpUsage = async () => {
-      tmpBytes = await computeDirectoryBytes(options.cwd)
+      tmpBytes = await computeDirectoryBytes(options.cwd, { ignoredFilePaths: ignoredTmpFilePaths })
       if (tmpLimitExceeded) {
         return
       }
       if (tmpBytes > options.maxTmpBytes) {
         tmpLimitExceeded = true
         killExecution('SIGKILL')
+      }
+    }
+
+    const startTmpObservation = () => {
+      if (tmpObservationRunning || tmpInspectionError !== null || tmpLimitExceeded) {
+        return
+      }
+      tmpObservationRunning = true
+      tmpObservationPromise = (async () => {
+        try {
+          await observeTmpUsage()
+        } catch (error) {
+          if (tmpInspectionError === null) {
+            tmpInspectionError = formatTmpUsageInspectionError(error)
+            tmpLimitExceeded = true
+            killExecution('SIGKILL')
+          }
+        } finally {
+          tmpObservationRunning = false
+          tmpObservationPromise = null
+        }
+      })()
+    }
+
+    const flushTmpObservation = async () => {
+      if (tmpObservationPromise !== null) {
+        await tmpObservationPromise
+      }
+      if (tmpInspectionError !== null) {
+        return
+      }
+      try {
+        await observeTmpUsage()
+      } catch (error) {
+        if (tmpInspectionError === null) {
+          tmpInspectionError = formatTmpUsageInspectionError(error)
+          tmpLimitExceeded = true
+        }
       }
     }
 
@@ -422,7 +489,7 @@ const executeScriptProcess = async (
       killExecution('SIGKILL')
     }, options.timeoutMs)
     const tmpUsageHandle = setInterval(() => {
-      void observeTmpUsage()
+      startTmpObservation()
     }, 100)
 
     child.on('error', (error) => {
@@ -441,14 +508,34 @@ const executeScriptProcess = async (
         outputTruncated,
         terminationSignal: null,
         terminationScope,
-        tmpBytes
+        tmpBytes,
+        policyTriggered: 'none'
       })
     })
 
     child.on('close', async (exitCode, signal) => {
       clearTimeout(timeoutHandle)
       clearInterval(tmpUsageHandle)
-      await observeTmpUsage()
+      await flushTmpObservation()
+      if (tmpInspectionError !== null) {
+        resolve({
+          status: 'failed',
+          errorCode: 'policy-violation',
+          errorMessage: tmpInspectionError,
+          stdout,
+          stderr,
+          exitCode: null,
+          durationMs: Date.now() - startedAt,
+          stdoutBytes,
+          stderrBytes,
+          outputTruncated,
+          terminationSignal: signal,
+          terminationScope,
+          tmpBytes,
+          policyTriggered: 'tmp-size'
+        })
+        return
+      }
       if (tmpLimitExceeded) {
         resolve({
           status: 'failed',
@@ -465,7 +552,8 @@ const executeScriptProcess = async (
           outputTruncated,
           terminationSignal: signal,
           terminationScope,
-          tmpBytes
+          tmpBytes,
+          policyTriggered: 'tmp-size'
         })
         return
       }
@@ -485,7 +573,8 @@ const executeScriptProcess = async (
           outputTruncated,
           terminationSignal: signal,
           terminationScope,
-          tmpBytes
+          tmpBytes,
+          policyTriggered: 'output-size'
         })
         return
       }
@@ -504,7 +593,8 @@ const executeScriptProcess = async (
           outputTruncated,
           terminationSignal: signal,
           terminationScope,
-          tmpBytes
+          tmpBytes,
+          policyTriggered: 'none'
         })
         return
       }
@@ -523,7 +613,8 @@ const executeScriptProcess = async (
           outputTruncated,
           terminationSignal: signal,
           terminationScope,
-          tmpBytes
+          tmpBytes,
+          policyTriggered: 'none'
         })
         return
       }
@@ -654,7 +745,11 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         + ` sourceBytes=${metadata.sourceBytes}/${metadata.maxSourceBytes}`
         + ` allowEnv=${metadata.allowedEnvKeys.join(',') || '(none)'}`
       )
-      await writeRunnableScript(tempDirectory, language, context.definition.instruction)
+      const runnerScriptPath = await writeRunnableScript(
+        tempDirectory,
+        language,
+        context.definition.instruction
+      )
       const runtime = resolveScriptBinaryByLanguage(language)
       metadata.prepareDurationMs = Date.now() - startedAt
       metadata.runtimeCommand = runtime.command
@@ -670,7 +765,8 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         timeoutMs,
         maxOutputBytes,
         envAllowlist,
-        maxTmpBytes
+        maxTmpBytes,
+        ignoredTmpFilePaths: [runnerScriptPath]
       })
       metadata.stdoutBytes = executionResult.stdoutBytes
       metadata.stderrBytes = executionResult.stderrBytes
@@ -681,10 +777,8 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       metadata.terminationScope = executionResult.terminationScope
       metadata.executionDurationMs = executionResult.durationMs
       metadata.executeDurationMs = executionResult.durationMs
-      if (executionResult.status === 'failed' && executionResult.errorCode === 'policy-violation') {
-        metadata.policyTriggered = executionResult.errorMessage.includes('temporary workspace exceeded')
-          ? 'tmp-size'
-          : 'output-size'
+      if (executionResult.status === 'failed') {
+        metadata.policyTriggered = executionResult.policyTriggered
       }
       if (executionResult.status === 'failed' && executionResult.errorCode === 'provider-error') {
         metadata.failurePhase = 'execute'
