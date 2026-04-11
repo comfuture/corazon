@@ -1,6 +1,6 @@
 import { mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
-import { accessSync, constants as fsConstants } from 'node:fs'
+import { accessSync, constants as fsConstants, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -264,16 +264,23 @@ const resolveScriptContainmentLinuxPrefix = () => {
 }
 
 const isExecutableOnPath = (command: string) => {
-  if (command.includes('/') || command.includes('\\')) {
-    if (!isAbsolute(command)) {
-      return false
-    }
+  const isExecutableFile = (candidatePath: string) => {
     try {
-      accessSync(command, fsConstants.X_OK)
+      if (!statSync(candidatePath).isFile()) {
+        return false
+      }
+      accessSync(candidatePath, fsConstants.X_OK)
       return true
     } catch {
       return false
     }
+  }
+
+  if (command.includes('/') || command.includes('\\')) {
+    if (!isAbsolute(command)) {
+      return false
+    }
+    return isExecutableFile(command)
   }
   const pathValue = process.env.PATH ?? ''
   const entries = pathValue.split(':').map(item => item.trim()).filter(Boolean)
@@ -282,11 +289,8 @@ const isExecutableOnPath = (command: string) => {
       continue
     }
     const resolved = join(entry, command)
-    try {
-      accessSync(resolved, fsConstants.X_OK)
+    if (isExecutableFile(resolved)) {
       return true
-    } catch {
-      continue
     }
   }
   return false

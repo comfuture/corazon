@@ -464,6 +464,46 @@ const run = async () => {
     assert.equal(strictContainmentRelativePathEntryRun.metadata.containmentEnforced, false)
     assert.equal(strictContainmentRelativePathEntryRun.metadata.containmentFallbackReason, null)
     assert.match(strictContainmentRelativePathEntryRun.errorMessage, /not executable or not found on PATH/)
+
+    const directoryLauncherDir = '__corazon_directory_launcher__'
+    await mkdir(directoryLauncherDir, { recursive: true })
+    const directoryLauncherAbsolutePath = `${process.cwd()}/${directoryLauncherDir}`
+
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX = `["${directoryLauncherAbsolutePath}"]`
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'auto'
+    const autoContainmentDirectoryLauncherRun = await executeScriptWorkflowInSandbox({
+      definition: python,
+      triggerType: 'workflow-dispatch',
+      triggerValue: 'manual'
+    })
+    assert.equal(autoContainmentDirectoryLauncherRun.status, 'completed')
+    assert.equal(autoContainmentDirectoryLauncherRun.metadata.containmentModeRequested, 'auto')
+    assert.equal(autoContainmentDirectoryLauncherRun.metadata.containmentProfileRequested, 'systemd-user-scope')
+    assert.equal(autoContainmentDirectoryLauncherRun.metadata.containmentModeApplied, 'host')
+    assert.equal(autoContainmentDirectoryLauncherRun.metadata.containmentProfileApplied, null)
+    assert.equal(autoContainmentDirectoryLauncherRun.metadata.containmentEnforced, false)
+    assert.match(
+      autoContainmentDirectoryLauncherRun.metadata.containmentFallbackReason ?? '',
+      /not executable or not found on PATH/
+    )
+
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'linux-strict'
+    const strictContainmentDirectoryLauncherRun = await executeScriptWorkflowInSandbox({
+      definition: python,
+      triggerType: 'workflow-dispatch',
+      triggerValue: 'manual'
+    })
+    assert.equal(strictContainmentDirectoryLauncherRun.status, 'failed')
+    assert.equal(strictContainmentDirectoryLauncherRun.errorCode, 'provider-error')
+    assert.equal(strictContainmentDirectoryLauncherRun.metadata.failurePhase, 'prepare')
+    assert.equal(strictContainmentDirectoryLauncherRun.metadata.containmentModeRequested, 'linux-strict')
+    assert.equal(strictContainmentDirectoryLauncherRun.metadata.containmentProfileRequested, 'systemd-user-scope')
+    assert.equal(strictContainmentDirectoryLauncherRun.metadata.containmentModeApplied, 'linux-strict')
+    assert.equal(strictContainmentDirectoryLauncherRun.metadata.containmentProfileApplied, null)
+    assert.equal(strictContainmentDirectoryLauncherRun.metadata.containmentEnforced, false)
+    assert.equal(strictContainmentDirectoryLauncherRun.metadata.containmentFallbackReason, null)
+    assert.match(strictContainmentDirectoryLauncherRun.errorMessage, /not executable or not found on PATH/)
+    await rm(directoryLauncherDir, { recursive: true, force: true })
     if (typeof previousPath === 'string') {
       process.env.PATH = previousPath
     } else {
