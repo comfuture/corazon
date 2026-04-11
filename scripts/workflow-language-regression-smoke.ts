@@ -304,6 +304,49 @@ const run = async () => {
       )
     }
 
+    const previousPathForProfileLauncher = process.env.PATH
+    const profileLauncherDir = '__corazon_profile_launcher_bin__'
+    const profileLauncherPath = `${process.cwd()}/${profileLauncherDir}/systemd-run`
+    await mkdir(profileLauncherDir, { recursive: true })
+    await writeFile(
+      profileLauncherPath,
+      '#!/usr/bin/env bash\nwhile [ "$#" -gt 0 ]; do\n  if [ "$1" = "--" ]; then\n    shift\n    break\n  fi\n  shift\ndone\nexec "$@"\n',
+      'utf8'
+    )
+    await chmod(profileLauncherPath, 0o755)
+    process.env.PATH = typeof previousPathForProfileLauncher === 'string' && previousPathForProfileLauncher.length > 0
+      ? `${process.cwd()}/${profileLauncherDir}:${previousPathForProfileLauncher}`
+      : `${process.cwd()}/${profileLauncherDir}`
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE = 'systemd-user-scope'
+    delete process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'auto'
+    const autoContainmentProfileWithLauncherRun = await executeScriptWorkflowInSandbox({
+      definition: python,
+      triggerType: 'workflow-dispatch',
+      triggerValue: 'manual'
+    })
+    assert.equal(autoContainmentProfileWithLauncherRun.status, 'completed')
+    assert.equal(autoContainmentProfileWithLauncherRun.metadata.containmentModeRequested, 'auto')
+    assert.equal(autoContainmentProfileWithLauncherRun.metadata.containmentProfileRequested, 'systemd-user-scope')
+    assert.equal(autoContainmentProfileWithLauncherRun.metadata.containmentModeApplied, 'linux-strict')
+    assert.equal(autoContainmentProfileWithLauncherRun.metadata.containmentProfileApplied, 'systemd-user-scope')
+    assert.equal(autoContainmentProfileWithLauncherRun.metadata.containmentEnforced, true)
+    assert.equal(autoContainmentProfileWithLauncherRun.metadata.containmentFallbackReason, null)
+    assert.equal(autoContainmentProfileWithLauncherRun.metadata.runtimeCommand, 'systemd-run')
+    assert.deepEqual(autoContainmentProfileWithLauncherRun.metadata.runtimeArgs.slice(0, 5), [
+      '--scope',
+      '--user',
+      '--',
+      'python3',
+      'script.py'
+    ])
+    if (typeof previousPathForProfileLauncher === 'string') {
+      process.env.PATH = previousPathForProfileLauncher
+    } else {
+      delete process.env.PATH
+    }
+    await rm(profileLauncherDir, { recursive: true, force: true })
+
     process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX = '["__corazon_missing_containment_bin__"]'
     process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'auto'
     const autoContainmentMissingPrefixRun = await executeScriptWorkflowInSandbox({
