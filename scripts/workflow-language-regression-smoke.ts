@@ -352,6 +352,38 @@ const run = async () => {
     assert.equal(strictContainmentWithPrefixRun.metadata.runtimeCommand, 'env')
     assert.deepEqual(strictContainmentWithPrefixRun.metadata.runtimeArgs.slice(0, 2), ['python3', 'script.py'])
 
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE = 'not-a-profile'
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'auto'
+    const autoContainmentInvalidProfileWithPrefixRun = await executeScriptWorkflowInSandbox({
+      definition: python,
+      triggerType: 'workflow-dispatch',
+      triggerValue: 'manual'
+    })
+    assert.equal(autoContainmentInvalidProfileWithPrefixRun.status, 'completed')
+    assert.equal(autoContainmentInvalidProfileWithPrefixRun.metadata.containmentModeRequested, 'auto')
+    assert.equal(autoContainmentInvalidProfileWithPrefixRun.metadata.containmentProfileRequested, 'none')
+    assert.equal(autoContainmentInvalidProfileWithPrefixRun.metadata.containmentModeApplied, 'linux-strict')
+    assert.equal(autoContainmentInvalidProfileWithPrefixRun.metadata.containmentProfileApplied, null)
+    assert.equal(autoContainmentInvalidProfileWithPrefixRun.metadata.containmentEnforced, true)
+    assert.equal(autoContainmentInvalidProfileWithPrefixRun.metadata.containmentFallbackReason, null)
+    assert.equal(autoContainmentInvalidProfileWithPrefixRun.metadata.runtimeCommand, 'env')
+
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'linux-strict'
+    const strictContainmentInvalidProfileWithPrefixRun = await executeScriptWorkflowInSandbox({
+      definition: python,
+      triggerType: 'workflow-dispatch',
+      triggerValue: 'manual'
+    })
+    assert.equal(strictContainmentInvalidProfileWithPrefixRun.status, 'completed')
+    assert.equal(strictContainmentInvalidProfileWithPrefixRun.metadata.containmentModeRequested, 'linux-strict')
+    assert.equal(strictContainmentInvalidProfileWithPrefixRun.metadata.containmentProfileRequested, 'none')
+    assert.equal(strictContainmentInvalidProfileWithPrefixRun.metadata.containmentModeApplied, 'linux-strict')
+    assert.equal(strictContainmentInvalidProfileWithPrefixRun.metadata.containmentProfileApplied, null)
+    assert.equal(strictContainmentInvalidProfileWithPrefixRun.metadata.containmentEnforced, true)
+    assert.equal(strictContainmentInvalidProfileWithPrefixRun.metadata.containmentFallbackReason, null)
+    assert.equal(strictContainmentInvalidProfileWithPrefixRun.metadata.runtimeCommand, 'env')
+
+    process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE = 'systemd-user-scope'
     process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX = '["./__corazon_relative_containment__"]'
     process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE = 'auto'
     const autoContainmentRelativePrefixRun = await executeScriptWorkflowInSandbox({

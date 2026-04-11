@@ -343,7 +343,8 @@ const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
       unsupportedReason: null
     }
   }
-  const configurationError = linuxPrefixError ?? linuxProfileError
+  const configurationError = linuxPrefixError
+    ?? (configuredLinuxPrefix.length > 0 ? null : linuxProfileError)
   if (configurationError !== null) {
     if (requested === 'auto') {
       return {
