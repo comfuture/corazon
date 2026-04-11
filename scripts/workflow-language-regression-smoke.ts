@@ -296,6 +296,10 @@ const run = async () => {
       assert.equal(autoContainmentProfileRun.metadata.containmentProfileApplied, null)
       assert.match(
         autoContainmentProfileRun.metadata.containmentFallbackReason ?? '',
+        /Containment profile "systemd-user-scope" requires launcher "systemd-run"/
+      )
+      assert.match(
+        autoContainmentProfileRun.metadata.containmentFallbackReason ?? '',
         /not executable or not found on PATH/
       )
     }

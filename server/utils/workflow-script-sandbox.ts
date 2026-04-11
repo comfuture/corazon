@@ -309,6 +309,7 @@ const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
   const appliedProfile = configuredLinuxPrefix.length > 0 || requestedProfile === 'none'
     ? null
     : requestedProfile
+  const usingProfileLauncher = configuredLinuxPrefix.length === 0 && requestedProfile !== 'none'
   if (requested === 'linux-strict' && process.platform !== 'linux') {
     return {
       requested,
@@ -376,10 +377,13 @@ const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
   if (linuxPrefix.length > 0) {
     const containmentCommand = linuxPrefix[0] ?? ''
     if (!isExecutableOnPath(containmentCommand)) {
-      const unsupportedReason = (containmentCommand.includes('/') || containmentCommand.includes('\\'))
+      const baseReason = (containmentCommand.includes('/') || containmentCommand.includes('\\'))
         && !isAbsolute(containmentCommand)
         ? `Configured Linux containment launcher "${containmentCommand}" must be an absolute executable path when using slash-separated commands.`
         : `Configured Linux containment launcher "${containmentCommand}" is not executable or not found on PATH.`
+      const unsupportedReason = usingProfileLauncher
+        ? `Containment profile "${requestedProfile}" requires launcher "${containmentCommand}", but it is not executable or not found on PATH. Install the profile runtime on this host or set CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX explicitly. (${baseReason})`
+        : baseReason
       if (requested === 'auto') {
         return {
           requested,
