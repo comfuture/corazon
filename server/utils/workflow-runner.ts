@@ -217,7 +217,15 @@ const collectRunCompletionData = async (
           + ` executeMs=${result.metadata.executeDurationMs},`
           + ` teardownMs=${result.metadata.teardownDurationMs},`
           + ` maxOutputBytes=${result.metadata.maxOutputBytes},`
+          + ` maxTmpBytes=${result.metadata.maxTmpBytes},`
+          + ` containmentRequested=${result.metadata.containmentModeRequested},`
+          + ` containmentProfileRequested=${result.metadata.containmentProfileRequested},`
+          + ` containmentApplied=${result.metadata.containmentModeApplied},`
+          + ` containmentProfileApplied=${result.metadata.containmentProfileApplied ?? '(none)'},`
+          + ` containmentEnforced=${result.metadata.containmentEnforced},`
+          + ` containmentFallback=${result.metadata.containmentFallbackReason ?? '(none)'},`
           + ` sourceBytes=${result.metadata.sourceBytes}/${result.metadata.maxSourceBytes},`
+          + ` tmpBytes=${result.metadata.tmpBytes},`
           + ` runtime=${result.metadata.runtimeCommand ?? '(none)'}`
           + (result.metadata.runtimeArgs.length > 0 ? ` ${result.metadata.runtimeArgs.join(' ')}` : '')
           + `, outputBytes=${result.metadata.stdoutBytes + result.metadata.stderrBytes}`

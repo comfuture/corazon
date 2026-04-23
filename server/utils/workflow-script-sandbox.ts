@@ -1,6 +1,8 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import type { Dirent } from 'node:fs'
+import { accessSync, constants as fsConstants, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { spawn } from 'node:child_process'
 import type {
   WorkflowDefinition,
@@ -65,7 +67,15 @@ export type WorkflowScriptExecutionMetadata = {
   timeoutMs: number
   maxOutputBytes: number
   maxSourceBytes: number
+  maxTmpBytes: number
+  containmentModeRequested: WorkflowScriptContainmentMode
+  containmentProfileRequested: WorkflowScriptContainmentLinuxProfile
+  containmentModeApplied: WorkflowScriptContainmentAppliedMode
+  containmentProfileApplied: Exclude<WorkflowScriptContainmentLinuxProfile, 'none'> | null
+  containmentEnforced: boolean
+  containmentFallbackReason: string | null
   sourceBytes: number
+  tmpBytes: number
   allowedEnvKeys: string[]
   runtimeCommand: string | null
   runtimeArgs: string[]
@@ -75,9 +85,17 @@ export type WorkflowScriptExecutionMetadata = {
   outputTruncated: boolean
   terminationSignal: NodeJS.Signals | null
   terminationScope: 'none' | 'process' | 'process-group'
-  policyTriggered: 'none' | 'source-size' | 'output-size'
+  policyTriggered: 'none' | 'source-size' | 'output-size' | 'tmp-size'
   failurePhase: 'none' | 'prepare' | 'execute'
 }
+
+export type WorkflowScriptContainmentMode = 'host' | 'auto' | 'linux-strict'
+export type WorkflowScriptContainmentAppliedMode = 'host' | 'linux-strict'
+export type WorkflowScriptContainmentLinuxProfile
+  = 'none'
+    | 'systemd-user-scope'
+    | 'systemd-system-scope'
+    | 'bubblewrap-minimal'
 
 export type WorkflowScriptSandboxProvider = {
   id: WorkflowScriptSandboxProviderId
@@ -100,6 +118,29 @@ const WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES_DEFAULT = 256_000
 const WORKFLOW_SCRIPT_MAX_OUTPUT_BYTES_MIN = 1_024
 const WORKFLOW_SCRIPT_MAX_SOURCE_BYTES_DEFAULT = 64_000
 const WORKFLOW_SCRIPT_MAX_SOURCE_BYTES_MIN = 256
+const WORKFLOW_SCRIPT_MAX_TMP_BYTES_DEFAULT = 8 * 1024 * 1024
+const WORKFLOW_SCRIPT_MAX_TMP_BYTES_MIN = 4_096
+const WORKFLOW_SCRIPT_CONTAINMENT_MODE_DEFAULT: WorkflowScriptContainmentMode = 'host'
+const WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE_DEFAULT: WorkflowScriptContainmentLinuxProfile = 'none'
+const WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE_PREFIX: Record<
+  Exclude<WorkflowScriptContainmentLinuxProfile, 'none'>,
+  string[]
+> = {
+  'systemd-user-scope': ['systemd-run', '--scope', '--user', '--'],
+  'systemd-system-scope': ['systemd-run', '--scope', '--'],
+  'bubblewrap-minimal': ['bwrap', '--unshare-all', '--die-with-parent', '--proc', '/proc', '--dev', '/dev', '--']
+}
+
+type WorkflowScriptContainmentPolicy = {
+  requested: WorkflowScriptContainmentMode
+  requestedProfile: WorkflowScriptContainmentLinuxProfile
+  applied: WorkflowScriptContainmentAppliedMode
+  appliedProfile: Exclude<WorkflowScriptContainmentLinuxProfile, 'none'> | null
+  enforced: boolean
+  executionPrefix: string[]
+  fallbackReason: string | null
+  unsupportedReason: string | null
+}
 
 const resolveScriptTimeoutMs = () => {
   const raw = (process.env.CORAZON_WORKFLOW_SCRIPT_TIMEOUT_MS ?? '').trim()
@@ -142,6 +183,289 @@ const resolveScriptMaxSourceBytes = () => {
     return WORKFLOW_SCRIPT_MAX_SOURCE_BYTES_DEFAULT
   }
   return Math.floor(parsed)
+}
+
+const resolveScriptMaxTmpBytes = () => {
+  const raw = (process.env.CORAZON_WORKFLOW_SCRIPT_MAX_TMP_BYTES ?? '').trim()
+  if (raw === '') {
+    return WORKFLOW_SCRIPT_MAX_TMP_BYTES_DEFAULT
+  }
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < WORKFLOW_SCRIPT_MAX_TMP_BYTES_MIN) {
+    return WORKFLOW_SCRIPT_MAX_TMP_BYTES_DEFAULT
+  }
+  return Math.floor(parsed)
+}
+
+const resolveScriptContainmentMode = (): WorkflowScriptContainmentMode => {
+  const raw = (process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE ?? '').trim().toLowerCase()
+  if (raw === 'auto' || raw === 'linux-strict' || raw === 'host') {
+    return raw
+  }
+  return WORKFLOW_SCRIPT_CONTAINMENT_MODE_DEFAULT
+}
+
+const resolveScriptContainmentLinuxProfile = () => {
+  const raw = (process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE ?? '').trim().toLowerCase()
+  if (raw === '') {
+    return {
+      profile: WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE_DEFAULT,
+      error: null as string | null
+    }
+  }
+  if (raw === 'none' || raw === 'systemd-user-scope' || raw === 'systemd-system-scope' || raw === 'bubblewrap-minimal') {
+    return {
+      profile: raw as WorkflowScriptContainmentLinuxProfile,
+      error: null as string | null
+    }
+  }
+  return {
+    profile: WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE_DEFAULT,
+    error:
+      'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE must be one of '
+      + '"none", "systemd-user-scope", "systemd-system-scope", or "bubblewrap-minimal".'
+  }
+}
+
+const resolveScriptContainmentLinuxPrefix = () => {
+  const raw = (process.env.CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX ?? '').trim()
+  if (raw === '') {
+    return { args: [] as string[], error: null as string | null }
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return {
+      args: [],
+      error:
+        'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX must be a JSON string array '
+        + '(for example: ["systemd-run","--scope","--user","--"]).'
+    }
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    return {
+      args: [],
+      error:
+        'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX must be a non-empty JSON string array.'
+    }
+  }
+  const args = parsed
+    .map(item => typeof item === 'string' ? item.trim() : '')
+    .filter(Boolean)
+  if (args.length === 0) {
+    return {
+      args: [],
+      error:
+        'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX must include at least one non-empty command token.'
+    }
+  }
+  return { args, error: null as string | null }
+}
+
+const isExecutableOnPath = (command: string) => {
+  const isExecutableFile = (candidatePath: string) => {
+    try {
+      if (!statSync(candidatePath).isFile()) {
+        return false
+      }
+      accessSync(candidatePath, fsConstants.X_OK)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  if (command.includes('/') || command.includes('\\')) {
+    if (!isAbsolute(command)) {
+      return false
+    }
+    return isExecutableFile(command)
+  }
+  const pathValue = process.env.PATH ?? ''
+  const entries = pathValue.split(':').map(item => item.trim()).filter(Boolean)
+  for (const entry of entries) {
+    if (!isAbsolute(entry)) {
+      continue
+    }
+    const resolved = join(entry, command)
+    if (isExecutableFile(resolved)) {
+      return true
+    }
+  }
+  return false
+}
+
+const resolveScriptContainmentPolicy = (): WorkflowScriptContainmentPolicy => {
+  const requested = resolveScriptContainmentMode()
+  const { profile: requestedProfile, error: linuxProfileError } = resolveScriptContainmentLinuxProfile()
+  const { args: configuredLinuxPrefix, error: linuxPrefixError } = resolveScriptContainmentLinuxPrefix()
+  const profileLinuxPrefix = requestedProfile === 'none'
+    ? []
+    : WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE_PREFIX[requestedProfile]
+  const linuxPrefix = configuredLinuxPrefix.length > 0
+    ? configuredLinuxPrefix
+    : profileLinuxPrefix
+  const appliedProfile = configuredLinuxPrefix.length > 0 || requestedProfile === 'none'
+    ? null
+    : requestedProfile
+  const usingProfileLauncher = configuredLinuxPrefix.length === 0 && requestedProfile !== 'none'
+  if (requested === 'linux-strict' && process.platform !== 'linux') {
+    return {
+      requested,
+      requestedProfile,
+      applied: 'linux-strict',
+      appliedProfile: null,
+      enforced: false,
+      executionPrefix: [],
+      fallbackReason: null,
+      unsupportedReason:
+        'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE=linux-strict requires a Linux host.'
+    }
+  }
+  if (requested === 'host') {
+    return {
+      requested,
+      requestedProfile,
+      applied: 'host',
+      appliedProfile: null,
+      enforced: false,
+      executionPrefix: [],
+      fallbackReason: null,
+      unsupportedReason: null
+    }
+  }
+  if (process.platform !== 'linux') {
+    return {
+      requested,
+      requestedProfile,
+      applied: 'host',
+      appliedProfile: null,
+      enforced: false,
+      executionPrefix: [],
+      fallbackReason:
+        `OS-level containment is Linux-only; using host process sandbox limits on ${process.platform}.`,
+      unsupportedReason: null
+    }
+  }
+  const configurationError = linuxPrefixError
+    ?? (configuredLinuxPrefix.length > 0 ? null : linuxProfileError)
+  if (configurationError !== null) {
+    if (requested === 'auto') {
+      return {
+        requested,
+        requestedProfile,
+        applied: 'host',
+        appliedProfile: null,
+        enforced: false,
+        executionPrefix: [],
+        fallbackReason: `${configurationError} Using host process sandbox limits only.`,
+        unsupportedReason: null
+      }
+    }
+    return {
+      requested,
+      requestedProfile,
+      applied: 'linux-strict',
+      appliedProfile: null,
+      enforced: false,
+      executionPrefix: [],
+      fallbackReason: null,
+      unsupportedReason: configurationError
+    }
+  }
+  if (linuxPrefix.length > 0) {
+    const containmentCommand = linuxPrefix[0] ?? ''
+    if (!isExecutableOnPath(containmentCommand)) {
+      const baseReason = (containmentCommand.includes('/') || containmentCommand.includes('\\'))
+        && !isAbsolute(containmentCommand)
+        ? `Configured Linux containment launcher "${containmentCommand}" must be an absolute executable path when using slash-separated commands.`
+        : `Configured Linux containment launcher "${containmentCommand}" is not executable or not found on PATH.`
+      const unsupportedReason = usingProfileLauncher
+        ? `Containment profile "${requestedProfile}" requires launcher "${containmentCommand}", but it is not executable or not found on PATH. Install the profile runtime on this host or set CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX explicitly. (${baseReason})`
+        : baseReason
+      if (requested === 'auto') {
+        return {
+          requested,
+          requestedProfile,
+          applied: 'host',
+          appliedProfile: null,
+          enforced: false,
+          executionPrefix: [],
+          fallbackReason: `${unsupportedReason} Using host process sandbox limits only.`,
+          unsupportedReason: null
+        }
+      }
+      return {
+        requested,
+        requestedProfile,
+        applied: 'linux-strict',
+        appliedProfile: null,
+        enforced: false,
+        executionPrefix: [],
+        fallbackReason: null,
+        unsupportedReason
+      }
+    }
+    return {
+      requested,
+      requestedProfile,
+      applied: 'linux-strict',
+      appliedProfile,
+      enforced: true,
+      executionPrefix: linuxPrefix,
+      fallbackReason: null,
+      unsupportedReason: null
+    }
+  }
+  if (requested === 'auto') {
+    return {
+      requested,
+      requestedProfile,
+      applied: 'host',
+      appliedProfile: null,
+      enforced: false,
+      executionPrefix: [],
+      fallbackReason:
+        'OS-level containment adapter is not configured; set '
+        + 'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX or '
+        + 'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE to enable strict containment. '
+        + 'Using host process sandbox limits only.',
+      unsupportedReason: null
+    }
+  }
+  return {
+    requested,
+    requestedProfile,
+    applied: 'linux-strict',
+    appliedProfile: null,
+    enforced: false,
+    executionPrefix: [],
+    fallbackReason: null,
+    unsupportedReason:
+      'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_MODE=linux-strict requires '
+      + 'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PREFIX or '
+      + 'CORAZON_WORKFLOW_SCRIPT_CONTAINMENT_LINUX_PROFILE to be configured with a Linux containment launcher '
+      + '(for example prefix: ["systemd-run","--scope","--user","--"] or profile: "systemd-user-scope").'
+  }
+}
+
+const resolveScriptRuntimeWithContainment = (
+  containmentPolicy: WorkflowScriptContainmentPolicy,
+  runtime: { command: string, args: string[] }
+) => {
+  if (!containmentPolicy.enforced || containmentPolicy.executionPrefix.length === 0) {
+    return runtime
+  }
+  const prefixCommand = containmentPolicy.executionPrefix[0]
+  if (!prefixCommand) {
+    return runtime
+  }
+  const prefixArgs = containmentPolicy.executionPrefix.slice(1)
+  return {
+    command: prefixCommand,
+    args: [...prefixArgs, runtime.command, ...runtime.args]
+  }
 }
 
 const resolveScriptEnvAllowlist = () => {
@@ -221,11 +545,70 @@ const writeRunnableScript = async (
   if (language === 'python') {
     const scriptPath = join(directory, 'script.py')
     await writeFile(scriptPath, `${source.trim()}\n`, 'utf8')
-    return
+    return scriptPath
   }
   const transpiled = await transpileTypeScriptToModule(source)
   const scriptPath = join(directory, 'script.mjs')
   await writeFile(scriptPath, transpiled, 'utf8')
+  return scriptPath
+}
+
+const isIgnorableTmpUsageError = (error: unknown) =>
+  (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT'
+
+const computeDirectoryBytes = async (
+  directory: string,
+  options: {
+    ignoredFileBaselines: Map<string, number>
+  }
+) => {
+  let total = 0
+  const stack = [directory]
+  while (stack.length > 0) {
+    const current = stack.pop()
+    if (!current) {
+      continue
+    }
+    let entries: Dirent[]
+    try {
+      entries = await readdir(current, { withFileTypes: true })
+    } catch (error) {
+      if (isIgnorableTmpUsageError(error)) {
+        continue
+      }
+      throw error
+    }
+    for (const entry of entries) {
+      const entryPath = join(current, entry.name)
+      if (entry.isDirectory()) {
+        stack.push(entryPath)
+        continue
+      }
+      if (!entry.isFile()) {
+        continue
+      }
+      try {
+        const fileSize = (await stat(entryPath)).size
+        const baselineBytes = options.ignoredFileBaselines.get(entryPath)
+        if (typeof baselineBytes === 'number') {
+          total += Math.max(fileSize - baselineBytes, 0)
+          continue
+        }
+        total += fileSize
+      } catch (error) {
+        if (isIgnorableTmpUsageError(error)) {
+          continue
+        }
+        throw error
+      }
+    }
+  }
+  return total
+}
+
+const formatTmpUsageInspectionError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error)
+  return `Unable to inspect temporary workspace usage: ${message}`
 }
 
 const executeScriptProcess = async (
@@ -236,6 +619,11 @@ const executeScriptProcess = async (
     timeoutMs: number
     maxOutputBytes: number
     envAllowlist: string[]
+    maxTmpBytes: number
+    ignoredTmpFileBaselines: Array<{
+      path: string
+      baselineBytes: number
+    }>
   }
 ) => {
   type ProcessExecutionResult
@@ -250,6 +638,7 @@ const executeScriptProcess = async (
       outputTruncated: boolean
       terminationSignal: NodeJS.Signals | null
       terminationScope: 'none' | 'process' | 'process-group'
+      tmpBytes: number
     }
     | {
       status: 'failed'
@@ -264,6 +653,8 @@ const executeScriptProcess = async (
       outputTruncated: boolean
       terminationSignal: NodeJS.Signals | null
       terminationScope: 'none' | 'process' | 'process-group'
+      tmpBytes: number
+      policyTriggered: WorkflowScriptExecutionMetadata['policyTriggered']
     }
 
   const startedAt = Date.now()
@@ -322,6 +713,67 @@ const executeScriptProcess = async (
     const totalOutputBytes = () => stdoutBytes + stderrBytes
     let outputLimitExceeded = false
     let outputLimitStream: 'stdout' | 'stderr' | null = null
+    let tmpLimitExceeded = false
+    let tmpBytes = 0
+    let tmpInspectionError: string | null = null
+    let tmpObservationRunning = false
+    let tmpObservationPromise: Promise<void> | null = null
+    const ignoredTmpFileBaselines = new Map(
+      options.ignoredTmpFileBaselines
+        .filter(item => Number.isFinite(item.baselineBytes) && item.baselineBytes >= 0)
+        .map(item => [item.path, item.baselineBytes] as const)
+    )
+
+    const observeTmpUsage = async () => {
+      tmpBytes = await computeDirectoryBytes(options.cwd, {
+        ignoredFileBaselines: ignoredTmpFileBaselines
+      })
+      if (tmpLimitExceeded) {
+        return
+      }
+      if (tmpBytes > options.maxTmpBytes) {
+        tmpLimitExceeded = true
+        killExecution('SIGKILL')
+      }
+    }
+
+    const startTmpObservation = () => {
+      if (tmpObservationRunning || tmpInspectionError !== null || tmpLimitExceeded) {
+        return
+      }
+      tmpObservationRunning = true
+      tmpObservationPromise = (async () => {
+        try {
+          await observeTmpUsage()
+        } catch (error) {
+          if (tmpInspectionError === null) {
+            tmpInspectionError = formatTmpUsageInspectionError(error)
+            tmpLimitExceeded = true
+            killExecution('SIGKILL')
+          }
+        } finally {
+          tmpObservationRunning = false
+          tmpObservationPromise = null
+        }
+      })()
+    }
+
+    const flushTmpObservation = async () => {
+      if (tmpObservationPromise !== null) {
+        await tmpObservationPromise
+      }
+      if (tmpInspectionError !== null) {
+        return
+      }
+      try {
+        await observeTmpUsage()
+      } catch (error) {
+        if (tmpInspectionError === null) {
+          tmpInspectionError = formatTmpUsageInspectionError(error)
+          tmpLimitExceeded = true
+        }
+      }
+    }
 
     const enforceOutputLimit = (stream: 'stdout' | 'stderr') => {
       if (outputLimitExceeded) {
@@ -355,9 +807,13 @@ const executeScriptProcess = async (
       timedOut = true
       killExecution('SIGKILL')
     }, options.timeoutMs)
+    const tmpUsageHandle = setInterval(() => {
+      startTmpObservation()
+    }, 100)
 
     child.on('error', (error) => {
       clearTimeout(timeoutHandle)
+      clearInterval(tmpUsageHandle)
       resolve({
         status: 'failed',
         errorCode: 'provider-error',
@@ -370,12 +826,56 @@ const executeScriptProcess = async (
         stderrBytes,
         outputTruncated,
         terminationSignal: null,
-        terminationScope
+        terminationScope,
+        tmpBytes,
+        policyTriggered: 'none'
       })
     })
 
-    child.on('close', (exitCode, signal) => {
+    child.on('close', async (exitCode, signal) => {
       clearTimeout(timeoutHandle)
+      clearInterval(tmpUsageHandle)
+      await flushTmpObservation()
+      if (tmpInspectionError !== null) {
+        resolve({
+          status: 'failed',
+          errorCode: 'policy-violation',
+          errorMessage: tmpInspectionError,
+          stdout,
+          stderr,
+          exitCode: null,
+          durationMs: Date.now() - startedAt,
+          stdoutBytes,
+          stderrBytes,
+          outputTruncated,
+          terminationSignal: signal,
+          terminationScope,
+          tmpBytes,
+          policyTriggered: 'tmp-size'
+        })
+        return
+      }
+      if (tmpLimitExceeded) {
+        resolve({
+          status: 'failed',
+          errorCode: 'policy-violation',
+          errorMessage:
+            `Workflow script temporary workspace exceeded ${options.maxTmpBytes} bytes `
+            + `(${tmpBytes} bytes observed).`,
+          stdout,
+          stderr,
+          exitCode: null,
+          durationMs: Date.now() - startedAt,
+          stdoutBytes,
+          stderrBytes,
+          outputTruncated,
+          terminationSignal: signal,
+          terminationScope,
+          tmpBytes,
+          policyTriggered: 'tmp-size'
+        })
+        return
+      }
       if (outputLimitExceeded) {
         resolve({
           status: 'failed',
@@ -391,7 +891,9 @@ const executeScriptProcess = async (
           stderrBytes,
           outputTruncated,
           terminationSignal: signal,
-          terminationScope
+          terminationScope,
+          tmpBytes,
+          policyTriggered: 'output-size'
         })
         return
       }
@@ -409,7 +911,9 @@ const executeScriptProcess = async (
           stderrBytes,
           outputTruncated,
           terminationSignal: signal,
-          terminationScope
+          terminationScope,
+          tmpBytes,
+          policyTriggered: 'none'
         })
         return
       }
@@ -427,7 +931,9 @@ const executeScriptProcess = async (
           stderrBytes,
           outputTruncated,
           terminationSignal: signal,
-          terminationScope
+          terminationScope,
+          tmpBytes,
+          policyTriggered: 'none'
         })
         return
       }
@@ -442,7 +948,8 @@ const executeScriptProcess = async (
         stderrBytes,
         outputTruncated,
         terminationSignal: signal,
-        terminationScope
+        terminationScope,
+        tmpBytes
       })
     })
   })
@@ -456,6 +963,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
   async execute(context) {
     const startedAt = Date.now()
     const sourceBytes = Buffer.byteLength(context.definition.instruction, 'utf8')
+    const containmentPolicy = resolveScriptContainmentPolicy()
     if (context.definition.frontmatter.language === 'markdown') {
       const metadata: WorkflowScriptExecutionMetadata = {
         providerId: 'local',
@@ -468,7 +976,15 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         timeoutMs: resolveScriptTimeoutMs(),
         maxOutputBytes: resolveScriptMaxOutputBytes(),
         maxSourceBytes: resolveScriptMaxSourceBytes(),
+        maxTmpBytes: resolveScriptMaxTmpBytes(),
+        containmentModeRequested: containmentPolicy.requested,
+        containmentProfileRequested: containmentPolicy.requestedProfile,
+        containmentModeApplied: containmentPolicy.applied,
+        containmentProfileApplied: containmentPolicy.appliedProfile,
+        containmentEnforced: containmentPolicy.enforced,
+        containmentFallbackReason: containmentPolicy.fallbackReason,
         sourceBytes,
+        tmpBytes: 0,
         allowedEnvKeys: resolveScriptEnvAllowlist(),
         runtimeCommand: null,
         runtimeArgs: [],
@@ -497,7 +1013,9 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
     const timeoutMs = resolveScriptTimeoutMs()
     const maxOutputBytes = resolveScriptMaxOutputBytes()
     const maxSourceBytes = resolveScriptMaxSourceBytes()
+    const maxTmpBytes = resolveScriptMaxTmpBytes()
     const envAllowlist = resolveScriptEnvAllowlist()
+
     const metadata: WorkflowScriptExecutionMetadata = {
       providerId: 'local',
       language,
@@ -509,7 +1027,15 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       timeoutMs,
       maxOutputBytes,
       maxSourceBytes,
+      maxTmpBytes,
+      containmentModeRequested: containmentPolicy.requested,
+      containmentProfileRequested: containmentPolicy.requestedProfile,
+      containmentModeApplied: containmentPolicy.applied,
+      containmentProfileApplied: containmentPolicy.appliedProfile,
+      containmentEnforced: containmentPolicy.enforced,
+      containmentFallbackReason: containmentPolicy.fallbackReason,
       sourceBytes,
+      tmpBytes: 0,
       allowedEnvKeys: [...envAllowlist],
       runtimeCommand: null,
       runtimeArgs: [],
@@ -521,6 +1047,22 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
       terminationScope: 'none',
       policyTriggered: 'none',
       failurePhase: 'none'
+    }
+    if (containmentPolicy.unsupportedReason !== null) {
+      metadata.failurePhase = 'prepare'
+      const durationMs = Date.now() - startedAt
+      metadata.executionDurationMs = durationMs
+      metadata.prepareDurationMs = durationMs
+      return {
+        status: 'failed',
+        errorCode: 'provider-error',
+        errorMessage: containmentPolicy.unsupportedReason,
+        stdout: '',
+        stderr: '',
+        exitCode: null,
+        durationMs,
+        metadata
+      }
     }
     if (sourceBytes > maxSourceBytes) {
       metadata.policyTriggered = 'source-size'
@@ -548,36 +1090,58 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         `[workflow-script-sandbox] provider=${metadata.providerId} phase=prepare`
         + ` language=${metadata.language} trigger=${metadata.triggerType}`
         + ` timeoutMs=${metadata.timeoutMs} maxOutputBytes=${metadata.maxOutputBytes}`
+        + ` maxTmpBytes=${metadata.maxTmpBytes}`
+        + ` containmentRequested=${metadata.containmentModeRequested}`
+        + ` containmentProfileRequested=${metadata.containmentProfileRequested}`
+        + ` containmentApplied=${metadata.containmentModeApplied}`
+        + ` containmentProfileApplied=${metadata.containmentProfileApplied ?? '(none)'}`
+        + ` containmentEnforced=${metadata.containmentEnforced}`
+        + ` containmentFallback=${metadata.containmentFallbackReason ?? '(none)'}`
         + ` sourceBytes=${metadata.sourceBytes}/${metadata.maxSourceBytes}`
         + ` allowEnv=${metadata.allowedEnvKeys.join(',') || '(none)'}`
       )
-      await writeRunnableScript(tempDirectory, language, context.definition.instruction)
+      const runnerScriptPath = await writeRunnableScript(
+        tempDirectory,
+        language,
+        context.definition.instruction
+      )
+      const runnerScriptBytes = (await stat(runnerScriptPath)).size
       const runtime = resolveScriptBinaryByLanguage(language)
+      const runtimeWithContainment = resolveScriptRuntimeWithContainment(containmentPolicy, runtime)
       metadata.prepareDurationMs = Date.now() - startedAt
-      metadata.runtimeCommand = runtime.command
-      metadata.runtimeArgs = [...runtime.args]
+      metadata.runtimeCommand = runtimeWithContainment.command
+      metadata.runtimeArgs = [...runtimeWithContainment.args]
       executionPhase = 'execute'
       executeStartedAt = Date.now()
       console.info(
         `[workflow-script-sandbox] provider=${metadata.providerId} phase=execute-start`
-        + ` command=${runtime.command} args=${runtime.args.join(' ') || '(none)'}`
+        + ` command=${runtimeWithContainment.command}`
+        + ` args=${runtimeWithContainment.args.join(' ') || '(none)'}`
       )
-      const executionResult = await executeScriptProcess(runtime.command, runtime.args, {
-        cwd: tempDirectory,
-        timeoutMs,
-        maxOutputBytes,
-        envAllowlist
-      })
+      const executionResult = await executeScriptProcess(
+        runtimeWithContainment.command,
+        runtimeWithContainment.args,
+        {
+          cwd: tempDirectory,
+          timeoutMs,
+          maxOutputBytes,
+          envAllowlist,
+          maxTmpBytes,
+          ignoredTmpFileBaselines: [
+            { path: runnerScriptPath, baselineBytes: runnerScriptBytes }
+          ]
+        })
       metadata.stdoutBytes = executionResult.stdoutBytes
       metadata.stderrBytes = executionResult.stderrBytes
       metadata.totalOutputBytes = executionResult.stdoutBytes + executionResult.stderrBytes
       metadata.outputTruncated = executionResult.outputTruncated
+      metadata.tmpBytes = executionResult.tmpBytes
       metadata.terminationSignal = executionResult.terminationSignal
       metadata.terminationScope = executionResult.terminationScope
       metadata.executionDurationMs = executionResult.durationMs
       metadata.executeDurationMs = executionResult.durationMs
-      if (executionResult.status === 'failed' && executionResult.errorCode === 'policy-violation') {
-        metadata.policyTriggered = 'output-size'
+      if (executionResult.status === 'failed') {
+        metadata.policyTriggered = executionResult.policyTriggered
       }
       if (executionResult.status === 'failed' && executionResult.errorCode === 'provider-error') {
         metadata.failurePhase = 'execute'
@@ -586,6 +1150,7 @@ const localScriptSandboxProvider: WorkflowScriptSandboxProvider = {
         `[workflow-script-sandbox] provider=${metadata.providerId} phase=teardown`
         + ` status=${executionResult.status} durationMs=${executionResult.durationMs}`
         + ` stdoutBytes=${executionResult.stdoutBytes} stderrBytes=${executionResult.stderrBytes}`
+        + ` tmpBytes=${executionResult.tmpBytes}`
         + ` signal=${executionResult.terminationSignal ?? '(none)'}`
         + ` terminationScope=${executionResult.terminationScope}`
         + (executionResult.status === 'failed'
