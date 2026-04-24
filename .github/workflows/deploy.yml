@@ -91,7 +91,7 @@ jobs:
           mkdir -p deploy-diagnostics
           ssh "${{ secrets.DEPLOY_HOST }}" '
             set -e
-            df -h / > /tmp/corazon-deploy-df.txt
+            df -Pk / > /tmp/corazon-deploy-df.txt
             awk "NR==2 {print \\$4}" /tmp/corazon-deploy-df.txt > /tmp/corazon-root-avail-kb.txt
             df -h /var/lib/docker || true
           ' > deploy-diagnostics/remote-preflight.txt 2>&1
