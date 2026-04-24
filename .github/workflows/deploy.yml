@@ -89,20 +89,65 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p deploy-diagnostics
+          min_required_kb=3145728
+          remediation_enabled="${{ secrets.DEPLOY_ENABLE_DISK_REMEDIATION }}"
+          remediation_attempted=false
+
+          if [[ -z "${remediation_enabled}" ]]; then
+            remediation_enabled=false
+          fi
+
+          collect_root_avail_kb() {
+            ssh "${{ secrets.DEPLOY_HOST }}" '
+              set -e
+              df -Pk / > /tmp/corazon-deploy-df.txt
+              awk "NR==2 {print \\$4}" /tmp/corazon-deploy-df.txt
+            '
+          }
+
           ssh "${{ secrets.DEPLOY_HOST }}" '
             set -e
             df -Pk / > /tmp/corazon-deploy-df.txt
-            awk "NR==2 {print \\$4}" /tmp/corazon-deploy-df.txt > /tmp/corazon-root-avail-kb.txt
             df -h /var/lib/docker || true
           ' > deploy-diagnostics/remote-preflight.txt 2>&1
-          root_avail_kb="$(ssh "${{ secrets.DEPLOY_HOST }}" "cat /tmp/corazon-root-avail-kb.txt")"
+          root_avail_kb="$(collect_root_avail_kb)"
           echo "root_available_kb=${root_avail_kb}" | tee -a deploy-diagnostics/remote-preflight.txt
+          echo "min_required_kb=${min_required_kb}" | tee -a deploy-diagnostics/remote-preflight.txt
+          echo "disk_remediation_enabled=${remediation_enabled}" | tee -a deploy-diagnostics/remote-preflight.txt
           if [[ -z "${root_avail_kb}" ]]; then
             echo "Unable to determine remote root filesystem free space." >&2
             exit 1
           fi
-          if (( root_avail_kb < 3145728 )); then
-            echo "Remote root filesystem has less than 3GiB free (${root_avail_kb} KiB)." | tee -a deploy-diagnostics/remote-preflight.txt >&2
+
+          if (( root_avail_kb < min_required_kb )) && [[ "${remediation_enabled}" == "true" ]]; then
+            remediation_attempted=true
+            {
+              echo "Low root space detected (${root_avail_kb} KiB). Starting bounded remediation."
+              echo "== before =="
+              ssh "${{ secrets.DEPLOY_HOST }}" 'df -h / /var/lib/docker || true'
+              echo
+              echo "== prune docker builder cache (until=24h) =="
+              ssh "${{ secrets.DEPLOY_HOST }}" 'docker builder prune -af --filter "until=24h" || true'
+              echo
+              echo "== prune unused docker objects (until=24h) =="
+              ssh "${{ secrets.DEPLOY_HOST }}" 'docker system prune -af --filter "until=24h" || true'
+              echo
+              echo "== after =="
+              ssh "${{ secrets.DEPLOY_HOST }}" 'df -h / /var/lib/docker || true'
+            } > deploy-diagnostics/remote-disk-remediation.txt 2>&1
+
+            root_avail_kb="$(collect_root_avail_kb)"
+            echo "root_available_kb_after_remediation=${root_avail_kb}" | tee -a deploy-diagnostics/remote-preflight.txt
+          fi
+
+          if (( root_avail_kb < min_required_kb )); then
+            if [[ "${remediation_attempted}" == "true" ]]; then
+              echo "Remote root filesystem still below 3GiB after remediation (${root_avail_kb} KiB)." | tee -a deploy-diagnostics/remote-preflight.txt >&2
+              echo "See deploy-diagnostics/remote-disk-remediation.txt for remediation telemetry." | tee -a deploy-diagnostics/remote-preflight.txt >&2
+            else
+              echo "Remote root filesystem has less than 3GiB free (${root_avail_kb} KiB)." | tee -a deploy-diagnostics/remote-preflight.txt >&2
+              echo "Set DEPLOY_ENABLE_DISK_REMEDIATION=true to allow bounded auto-remediation before build." | tee -a deploy-diagnostics/remote-preflight.txt >&2
+            fi
             exit 1
           fi
 
