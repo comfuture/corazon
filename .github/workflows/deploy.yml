@@ -111,6 +111,35 @@ jobs:
             '
           }
 
+          compute_pressure_decision() {
+            local root_kb="$1"
+            local docker_kb="$2"
+            local attempted_flag="$3"
+            local line
+            local key
+            local value
+
+            while IFS= read -r line; do
+              key="${line%%=*}"
+              value="${line#*=}"
+              case "${key}" in
+                PRESSURE_TARGET) pressure_target="${value}" ;;
+                PRESSURE_AVAILABLE_KB) pressure_avail_kb="${value}" ;;
+                SHOULD_REMEDIATE) should_remediate="${value}" ;;
+                SHOULD_FAIL) should_fail="${value}" ;;
+              esac
+            done < <(
+              node scripts/deploy-disk-pressure-decision.mjs \
+                --root-avail-kb "${root_kb}" \
+                --docker-avail-kb "${docker_kb}" \
+                --docker-root-dir "${docker_root_dir}" \
+                --min-required-kb "${min_required_kb}" \
+                --remediation-enabled "${remediation_enabled}" \
+                --remediation-attempted "${attempted_flag}" \
+                --format env
+            )
+          }
+
           ssh "${{ secrets.DEPLOY_HOST }}" '
             set -e
             df -Pk / > /tmp/corazon-deploy-df.txt
@@ -118,12 +147,7 @@ jobs:
           ' > deploy-diagnostics/remote-preflight.txt 2>&1
           root_avail_kb="$(collect_avail_kb /)"
           docker_avail_kb="$(collect_avail_kb "${docker_root_dir}")"
-          pressure_target="/"
-          pressure_avail_kb="${root_avail_kb}"
-          if (( docker_avail_kb < pressure_avail_kb )); then
-            pressure_target="${docker_root_dir}"
-            pressure_avail_kb="${docker_avail_kb}"
-          fi
+          compute_pressure_decision "${root_avail_kb}" "${docker_avail_kb}" "${remediation_attempted}"
           echo "root_available_kb=${root_avail_kb}" | tee -a deploy-diagnostics/remote-preflight.txt
           echo "docker_root_dir=${docker_root_dir}" | tee -a deploy-diagnostics/remote-preflight.txt
           echo "docker_available_kb=${docker_avail_kb}" | tee -a deploy-diagnostics/remote-preflight.txt
@@ -136,7 +160,7 @@ jobs:
             exit 1
           fi
 
-          if (( pressure_avail_kb < min_required_kb )) && [[ "${remediation_enabled}" == "true" ]]; then
+          if [[ "${should_remediate}" == "true" ]]; then
             remediation_attempted=true
             {
               echo "Low disk space detected on ${pressure_target} (${pressure_avail_kb} KiB). Starting bounded remediation."
@@ -155,19 +179,14 @@ jobs:
 
             root_avail_kb="$(collect_avail_kb /)"
             docker_avail_kb="$(collect_avail_kb "${docker_root_dir}")"
-            pressure_target="/"
-            pressure_avail_kb="${root_avail_kb}"
-            if (( docker_avail_kb < pressure_avail_kb )); then
-              pressure_target="${docker_root_dir}"
-              pressure_avail_kb="${docker_avail_kb}"
-            fi
+            compute_pressure_decision "${root_avail_kb}" "${docker_avail_kb}" "${remediation_attempted}"
             echo "root_available_kb_after_remediation=${root_avail_kb}" | tee -a deploy-diagnostics/remote-preflight.txt
             echo "docker_available_kb_after_remediation=${docker_avail_kb}" | tee -a deploy-diagnostics/remote-preflight.txt
             echo "pressure_target_after_remediation=${pressure_target}" | tee -a deploy-diagnostics/remote-preflight.txt
             echo "pressure_available_kb_after_remediation=${pressure_avail_kb}" | tee -a deploy-diagnostics/remote-preflight.txt
           fi
 
-          if (( pressure_avail_kb < min_required_kb )); then
+          if [[ "${should_fail}" == "true" ]]; then
             if [[ "${remediation_attempted}" == "true" ]]; then
               echo "Remote filesystem ${pressure_target} is still below 3GiB after remediation (${pressure_avail_kb} KiB)." | tee -a deploy-diagnostics/remote-preflight.txt >&2
               echo "See deploy-diagnostics/remote-disk-remediation.txt for remediation telemetry." | tee -a deploy-diagnostics/remote-preflight.txt >&2

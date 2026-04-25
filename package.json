@@ -12,6 +12,7 @@
     "chatgpt:smoke": "node scripts/chatgpt-codex-responses-smoke.ts",
     "startup-alert:smoke": "node scripts/startup-alert-smoke.ts",
     "audio-transcription:verify": "node scripts/audio-transcription-regression-smoke.ts",
+    "deploy:disk-pressure:verify": "node scripts/verify-deploy-disk-pressure-decision.mjs",
     "recovery:verify": "node scripts/verify-post-deploy-recovery.mjs",
     "types:codex-app-server": "node scripts/generate-codex-app-server-types.mjs",
     "preview": "nuxt preview",
