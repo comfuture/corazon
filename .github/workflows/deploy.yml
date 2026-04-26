@@ -231,7 +231,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: deploy-diagnostics-${{ github.run_id }}
+          name: deploy-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
           path: deploy-diagnostics/
           if-no-files-found: warn
 
@@ -284,7 +284,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: post-deploy-recovery-${{ github.run_id }}
+          name: post-deploy-recovery-${{ github.run_id }}-${{ github.run_attempt }}
           path: post-deploy-recovery.json
           if-no-files-found: error
 
