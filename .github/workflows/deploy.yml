@@ -210,6 +210,10 @@ jobs:
         if: steps.mode.outputs.skip_deploy != 'true' && steps.remote_build.outcome == 'failure'
         run: |
           mkdir -p deploy-diagnostics
+          docker_root_dir="$(docker --context production info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
+          if [[ -z "${docker_root_dir}" ]]; then
+            docker_root_dir="/var/lib/docker"
+          fi
           {
             echo "Build failed while creating corazon:latest on remote Docker host."
             echo
@@ -220,7 +224,7 @@ jobs:
             docker --context production system df || true
             echo
             echo "== remote disk usage =="
-            ssh "${{ secrets.DEPLOY_HOST }}" 'df -h / /var/lib/docker || true'
+            ssh "${{ secrets.DEPLOY_HOST }}" 'df -h / '"${docker_root_dir}"' || true'
           } > deploy-diagnostics/remote-build-failure-diagnostics.txt 2>&1
 
       - name: Upload remote deploy diagnostics
