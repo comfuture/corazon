@@ -107,7 +107,7 @@ jobs:
             ssh "${{ secrets.DEPLOY_HOST }}" '
               set -e
               df -Pk '"${target_path}"' > /tmp/corazon-deploy-df.txt
-              awk "NR==2 {print \\$4}" /tmp/corazon-deploy-df.txt
+              tail -n +2 /tmp/corazon-deploy-df.txt | head -n 1 | tr -s " " | cut -d " " -f4
             '
           }
 
