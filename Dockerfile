@@ -28,8 +28,9 @@ RUN pnpm install --frozen-lockfile
 
 COPY . .
 COPY docker/mise.toml /app/.mise.toml
+ARG BUILD_NODE_OPTIONS=--max-old-space-size=6144
 RUN mise trust /app/.mise.toml \
-  && pnpm build
+  && NODE_OPTIONS="${BUILD_NODE_OPTIONS}" pnpm build
 
 ENV NODE_ENV=production
 ENV NITRO_HOST=0.0.0.0
