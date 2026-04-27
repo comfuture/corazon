@@ -71,14 +71,14 @@ jobs:
           fi
 
           cat > /tmp/deploy-evidence-comment.md <<EOF
-## Deploy verification evidence
-- Result: ${result_line}
-- Branch: \`${{ steps.ctx.outputs.head_branch }}\`
-- Commit: \`${head_short}\`
-- Run: [deploy #${{ steps.ctx.outputs.run_number }} attempt ${{ steps.ctx.outputs.run_attempt }}](${{ steps.ctx.outputs.run_url }})
-- Trigger: \`push\` to \`main\`
-- Next action: ${next_action}
-EOF
+          ## Deploy verification evidence
+          - Result: ${result_line}
+          - Branch: \`${{ steps.ctx.outputs.head_branch }}\`
+          - Commit: \`${head_short}\`
+          - Run: [deploy #${{ steps.ctx.outputs.run_number }} attempt ${{ steps.ctx.outputs.run_attempt }}](${{ steps.ctx.outputs.run_url }})
+          - Trigger: \`push\` to \`main\`
+          - Next action: ${next_action}
+          EOF
 
       - name: Post evidence to tracking issues
         if: steps.ctx.outputs.should_post == 'true'
