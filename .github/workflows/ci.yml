@@ -36,6 +36,9 @@ jobs:
       - name: Verify post-deploy recovery regression guards
         run: pnpm run recovery:verify
 
+      - name: Verify deploy disk-pressure decision matrix
+        run: pnpm run deploy:disk-pressure:verify
+
       - name: Verify startup alert regression guards
         run: pnpm run startup-alert:smoke
 

@@ -1,0 +1,100 @@
+name: deploy-verification-evidence
+
+on:
+  workflow_run:
+    workflows: ["deploy"]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+
+concurrency:
+  group: deploy-verification-evidence-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  record-deploy-evidence:
+    if: github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    env:
+      REPO: ${{ github.repository }}
+      TRACKING_ISSUES: "98,96"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Capture deploy run context
+        id: ctx
+        run: |
+          set -euo pipefail
+          conclusion="${{ github.event.workflow_run.conclusion }}"
+          run_attempt="${{ github.event.workflow_run.run_attempt }}"
+          should_post=true
+
+          if [[ "${conclusion}" == "failure" && "${run_attempt}" == "1" ]]; then
+            should_post=false
+          fi
+
+          echo "conclusion=${conclusion}" >> "$GITHUB_OUTPUT"
+          echo "run_id=${{ github.event.workflow_run.id }}" >> "$GITHUB_OUTPUT"
+          echo "run_number=${{ github.event.workflow_run.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "run_attempt=${run_attempt}" >> "$GITHUB_OUTPUT"
+          echo "run_url=${{ github.event.workflow_run.html_url }}" >> "$GITHUB_OUTPUT"
+          echo "head_sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          echo "head_branch=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
+          echo "should_post=${should_post}" >> "$GITHUB_OUTPUT"
+
+      - name: Retry failed deploy run once
+        if: steps.ctx.outputs.conclusion == 'failure' && steps.ctx.outputs.run_attempt == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api \
+            --method POST \
+            "repos/${REPO}/actions/runs/${{ steps.ctx.outputs.run_id }}/rerun-failed-jobs"
+
+      - name: Build evidence comment
+        if: steps.ctx.outputs.should_post == 'true'
+        run: |
+          set -euo pipefail
+
+          head_short="$(printf '%s' '${{ steps.ctx.outputs.head_sha }}' | cut -c1-12)"
+          conclusion="${{ steps.ctx.outputs.conclusion }}"
+          result_line="Deploy verification status: success"
+          next_action="None"
+
+          if [[ "${conclusion}" == "failure" ]]; then
+            result_line="Deploy verification status: failure after auto-retry"
+            next_action="Inspect failing steps and diagnostics artifact from the linked deploy run; then fix forward in the next PR."
+          elif [[ "${conclusion}" != "success" ]]; then
+            result_line="Deploy verification status: ${conclusion}"
+            next_action="Review deploy run details and decide whether a manual rerun or follow-up fix is needed."
+          fi
+
+          cat > /tmp/deploy-evidence-comment.md <<EOF
+## Deploy verification evidence
+- Result: ${result_line}
+- Branch: \`${{ steps.ctx.outputs.head_branch }}\`
+- Commit: \`${head_short}\`
+- Run: [deploy #${{ steps.ctx.outputs.run_number }} attempt ${{ steps.ctx.outputs.run_attempt }}](${{ steps.ctx.outputs.run_url }})
+- Trigger: \`push\` to \`main\`
+- Next action: ${next_action}
+EOF
+
+      - name: Post evidence to tracking issues
+        if: steps.ctx.outputs.should_post == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          IFS=',' read -r -a issue_numbers <<< "${TRACKING_ISSUES}"
+          for issue in "${issue_numbers[@]}"; do
+            trimmed="$(echo "${issue}" | xargs)"
+            if [[ -z "${trimmed}" ]]; then
+              continue
+            fi
+            scripts/gh-comment-safe.sh issue "${trimmed}" --repo "${REPO}" < /tmp/deploy-evidence-comment.md
+          done

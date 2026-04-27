@@ -54,14 +54,14 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
-          cat >> ~/.ssh/config <<EOF
+          cat >> ~/.ssh/config <<EOF_INNER
           Host ${{ secrets.DEPLOY_HOST }}
             HostName ${{ secrets.DEPLOY_HOST }}
             User ubuntu
             ServerAliveInterval 15
             ServerAliveCountMax 20
             TCPKeepAlive yes
-          EOF
+          EOF_INNER
 
       - name: Create remote Docker context
         run: |
@@ -84,19 +84,172 @@ jobs:
           uname -m
           docker --context production version --format 'client={{.Client.Arch}} server={{.Server.Arch}}'
 
-      - name: Build application image on remote Docker host
+      - name: Preflight remote deploy host guardrails
         if: steps.mode.outputs.skip_deploy != 'true'
-        run: docker --context production build --progress=plain --platform linux/arm64 -t corazon:latest .
+        run: |
+          set -euo pipefail
+          mkdir -p deploy-diagnostics
+          min_required_kb=3145728
+          remediation_enabled="${{ secrets.DEPLOY_ENABLE_DISK_REMEDIATION }}"
+          remediation_attempted=false
+          docker_root_dir="$(docker --context production info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
+
+          if [[ -z "${remediation_enabled}" ]]; then
+            remediation_enabled=false
+          fi
+
+          if [[ -z "${docker_root_dir}" ]]; then
+            docker_root_dir="/var/lib/docker"
+          fi
+
+          collect_avail_kb() {
+            local target_path="$1"
+            ssh "${{ secrets.DEPLOY_HOST }}" '
+              set -e
+              df -Pk '"${target_path}"' > /tmp/corazon-deploy-df.txt
+              awk "NR==2 {print \\$4}" /tmp/corazon-deploy-df.txt
+            '
+          }
+
+          compute_pressure_decision() {
+            local root_kb="$1"
+            local docker_kb="$2"
+            local attempted_flag="$3"
+            local line
+            local key
+            local value
+
+            while IFS= read -r line; do
+              key="${line%%=*}"
+              value="${line#*=}"
+              case "${key}" in
+                PRESSURE_TARGET) pressure_target="${value}" ;;
+                PRESSURE_AVAILABLE_KB) pressure_avail_kb="${value}" ;;
+                SHOULD_REMEDIATE) should_remediate="${value}" ;;
+                SHOULD_FAIL) should_fail="${value}" ;;
+              esac
+            done < <(
+              node scripts/deploy-disk-pressure-decision.mjs \
+                --root-avail-kb "${root_kb}" \
+                --docker-avail-kb "${docker_kb}" \
+                --docker-root-dir "${docker_root_dir}" \
+                --min-required-kb "${min_required_kb}" \
+                --remediation-enabled "${remediation_enabled}" \
+                --remediation-attempted "${attempted_flag}" \
+                --format env
+            )
+          }
+
+          ssh "${{ secrets.DEPLOY_HOST }}" '
+            set -e
+            df -Pk / > /tmp/corazon-deploy-df.txt
+            df -h '"${docker_root_dir}"' || true
+          ' > deploy-diagnostics/remote-preflight.txt 2>&1
+          root_avail_kb="$(collect_avail_kb /)"
+          docker_avail_kb="$(collect_avail_kb "${docker_root_dir}")"
+          compute_pressure_decision "${root_avail_kb}" "${docker_avail_kb}" "${remediation_attempted}"
+          echo "root_available_kb=${root_avail_kb}" | tee -a deploy-diagnostics/remote-preflight.txt
+          echo "docker_root_dir=${docker_root_dir}" | tee -a deploy-diagnostics/remote-preflight.txt
+          echo "docker_available_kb=${docker_avail_kb}" | tee -a deploy-diagnostics/remote-preflight.txt
+          echo "pressure_target=${pressure_target}" | tee -a deploy-diagnostics/remote-preflight.txt
+          echo "pressure_available_kb=${pressure_avail_kb}" | tee -a deploy-diagnostics/remote-preflight.txt
+          echo "min_required_kb=${min_required_kb}" | tee -a deploy-diagnostics/remote-preflight.txt
+          echo "disk_remediation_enabled=${remediation_enabled}" | tee -a deploy-diagnostics/remote-preflight.txt
+          if [[ -z "${root_avail_kb}" || -z "${docker_avail_kb}" ]]; then
+            echo "Unable to determine remote filesystem free space for deploy preflight." >&2
+            exit 1
+          fi
+
+          if [[ "${should_remediate}" == "true" ]]; then
+            remediation_attempted=true
+            {
+              echo "Low disk space detected on ${pressure_target} (${pressure_avail_kb} KiB). Starting bounded remediation."
+              echo "== before =="
+              ssh "${{ secrets.DEPLOY_HOST }}" 'df -h / '"${docker_root_dir}"' || true'
+              echo
+              echo "== prune docker builder cache (until=24h) =="
+              ssh "${{ secrets.DEPLOY_HOST }}" 'docker builder prune -af --filter "until=24h" || true'
+              echo
+              echo "== prune unused docker objects (until=24h) =="
+              ssh "${{ secrets.DEPLOY_HOST }}" 'docker system prune -af --filter "until=24h" || true'
+              echo
+              echo "== after =="
+              ssh "${{ secrets.DEPLOY_HOST }}" 'df -h / '"${docker_root_dir}"' || true'
+            } > deploy-diagnostics/remote-disk-remediation.txt 2>&1
+
+            root_avail_kb="$(collect_avail_kb /)"
+            docker_avail_kb="$(collect_avail_kb "${docker_root_dir}")"
+            compute_pressure_decision "${root_avail_kb}" "${docker_avail_kb}" "${remediation_attempted}"
+            echo "root_available_kb_after_remediation=${root_avail_kb}" | tee -a deploy-diagnostics/remote-preflight.txt
+            echo "docker_available_kb_after_remediation=${docker_avail_kb}" | tee -a deploy-diagnostics/remote-preflight.txt
+            echo "pressure_target_after_remediation=${pressure_target}" | tee -a deploy-diagnostics/remote-preflight.txt
+            echo "pressure_available_kb_after_remediation=${pressure_avail_kb}" | tee -a deploy-diagnostics/remote-preflight.txt
+          fi
+
+          if [[ "${should_fail}" == "true" ]]; then
+            if [[ "${remediation_attempted}" == "true" ]]; then
+              echo "Remote filesystem ${pressure_target} is still below 3GiB after remediation (${pressure_avail_kb} KiB)." | tee -a deploy-diagnostics/remote-preflight.txt >&2
+              echo "See deploy-diagnostics/remote-disk-remediation.txt for remediation telemetry." | tee -a deploy-diagnostics/remote-preflight.txt >&2
+            else
+              echo "Remote filesystem ${pressure_target} has less than 3GiB free (${pressure_avail_kb} KiB)." | tee -a deploy-diagnostics/remote-preflight.txt >&2
+              echo "Set DEPLOY_ENABLE_DISK_REMEDIATION=true to allow bounded auto-remediation before build." | tee -a deploy-diagnostics/remote-preflight.txt >&2
+            fi
+            exit 1
+          fi
+
+      - name: Build application image on remote Docker host
+        id: remote_build
+        if: steps.mode.outputs.skip_deploy != 'true'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          mkdir -p deploy-diagnostics
+          docker --context production build --progress=plain --platform linux/arm64 -t corazon:latest . 2>&1 | tee deploy-diagnostics/remote-build.log
+
+      - name: Capture remote build failure diagnostics
+        if: steps.mode.outputs.skip_deploy != 'true' && steps.remote_build.outcome == 'failure'
+        run: |
+          mkdir -p deploy-diagnostics
+          docker_root_dir="$(docker --context production info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
+          if [[ -z "${docker_root_dir}" ]]; then
+            docker_root_dir="/var/lib/docker"
+          fi
+          {
+            echo "Build failed while creating corazon:latest on remote Docker host."
+            echo
+            echo "== docker info (remote context) =="
+            docker --context production info || true
+            echo
+            echo "== docker system df (remote context) =="
+            docker --context production system df || true
+            echo
+            echo "== remote disk usage =="
+            ssh "${{ secrets.DEPLOY_HOST }}" 'df -h / '"${docker_root_dir}"' || true'
+          } > deploy-diagnostics/remote-build-failure-diagnostics.txt 2>&1
+
+      - name: Upload remote deploy diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: deploy-diagnostics/
+          if-no-files-found: warn
+
+      - name: Fail deploy when remote image build fails
+        if: steps.mode.outputs.skip_deploy != 'true' && steps.remote_build.outcome == 'failure'
+        run: |
+          echo "Remote Docker image build failed. See deploy-diagnostics artifact for details."
+          exit 1
 
       - name: Verify built image architecture
-        if: steps.mode.outputs.skip_deploy != 'true'
+        if: steps.mode.outputs.skip_deploy != 'true' && steps.remote_build.outcome == 'success'
         run: |
           image_platform="$(docker --context production image inspect corazon:latest --format '{{.Os}}/{{.Architecture}}')"
           echo "$image_platform"
           test "$image_platform" = "linux/arm64"
 
       - name: Deploy on remote Docker host
-        if: steps.mode.outputs.skip_deploy != 'true'
+        if: steps.mode.outputs.skip_deploy != 'true' && steps.remote_build.outcome == 'success'
         run: |
           docker --context production compose pull chroma
           docker --context production compose up -d --no-build --remove-orphans
@@ -125,13 +278,13 @@ jobs:
         if: always() && steps.recovery_gate.outputs.status != ''
         run: |
           ssh "${{ secrets.DEPLOY_HOST }}" \
-            "printf '%s\n' '${{ steps.recovery_gate.outputs.status }}' > /home/ubuntu/.corazon/post-deploy-recovery-last-status.txt"
+            "printf '%s\\n' '${{ steps.recovery_gate.outputs.status }}' > /home/ubuntu/.corazon/post-deploy-recovery-last-status.txt"
 
       - name: Upload post-deploy recovery report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: post-deploy-recovery-${{ github.run_id }}
+          name: post-deploy-recovery-${{ github.run_id }}-${{ github.run_attempt }}
           path: post-deploy-recovery.json
           if-no-files-found: error
 
