@@ -1,7 +1,6 @@
 FROM ubuntu:latest
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG BUILD_NODE_OPTIONS=--max-old-space-size=6144
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends bash build-essential ca-certificates curl gh git openssh-client ripgrep xz-utils \
@@ -29,6 +28,7 @@ RUN pnpm install --frozen-lockfile
 
 COPY . .
 COPY docker/mise.toml /app/.mise.toml
+ARG BUILD_NODE_OPTIONS=--max-old-space-size=6144
 RUN mise trust /app/.mise.toml \
   && NODE_OPTIONS="${BUILD_NODE_OPTIONS}" pnpm build
 
