@@ -71,7 +71,11 @@ jobs:
             if [[ -z "${trimmed}" ]]; then
               continue
             fi
-            previous_comment_body="$(gh api "repos/${REPO}/issues/${trimmed}/comments?per_page=100" --jq '[.[] | select(.user.login == "github-actions[bot]") | select(.body | contains("<!-- deploy-evidence-state:"))] | last | .body // ""')"
+            previous_comment_body="$(
+              gh api --paginate "repos/${REPO}/issues/${trimmed}/comments?per_page=100" \
+                --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | contains("<!-- deploy-evidence-state:")) | .body' \
+                | tail -n 1
+            )"
             previous_state="$(printf '%s\n' "${previous_comment_body}" | sed -n 's/.*<!-- deploy-evidence-state:\([^>]*\) -->.*/\1/p' | head -n1)"
             current_state="${{ steps.ctx.outputs.state_key }}"
 
