@@ -107,17 +107,20 @@ jobs:
               transition_line="\`${previous_state}\` -> \`${current_state}\`"
             fi
 
-            cat > /tmp/deploy-evidence-comment.md <<EOF
-            ## Deploy verification evidence
-            - Result: ${result_line}
-            - State transition: ${transition_line}
-            - Branch: \`${{ steps.ctx.outputs.head_branch }}\`
-            - Commit: \`${head_short}\`
-            - Run: [deploy #${{ steps.ctx.outputs.run_number }} attempt ${{ steps.ctx.outputs.run_attempt }}](${{ steps.ctx.outputs.run_url }})
-            - Trigger: \`push\` to \`main\`
-            - Next action: ${next_action}
-            <!-- deploy-evidence-state:${current_state} -->
-            EOF
+            {
+              printf '## Deploy verification evidence\n'
+              printf -- '- Result: %s\n' "${result_line}"
+              printf -- '- State transition: %s\n' "${transition_line}"
+              printf -- '- Branch: `%s`\n' "${{ steps.ctx.outputs.head_branch }}"
+              printf -- '- Commit: `%s`\n' "${head_short}"
+              printf -- '- Run: [deploy #%s attempt %s](%s)\n' \
+                "${{ steps.ctx.outputs.run_number }}" \
+                "${{ steps.ctx.outputs.run_attempt }}" \
+                "${{ steps.ctx.outputs.run_url }}"
+              printf '%s\n' '- Trigger: `push` to `main`'
+              printf -- '- Next action: %s\n' "${next_action}"
+              printf '<!-- deploy-evidence-state:%s -->\n' "${current_state}"
+            } > /tmp/deploy-evidence-comment.md
 
             scripts/gh-comment-safe.sh issue "${trimmed}" --repo "${REPO}" < /tmp/deploy-evidence-comment.md
           done
