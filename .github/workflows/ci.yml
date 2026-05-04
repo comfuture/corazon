@@ -28,7 +28,7 @@ jobs:
         run: pnpm install
 
       - name: Lint GitHub Actions workflows
-        uses: reviewdog/actionlint@v1
+        uses: reviewdog/action-actionlint@v1
 
       - name: Lint
         run: pnpm run lint
