@@ -42,7 +42,7 @@ const lines = [
   `- Branch: \`${branch}\``,
   `- Commit: \`${headShort}\``,
   `- Run: [deploy #${runNumber} attempt ${runAttempt}](${runUrl})`,
-  '- Trigger: `push` to `main`',
+  `- Trigger: \`push\` to \`${branch}\``,
   `- Next action: ${nextAction}`,
   `<!-- deploy-evidence-state:${state} -->`
 ]

@@ -8,8 +8,12 @@ const scriptPath = new URL('./build-deploy-evidence-comment.mjs', import.meta.ur
 const scriptFilePath = fileURLToPath(scriptPath)
 
 function runCase(overrides = {}) {
+  const baseEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.startsWith('DEPLOY_EVIDENCE_'))
+  )
+
   const env = {
-    ...process.env,
+    ...baseEnv,
     DEPLOY_EVIDENCE_STATE: 'success',
     DEPLOY_EVIDENCE_BRANCH: 'main',
     DEPLOY_EVIDENCE_HEAD_SHA: '0123456789abcdef0123456789abcdef01234567',
