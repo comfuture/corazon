@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Lint GitHub Actions workflows
+        uses: reviewdog/action-actionlint@v1
+
       - name: Lint
         run: pnpm run lint
 
@@ -41,6 +44,9 @@ jobs:
 
       - name: Verify startup alert regression guards
         run: pnpm run startup-alert:smoke
+
+      - name: Verify deploy evidence comment regression guards
+        run: pnpm run deploy:evidence:verify
 
       - name: Verify audio transcription regression guards
         run: pnpm run audio-transcription:verify

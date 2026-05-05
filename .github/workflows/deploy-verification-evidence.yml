@@ -89,38 +89,15 @@ jobs:
               continue
             fi
 
-            head_short="$(printf '%s' '${{ steps.ctx.outputs.head_sha }}' | cut -c1-12)"
-            conclusion="${{ steps.ctx.outputs.conclusion }}"
-            result_line="Deploy verification status: success"
-            next_action="None"
-
-            if [[ "${conclusion}" == "failure" ]]; then
-              result_line="Deploy verification status: failure after auto-retry"
-              next_action="Inspect failing steps and diagnostics artifact from the linked deploy run; then fix forward in the next PR."
-            elif [[ "${conclusion}" != "success" ]]; then
-              result_line="Deploy verification status: ${conclusion}"
-              next_action="Review deploy run details and decide whether a manual rerun or follow-up fix is needed."
-            fi
-
-            transition_line="First tracked state in this issue."
-            if [[ -n "${previous_state}" ]]; then
-              transition_line="\`${previous_state}\` -> \`${current_state}\`"
-            fi
-
-            {
-              printf '## Deploy verification evidence\n'
-              printf -- '- Result: %s\n' "${result_line}"
-              printf -- '- State transition: %s\n' "${transition_line}"
-              printf -- '- Branch: `%s`\n' "${{ steps.ctx.outputs.head_branch }}"
-              printf -- '- Commit: `%s`\n' "${head_short}"
-              printf -- '- Run: [deploy #%s attempt %s](%s)\n' \
-                "${{ steps.ctx.outputs.run_number }}" \
-                "${{ steps.ctx.outputs.run_attempt }}" \
-                "${{ steps.ctx.outputs.run_url }}"
-              printf '%s\n' '- Trigger: `push` to `main`'
-              printf -- '- Next action: %s\n' "${next_action}"
-              printf '<!-- deploy-evidence-state:%s -->\n' "${current_state}"
-            } > /tmp/deploy-evidence-comment.md
+            DEPLOY_EVIDENCE_STATE="${current_state}" \
+            DEPLOY_EVIDENCE_PREVIOUS_STATE="${previous_state}" \
+            DEPLOY_EVIDENCE_BRANCH="${{ steps.ctx.outputs.head_branch }}" \
+            DEPLOY_EVIDENCE_HEAD_SHA="${{ steps.ctx.outputs.head_sha }}" \
+            DEPLOY_EVIDENCE_RUN_NUMBER="${{ steps.ctx.outputs.run_number }}" \
+            DEPLOY_EVIDENCE_RUN_ATTEMPT="${{ steps.ctx.outputs.run_attempt }}" \
+            DEPLOY_EVIDENCE_RUN_URL="${{ steps.ctx.outputs.run_url }}" \
+            DEPLOY_EVIDENCE_CONCLUSION="${{ steps.ctx.outputs.conclusion }}" \
+              node scripts/build-deploy-evidence-comment.mjs > /tmp/deploy-evidence-comment.md
 
             scripts/gh-comment-safe.sh issue "${trimmed}" --repo "${REPO}" < /tmp/deploy-evidence-comment.md
           done
