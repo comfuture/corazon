@@ -57,4 +57,16 @@ const neutralBody = runCase({
 assert.match(neutralBody, /Deploy verification status: cancelled/)
 assert.match(neutralBody, /First tracked state in this issue\./)
 
+const markdownStressBody = runCase({
+  DEPLOY_EVIDENCE_STATE: 'failure-after-retry',
+  DEPLOY_EVIDENCE_PREVIOUS_STATE: '```old-state```',
+  DEPLOY_EVIDENCE_BRANCH: 'release/`hotfix`\n${{ github.sha }}',
+  DEPLOY_EVIDENCE_CONCLUSION: 'failure',
+  DEPLOY_EVIDENCE_RUN_NUMBER: '88',
+  DEPLOY_EVIDENCE_RUN_ATTEMPT: '3'
+})
+assert.match(markdownStressBody, /- Branch: ``release\/`hotfix` \$\{\{ github\.sha \}\}``/)
+assert.match(markdownStressBody, /- Trigger: `push` to ``release\/`hotfix` \$\{\{ github\.sha \}\}``/)
+assert.match(markdownStressBody, /- State transition: `+old-state`+ -> `failure-after-retry`/)
+
 console.log('deploy evidence comment regression checks passed')
