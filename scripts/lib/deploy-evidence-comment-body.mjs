@@ -12,10 +12,23 @@ function toSingleLine(value) {
 
 function inlineCode(value) {
   const normalized = toSingleLine(value)
+  if (normalized === '') {
+    return '``'
+  }
   const runs = normalized.match(/`+/g) || []
   const maxRun = runs.reduce((max, run) => Math.max(max, run.length), 0)
   const fence = '`'.repeat(maxRun + 1)
-  return `${fence}${normalized}${fence}`
+  const needsPadding = normalized.startsWith('`') || normalized.endsWith('`')
+  const padded = needsPadding ? ` ${normalized} ` : normalized
+  return `${fence}${padded}${fence}`
+}
+
+function escapeMarkdownLinkDestination(url) {
+  return toSingleLine(url).replace(/\)/g, '%29')
+}
+
+function escapeHtmlCommentBody(value) {
+  return toSingleLine(value).replace(/-->/g, '-- >')
 }
 
 export function buildDeployEvidenceCommentBody(input) {
@@ -51,10 +64,10 @@ export function buildDeployEvidenceCommentBody(input) {
     `- State transition: ${transitionLine}`,
     `- Branch: ${inlineCode(branch)}`,
     `- Commit: ${inlineCode(headShort)}`,
-    `- Run: [deploy #${toSingleLine(runNumber)} attempt ${toSingleLine(runAttempt)}](${toSingleLine(runUrl)})`,
+    `- Run: [deploy #${toSingleLine(runNumber)} attempt ${toSingleLine(runAttempt)}](${escapeMarkdownLinkDestination(runUrl)})`,
     `- Trigger: ${inlineCode('push')} to ${inlineCode(branch)}`,
     `- Next action: ${nextAction}`,
-    `<!-- deploy-evidence-state:${toSingleLine(state)} -->`
+    `<!-- deploy-evidence-state:${escapeHtmlCommentBody(state)} -->`
   ]
 
   return `${lines.join('\n')}\n`
