@@ -18,6 +18,11 @@ const singleLineCases = [
     name: 'tabs and extra spaces are normalized',
     input: '  a\t\tb   ',
     expected: 'a b'
+  },
+  {
+    name: 'non-space whitespace is normalized',
+    input: 'a\vb\f c',
+    expected: 'a b c'
   }
 ]
 
@@ -57,6 +62,11 @@ const markdownLinkCases = [
     name: 'closing parenthesis is escaped for markdown destination',
     input: 'https://example.test/run/88_(retry)',
     expected: 'https://example.test/run/88_(retry%29'
+  },
+  {
+    name: 'spaces from newline boundaries are URI-escaped',
+    input: 'https://example.test/release\nnotes',
+    expected: 'https://example.test/release%20notes'
   }
 ]
 

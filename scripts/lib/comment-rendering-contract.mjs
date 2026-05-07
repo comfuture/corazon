@@ -1,5 +1,5 @@
 export function toSingleLine(value) {
-  return String(value).replace(/\r?\n/g, ' ').replace(/[ \t]+/g, ' ').trim()
+  return String(value).replace(/\s+/g, ' ').trim()
 }
 
 export function inlineCode(value) {
@@ -17,7 +17,7 @@ export function inlineCode(value) {
 }
 
 export function escapeMarkdownLinkDestination(url) {
-  return toSingleLine(url).replace(/\)/g, '%29')
+  return encodeURI(toSingleLine(url)).replace(/\)/g, '%29')
 }
 
 export function escapeHtmlCommentBody(value) {
