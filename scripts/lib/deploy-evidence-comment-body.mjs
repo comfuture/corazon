@@ -1,34 +1,16 @@
+import {
+  escapeHtmlCommentBody,
+  escapeMarkdownLinkDestination,
+  inlineCode,
+  toSingleLine
+} from './comment-rendering-contract.mjs'
+
 function required(input, key) {
   const value = input[key]
   if (!value) {
     throw new Error(`Missing required value: ${key}`)
   }
   return value
-}
-
-function toSingleLine(value) {
-  return String(value).replace(/\r?\n/g, ' ').replace(/[ \t]+/g, ' ').trim()
-}
-
-function inlineCode(value) {
-  const normalized = toSingleLine(value)
-  if (normalized === '') {
-    return '``'
-  }
-  const runs = normalized.match(/`+/g) || []
-  const maxRun = runs.reduce((max, run) => Math.max(max, run.length), 0)
-  const fence = '`'.repeat(maxRun + 1)
-  const needsPadding = normalized.startsWith('`') || normalized.endsWith('`')
-  const padded = needsPadding ? ` ${normalized} ` : normalized
-  return `${fence}${padded}${fence}`
-}
-
-function escapeMarkdownLinkDestination(url) {
-  return toSingleLine(url).replace(/\)/g, '%29')
-}
-
-function escapeHtmlCommentBody(value) {
-  return toSingleLine(value).replace(/-->/g, '-- >')
 }
 
 export function buildDeployEvidenceCommentBody(input) {

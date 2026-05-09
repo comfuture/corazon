@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url'
 
 const scriptPath = new URL('./build-deploy-evidence-comment.mjs', import.meta.url)
 const scriptFilePath = fileURLToPath(scriptPath)
+const contractScriptPath = new URL('./verify-comment-rendering-contract.mjs', import.meta.url)
+const contractScriptFilePath = fileURLToPath(contractScriptPath)
 
 function runCase(overrides = {}) {
   const baseEnv = Object.fromEntries(
@@ -71,5 +73,12 @@ assert.match(markdownStressBody, /- Trigger: `push` to ``release\/`hotfix` \$\{\
 assert.match(markdownStressBody, /- State transition: `` `old-state `` -> `failure-after-retry-->`/)
 assert.match(markdownStressBody, /- Run: \[deploy #88 attempt 3\]\(https:\/\/example\.test\/run\/88_\(retry%29\)/)
 assert.match(markdownStressBody, /<!-- deploy-evidence-state:failure-after-retry-- > -->/)
+
+const contractResult = spawnSync(process.execPath, [contractScriptFilePath], {
+  env: process.env,
+  encoding: 'utf8'
+})
+assert.equal(contractResult.status, 0, contractResult.stderr)
+assert.match(contractResult.stdout, /comment rendering contract checks passed/)
 
 console.log('deploy evidence comment regression checks passed')
