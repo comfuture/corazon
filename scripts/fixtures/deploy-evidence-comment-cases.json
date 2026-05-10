@@ -42,15 +42,15 @@
     "env": {
       "DEPLOY_EVIDENCE_STATE": "failure-after-retry-->",
       "DEPLOY_EVIDENCE_PREVIOUS_STATE": "`old-state",
-      "DEPLOY_EVIDENCE_BRANCH": "release/`hotfix`\\n${{ github.sha }}",
+      "DEPLOY_EVIDENCE_BRANCH": "release/`hotfix`\n${{ github.sha }}",
       "DEPLOY_EVIDENCE_CONCLUSION": "failure",
       "DEPLOY_EVIDENCE_RUN_NUMBER": "88",
       "DEPLOY_EVIDENCE_RUN_ATTEMPT": "3",
       "DEPLOY_EVIDENCE_RUN_URL": "https://example.test/run/88_(retry)"
     },
     "patterns": [
-      "- Branch: ``release/`hotfix`\\n${{ github.sha }}``",
-      "- Trigger: `push` to ``release/`hotfix`\\n${{ github.sha }}``",
+      "- Branch: ``release/`hotfix` ${{ github.sha }}``",
+      "- Trigger: `push` to ``release/`hotfix` ${{ github.sha }}``",
       "- State transition: `` `old-state `` -> `failure-after-retry-->`",
       "- Run: [deploy #88 attempt 3](https://example.test/run/88_(retry%29)",
       "<!-- deploy-evidence-state:failure-after-retry-- > -->"
