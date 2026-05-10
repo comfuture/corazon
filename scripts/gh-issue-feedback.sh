@@ -101,6 +101,7 @@ process.stdout.write(String(Array.isArray(payload) ? payload.length : 0))
 gh api "repos/${repo}/issues/${issue_number}" >"$issue_file"
 fetch_paginated_arrays "repos/${repo}/issues/${issue_number}/comments" "$comments_file"
 
+# shellcheck disable=SC2016
 node -e '
 const fs = require("node:fs")
 const [issuePath, commentsPath] = process.argv.slice(1)
