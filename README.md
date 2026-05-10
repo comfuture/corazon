@@ -42,6 +42,16 @@ Lease ownership regression check (Telegram poller safety):
 pnpm telegram:lease:smoke
 ```
 
+Deploy evidence comment regression checks:
+
+```bash
+pnpm deploy:evidence:verify
+```
+
+When changing deploy evidence generation or related workflow shell/YAML:
+- Keep the fixture regressions in `scripts/fixtures/deploy-evidence-comment-cases.json` updated.
+- Ensure CI checks for `actionlint`, `shellcheck`, and `deploy:evidence:verify` remain green before merge.
+
 Optional runtime mode:
 - `CORAZON_CODEX_CLIENT_MODE=app-server` (default)
 - `CORAZON_CODEX_CLIENT_MODE=sdk` (fallback)
