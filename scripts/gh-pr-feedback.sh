@@ -115,6 +115,7 @@ wait "$pid_issue_comments"
 wait "$pid_review_comments"
 wait "$pid_reviews"
 
+# shellcheck disable=SC2016
 node -e '
 const fs = require("node:fs")
 const [pullPath, issuePath, reviewCommentPath, reviewsPath] = process.argv.slice(1)

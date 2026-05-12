@@ -1,0 +1,59 @@
+[
+  {
+    "name": "success-transition-from-failure",
+    "env": {
+      "DEPLOY_EVIDENCE_STATE": "success",
+      "DEPLOY_EVIDENCE_PREVIOUS_STATE": "failure-after-retry",
+      "DEPLOY_EVIDENCE_CONCLUSION": "success"
+    },
+    "patterns": [
+      "## Deploy verification evidence",
+      "- State transition: `failure-after-retry` -> `success`",
+      "- Commit: `0123456789ab`",
+      "<!-- deploy-evidence-state:success -->"
+    ]
+  },
+  {
+    "name": "failure-after-retry",
+    "env": {
+      "DEPLOY_EVIDENCE_STATE": "failure-after-retry",
+      "DEPLOY_EVIDENCE_CONCLUSION": "failure"
+    },
+    "patterns": [
+      "Deploy verification status: failure after auto-retry",
+      "Inspect failing steps and diagnostics artifact",
+      "<!-- deploy-evidence-state:failure-after-retry -->"
+    ]
+  },
+  {
+    "name": "cancelled-first-state",
+    "env": {
+      "DEPLOY_EVIDENCE_STATE": "cancelled",
+      "DEPLOY_EVIDENCE_CONCLUSION": "cancelled",
+      "DEPLOY_EVIDENCE_PREVIOUS_STATE": ""
+    },
+    "patterns": [
+      "Deploy verification status: cancelled",
+      "First tracked state in this issue."
+    ]
+  },
+  {
+    "name": "heredoc-and-quoting-stress",
+    "env": {
+      "DEPLOY_EVIDENCE_STATE": "failure-after-retry-->",
+      "DEPLOY_EVIDENCE_PREVIOUS_STATE": "`old-state",
+      "DEPLOY_EVIDENCE_BRANCH": "release/`hotfix`\n${{ github.sha }}",
+      "DEPLOY_EVIDENCE_CONCLUSION": "failure",
+      "DEPLOY_EVIDENCE_RUN_NUMBER": "88",
+      "DEPLOY_EVIDENCE_RUN_ATTEMPT": "3",
+      "DEPLOY_EVIDENCE_RUN_URL": "https://example.test/run/88_(retry)"
+    },
+    "patterns": [
+      "- Branch: ``release/`hotfix` ${{ github.sha }}``",
+      "- Trigger: `push` to ``release/`hotfix` ${{ github.sha }}``",
+      "- State transition: `` `old-state `` -> `failure-after-retry-->`",
+      "- Run: [deploy #88 attempt 3](https://example.test/run/88_(retry%29)",
+      "<!-- deploy-evidence-state:failure-after-retry-- > -->"
+    ]
+  }
+]

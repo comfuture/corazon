@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
@@ -8,6 +9,7 @@ const scriptPath = new URL('./build-deploy-evidence-comment.mjs', import.meta.ur
 const scriptFilePath = fileURLToPath(scriptPath)
 const contractScriptPath = new URL('./verify-comment-rendering-contract.mjs', import.meta.url)
 const contractScriptFilePath = fileURLToPath(contractScriptPath)
+const fixturePath = new URL('./fixtures/deploy-evidence-comment-cases.json', import.meta.url)
 
 function runCase(overrides = {}) {
   const baseEnv = Object.fromEntries(
@@ -35,44 +37,13 @@ function runCase(overrides = {}) {
   return result.stdout
 }
 
-const successBody = runCase({
-  DEPLOY_EVIDENCE_PREVIOUS_STATE: 'failure-after-retry'
-})
-assert.match(successBody, /## Deploy verification evidence/)
-assert.match(successBody, /- State transition: `failure-after-retry` -> `success`/)
-assert.match(successBody, /- Commit: `0123456789ab`/)
-assert.match(successBody, /<!-- deploy-evidence-state:success -->/)
-
-const failureBody = runCase({
-  DEPLOY_EVIDENCE_STATE: 'failure-after-retry',
-  DEPLOY_EVIDENCE_CONCLUSION: 'failure'
-})
-assert.match(failureBody, /Deploy verification status: failure after auto-retry/)
-assert.match(failureBody, /Inspect failing steps and diagnostics artifact/)
-assert.match(failureBody, /<!-- deploy-evidence-state:failure-after-retry -->/)
-
-const neutralBody = runCase({
-  DEPLOY_EVIDENCE_STATE: 'cancelled',
-  DEPLOY_EVIDENCE_CONCLUSION: 'cancelled',
-  DEPLOY_EVIDENCE_PREVIOUS_STATE: ''
-})
-assert.match(neutralBody, /Deploy verification status: cancelled/)
-assert.match(neutralBody, /First tracked state in this issue\./)
-
-const markdownStressBody = runCase({
-  DEPLOY_EVIDENCE_STATE: 'failure-after-retry-->',
-  DEPLOY_EVIDENCE_PREVIOUS_STATE: '`old-state',
-  DEPLOY_EVIDENCE_BRANCH: 'release/`hotfix`\n${{ github.sha }}',
-  DEPLOY_EVIDENCE_CONCLUSION: 'failure',
-  DEPLOY_EVIDENCE_RUN_NUMBER: '88',
-  DEPLOY_EVIDENCE_RUN_ATTEMPT: '3',
-  DEPLOY_EVIDENCE_RUN_URL: 'https://example.test/run/88_(retry)'
-})
-assert.match(markdownStressBody, /- Branch: ``release\/`hotfix` \$\{\{ github\.sha \}\}``/)
-assert.match(markdownStressBody, /- Trigger: `push` to ``release\/`hotfix` \$\{\{ github\.sha \}\}``/)
-assert.match(markdownStressBody, /- State transition: `` `old-state `` -> `failure-after-retry-->`/)
-assert.match(markdownStressBody, /- Run: \[deploy #88 attempt 3\]\(https:\/\/example\.test\/run\/88_\(retry%29\)/)
-assert.match(markdownStressBody, /<!-- deploy-evidence-state:failure-after-retry-- > -->/)
+const fixtures = JSON.parse(readFileSync(fileURLToPath(fixturePath), 'utf8'))
+for (const fixture of fixtures) {
+  const body = runCase(fixture.env)
+  for (const expectedSnippet of fixture.patterns) {
+    assert.ok(body.includes(expectedSnippet), `${fixture.name} missing snippet: ${expectedSnippet}`)
+  }
+}
 
 const contractResult = spawnSync(process.execPath, [contractScriptFilePath], {
   env: process.env,
@@ -81,4 +52,4 @@ const contractResult = spawnSync(process.execPath, [contractScriptFilePath], {
 assert.equal(contractResult.status, 0, contractResult.stderr)
 assert.match(contractResult.stdout, /comment rendering contract checks passed/)
 
-console.log('deploy evidence comment regression checks passed')
+console.log(`deploy evidence comment regression checks passed (${fixtures.length} fixture cases)`)
