@@ -1,0 +1,12 @@
+[
+  {
+    "name": "baseline-seed",
+    "seed": 424242,
+    "iterations": 40
+  },
+  {
+    "name": "adversarial-markdown-heredoc-seed",
+    "seed": 118113,
+    "iterations": 40
+  }
+]

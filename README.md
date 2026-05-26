@@ -48,8 +48,15 @@ Deploy evidence comment regression checks:
 pnpm deploy:evidence:verify
 ```
 
+Deterministic fuzz/property replay for deploy-evidence rendering:
+
+```bash
+DEPLOY_EVIDENCE_FUZZ_SEED=118113 DEPLOY_EVIDENCE_FUZZ_ITERATIONS=120 pnpm deploy:evidence:verify
+```
+
 When changing deploy evidence generation or related workflow shell/YAML:
 - Keep the fixture regressions in `scripts/fixtures/deploy-evidence-comment-cases.json` updated.
+- Keep deterministic seed coverage in `scripts/fixtures/deploy-evidence-fuzz-seeds.json` updated.
 - Ensure CI checks for `actionlint`, `shellcheck`, and `deploy:evidence:verify` remain green before merge.
 
 Optional runtime mode:
