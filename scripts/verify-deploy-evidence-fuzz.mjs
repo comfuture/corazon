@@ -122,12 +122,8 @@ function assertInvariants({ body, input, name, seed, index }) {
   assert.ok(!body.includes('<!-- deploy-evidence-state:-->\n'), `${context}: raw terminator leaked into sentinel`)
   assert.ok(!body.includes('\r'), `${context}: carriage return should not appear`)
 
-  const triggerLine = body.split('\n').find((line) => line.startsWith('- Trigger: ')) || ''
-  assert.ok(!triggerLine.includes('\n'), `${context}: trigger line must be single-line`)
-
-  const runLine = body.split('\n').find((line) => line.startsWith('- Run: ')) || ''
+  const runLine = body.split('\n').find(line => line.startsWith('- Run: ')) || ''
   assert.ok(runLine.includes('%29'), `${context}: run link should escape closing parenthesis`)
-  assert.ok(!runLine.includes('\n'), `${context}: run line must be single-line`)
 
   const expectedCommitSnippet = `- Commit: \`${String(input.headSha).slice(0, 12)}\``
   assert.ok(body.includes(expectedCommitSnippet), `${context}: commit short SHA invariant violated`)
