@@ -9,6 +9,8 @@ const scriptPath = new URL('./build-deploy-evidence-comment.mjs', import.meta.ur
 const scriptFilePath = fileURLToPath(scriptPath)
 const contractScriptPath = new URL('./verify-comment-rendering-contract.mjs', import.meta.url)
 const contractScriptFilePath = fileURLToPath(contractScriptPath)
+const fuzzScriptPath = new URL('./verify-deploy-evidence-fuzz.mjs', import.meta.url)
+const fuzzScriptFilePath = fileURLToPath(fuzzScriptPath)
 const fixturePath = new URL('./fixtures/deploy-evidence-comment-cases.json', import.meta.url)
 
 function runCase(overrides = {}) {
@@ -52,4 +54,13 @@ const contractResult = spawnSync(process.execPath, [contractScriptFilePath], {
 assert.equal(contractResult.status, 0, contractResult.stderr)
 assert.match(contractResult.stdout, /comment rendering contract checks passed/)
 
-console.log(`deploy evidence comment regression checks passed (${fixtures.length} fixture cases)`)
+const fuzzResult = spawnSync(process.execPath, [fuzzScriptFilePath], {
+  env: process.env,
+  encoding: 'utf8'
+})
+assert.equal(fuzzResult.status, 0, fuzzResult.stderr)
+assert.match(fuzzResult.stdout, /deploy evidence fuzz\/property checks passed/)
+
+console.log(
+  `deploy evidence comment regression checks passed (${fixtures.length} fixture cases + deterministic fuzz/property harness)`
+)
